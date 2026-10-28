@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+:root {
+  --navy-950: #071535;
+  --navy-900: #0b1f4d;
+  --navy-800: #102a63;
+  --navy-700: #17357a;
+  --blue-600: #1f5fd0;
+  --blue-500: #2f74e6;
+  --blue-100: #e6eefb;
+  --ink-900: #0f1b33;
+  --ink-600: #4a5775;
+  --white: #ffffff;
+  --mist-50: #f4f7fc;
+  --line-dark: rgba(255, 255, 255, 0.14);
+  --line-light: #dbe3f1;
+  --success: #1f9d6b;
+  --warning: #d99a1a;
+  --danger: #d64545;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --shadow-card: 0 10px 30px rgba(3, 10, 30, 0.35);
+}
+
+@theme inline {
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-cormorant);
+  --color-background: var(--navy-950);
+  --color-foreground: var(--white);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--navy-950);
+  color: var(--white);
+  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(26px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes heroPan {
+  0% {
+    transform: scale(1.08) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: scale(1.12) translate3d(0, -8px, 0);
+  }
+  100% {
+    transform: scale(1.08) translate3d(0, 0, 0);
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fadeUp 900ms ease-out both;
+}
+
+.animate-hero-pan {
+  animation: heroPan 18s ease-in-out infinite alternate;
+}
+
+.reveal-section {
+  opacity: 0;
+  animation: reveal 700ms ease-out forwards;
+  animation-delay: 150ms;
+}
+
+.reveal-card {
+  opacity: 0;
+  animation: reveal 700ms ease-out forwards;
+}
+
+.reveal-card:nth-child(2) { animation-delay: 120ms; }
+.reveal-card:nth-child(3) { animation-delay: 220ms; }
+.reveal-card:nth-child(4) { animation-delay: 320ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+img {
+  display: block;
+}
