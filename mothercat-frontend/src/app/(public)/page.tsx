@@ -1,7 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowRight, ArrowUpRight, Building2, Cog, Compass, Landmark, Layers, Leaf, Menu, Trees, type LucideIcon } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Building2, Cog, Compass, Landmark, Layers, Leaf, Trees, type LucideIcon } from "lucide-react";
 import { siteContent } from "@/content/site";
+import { MobileMenu } from "@/components/public/mobile-menu";
 
 /* Use the project’s real, existing branded assets so the home page resolves reliably. */
 const LOGO_SRC = "/Mothercat%20Logo%20Variations%20Sheet%20(Edited%202).png";
@@ -81,7 +82,7 @@ export default function HomePage() {
 
               <nav aria-label="Primary" className="hidden justify-center gap-9 text-[13px] font-medium text-white md:flex">
                 {NAV.map((item) => (
-                  <Link key={item.href} href={item.href} className={`rounded px-1 py-1 opacity-90 transition hover:opacity-100 ${focus}`}>
+                  <Link key={item.href} href={item.href} className={`whitespace-nowrap rounded px-1 py-1 opacity-90 transition hover:opacity-100 ${focus}`}>
                     {item.label}
                   </Link>
                 ))}
@@ -90,29 +91,18 @@ export default function HomePage() {
               <div className="flex items-center justify-end gap-3">
                 <Link
                   href="/login"
-                  className="rounded-lg bg-white/10 px-4 py-2.5 text-[13px] font-semibold !text-white transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#2d8fd8]"
+                  className="hidden whitespace-nowrap rounded-lg bg-white/10 px-4 py-2.5 text-[13px] font-semibold !text-black transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#2d8fd8] md:inline-flex"
                 >
                   Sign in
                 </Link>
                 <Link
                   href="/contact"
-                  className="rounded-lg bg-white px-5 py-2.5 text-[13px] font-semibold text-[#0f1b33] shadow-sm transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#2d8fd8]"
+                  className="hidden whitespace-nowrap rounded-lg bg-white px-5 py-2.5 text-[13px] font-semibold !text-black shadow-sm transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#2d8fd8] md:inline-flex"
                 >
                   Contact Us
                 </Link>
-                {/* Mobile menu without client JS */}
-                <details className="group relative md:hidden">
-                  <summary className={`flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-lg bg-white/20 text-white [&::-webkit-details-marker]:hidden ${focus}`} aria-label="Open menu">
-                    <Menu size={20} aria-hidden="true" />
-                  </summary>
-                  <div className="absolute right-0 top-12 z-40 w-48 rounded-xl bg-white p-2 text-sm font-semibold text-[#0f1b33] shadow-xl">
-                    {NAV.map((item) => (
-                      <Link key={item.href} href={item.href} className="block rounded-lg px-3 py-2 hover:bg-slate-100">
-                        {item.label}
-                      </Link>
-                    ))}
-                  </div>
-                </details>
+
+                <MobileMenu logoSrc={LOGO_SRC} navItems={NAV} />
               </div>
             </div>
           </header>
