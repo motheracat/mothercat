@@ -1,5 +1,4 @@
 import Image from "next/image";
-import { siteContent } from "@/content/site";
 
 export default function AboutPage() {
   return (

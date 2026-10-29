@@ -50,18 +50,3 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
     </div>
   );
 }
-
-        <div className="flex-1">
-          <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Workspace</p>
-              <h1 className="mt-2 font-serif text-4xl text-[#0f1b33]">Dashboard</h1>
-            </div>
-            <div className="text-sm text-slate-600">{session?.displayName ?? "Not signed in"}</div>
-          </header>
-          <main className="p-6">{children}</main>
-        </div>
-      </div>
-    </div>
-  );
-}

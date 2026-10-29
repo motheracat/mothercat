@@ -30,13 +30,14 @@ function LoginPageContent() {
     event.preventDefault();
     event.stopPropagation();
 
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     const staffId = String(formData.get("staffId") ?? "").trim();
     const password = String(formData.get("password") ?? "").trim();
 
     if (!staffId || !password) {
+      form.reportValidity();
       setError("Please enter both your staff ID and password.");
-      setIsSubmitting(false);
       return;
     }
 
@@ -46,9 +47,14 @@ function LoginPageContent() {
     try {
       await login({ staffId, password });
       const redirectPath = getSafeRedirectPath(searchParams.get("redirect") ?? searchParams.get("next")) || "/dashboard";
-      window.location.href = redirectPath;
+      router.replace(redirectPath);
     } catch (submissionError) {
-      setError("sign-in failed");
+      setError(
+        submissionError instanceof Error && submissionError.message
+          ? submissionError.message
+          : "Sign in failed. Please check your staff ID and password."
+      );
+    } finally {
       setIsSubmitting(false);
     }
   }
@@ -58,14 +64,14 @@ function LoginPageContent() {
       <h2 className="font-serif text-4xl text-[#0f1b33]">Sign in</h2>
       <p className="mt-2 text-sm text-slate-600">Use your staff ID and password to continue.</p>
 
-      <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+      <form onSubmit={handleSubmit} noValidate className="mt-8 space-y-5">
         <div>
           <label htmlFor="staffId" className="mb-2 block text-sm font-medium text-[#0f1b33]">Staff ID</label>
-          <input id="staffId" name="staffId" autoComplete="username" className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-0 transition focus:border-blue-500" placeholder="Enter staff ID" />
+          <input id="staffId" name="staffId" autoComplete="username" required className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-0 transition focus:border-blue-500" placeholder="Enter staff ID" />
         </div>
         <div>
           <label htmlFor="password" className="mb-2 block text-sm font-medium text-[#0f1b33]">Password</label>
-          <input id="password" name="password" type="password" autoComplete="current-password" className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-0 transition focus:border-blue-500" placeholder="Enter password" />
+          <input id="password" name="password" type="password" autoComplete="current-password" required className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-0 transition focus:border-blue-500" placeholder="Enter password" />
         </div>
 
         {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}

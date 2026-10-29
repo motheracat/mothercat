@@ -75,11 +75,10 @@ export async function login(credentials: LoginCredentials): Promise<AuthSession>
       body: JSON.stringify(credentials),
     });
 
-    const payload = (await response.json()) as { data?: AuthSession; message?: string };
+    const payload = (await response.json()) as { data?: AuthSession; message?: string; error?: string };
 
     if (!response.ok) {
-      // Per requirements: generic message
-      throw new Error("sign-in failed");
+      throw new Error(payload.message ?? payload.error ?? "Sign in failed. Please check your staff ID and password.");
     }
 
     const session = payload.data ?? fallbackSession;
