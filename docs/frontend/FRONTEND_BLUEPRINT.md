@@ -3,7 +3,7 @@
 Instructions for GitHub Copilot. Next.js + TypeScript frontend for the Construction & Civil Engineering Management System, styled after the supplied corporate-website reference.
 
 ## 0. How to use this document with Copilot
-
+ 
 1. Put this file at `docs/frontend/FRONTEND_BLUEPRINT.md` in the monorepo and add a short `.github/copilot-instructions.md` that says: *"Follow docs/frontend/FRONTEND_BLUEPRINT.md. Never hardcode users, roles, statistics, or fake API results. All business data comes from /api/v1."*
 2. Give Copilot one build phase at a time (Section 15), not the whole document at once.
 3. After each phase, run the checks in Section 13 before starting the next.
