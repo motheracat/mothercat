@@ -2,24 +2,178 @@ package http
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"mime"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/application"
 	identitydomain "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/domain"
 )
 
 const sessionCookieName = "mothercat_session"
 
+const (
+	maxLoginBodyBytes     = 8 << 10
+	maxLoginAttemptsPerIP = 5
+	loginWindow           = 10 * time.Minute
+	maxRateLimitBuckets   = 10000
+)
+
+type loginRateLimiter struct {
+	mu         sync.Mutex
+	buckets    map[string]loginBucket
+	limit      int
+	window     time.Duration
+	operations uint64
+}
+
+type loginBucket struct {
+	count    int
+	inFlight int
+	resetAt  time.Time
+}
+
+func newLoginRateLimiter(limit int, window time.Duration) *loginRateLimiter {
+	if limit <= 0 {
+		limit = maxLoginAttemptsPerIP
+	}
+	if window <= 0 {
+		window = loginWindow
+	}
+	return &loginRateLimiter{buckets: make(map[string]loginBucket), limit: limit, window: window}
+}
+
+func (l *loginRateLimiter) allow(key string) bool {
+	return l.allowKeys(key)
+}
+
+func (l *loginRateLimiter) allowKeys(keys ...string) bool {
+	if l == nil || len(keys) == 0 {
+		return true
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now()
+	l.operations++
+	if l.operations%128 == 0 {
+		l.pruneExpired(now)
+	}
+	missing := 0
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		entry, exists := l.buckets[key]
+		if exists && now.Before(entry.resetAt) && entry.count+entry.inFlight >= l.limit {
+			return false
+		}
+		if !exists || !now.Before(entry.resetAt) {
+			missing++
+		}
+	}
+	if len(l.buckets)+missing > maxRateLimitBuckets {
+		return false
+	}
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		entry, exists := l.buckets[key]
+		if !exists || !now.Before(entry.resetAt) {
+			entry = loginBucket{resetAt: now.Add(l.window)}
+		}
+		entry.inFlight++
+		l.buckets[key] = entry
+	}
+	return true
+}
+
+func (l *loginRateLimiter) recordFailure(keys ...string) {
+	if l == nil || len(keys) == 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now()
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		entry, exists := l.buckets[key]
+		if !exists || !now.Before(entry.resetAt) {
+			if len(l.buckets) >= maxRateLimitBuckets {
+				continue
+			}
+			l.buckets[key] = loginBucket{count: 1, resetAt: now.Add(l.window)}
+			continue
+		}
+		if entry.inFlight > 0 {
+			entry.inFlight--
+		}
+		entry.count++
+		l.buckets[key] = entry
+	}
+}
+
+func (l *loginRateLimiter) release(keys ...string) {
+	if l == nil || len(keys) == 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, key := range keys {
+		entry, exists := l.buckets[key]
+		if exists && entry.inFlight > 0 {
+			entry.inFlight--
+			l.buckets[key] = entry
+		}
+	}
+}
+
+func (l *loginRateLimiter) recordSuccess(keys []string, accountKey string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, key := range keys {
+		entry, exists := l.buckets[key]
+		if !exists {
+			continue
+		}
+		if entry.inFlight > 0 {
+			entry.inFlight--
+		}
+		if key == accountKey {
+			entry.count = 0
+		}
+		l.buckets[key] = entry
+	}
+}
+
+func (l *loginRateLimiter) pruneExpired(now time.Time) {
+	for key, entry := range l.buckets {
+		if !now.Before(entry.resetAt) {
+			delete(l.buckets, key)
+		}
+	}
+}
+
 // AuthService defines the contract for Identity login and session workflows.
 type AuthService interface {
-	Login(context.Context, string, string) (identitydomain.Account, error)
+	Login(context.Context, string, string) (identitydomain.Account, string, error)
 	ResolveSession(context.Context, string) (identitydomain.Account, error)
 	Logout(context.Context, string) error
 }
@@ -30,9 +184,10 @@ func NewAuthHandler(service AuthService, logger *slog.Logger) http.Handler {
 		logger = slog.Default()
 	}
 
+	limiter := newLoginRateLimiter(maxLoginAttemptsPerIP, loginWindow)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
-		if err := handleLogin(w, r, service, logger); err != nil {
+		if err := handleLogin(w, r, service, logger, limiter); err != nil {
 			logger.ErrorContext(r.Context(), "login failed", "request_id", requestIDFromContext(r.Context()), "error", err)
 		}
 	})
@@ -47,52 +202,70 @@ func NewAuthHandler(service AuthService, logger *slog.Logger) http.Handler {
 		}
 	})
 
-	return requestIDMiddleware(logger, requestLoggingMiddleware(logger, recoveryMiddleware(logger, mux)))
+	wrapped := recoveryMiddleware(logger)(mux)
+	wrapped = requestLoggingMiddleware(logger)(wrapped)
+	wrapped = requestIDMiddleware(logger)(wrapped)
+	return wrapped
 }
 
-func handleLogin(w http.ResponseWriter, r *http.Request, service AuthService, logger *slog.Logger) error {
+func handleLogin(w http.ResponseWriter, r *http.Request, service AuthService, logger *slog.Logger, limiter *loginRateLimiter) error {
 	if service == nil {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "identity service unavailable", requestIDFromContext(r.Context()))
 		return errors.New("auth service is nil")
 	}
 
+	mediaType, _, mediaTypeErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if mediaTypeErr != nil || mediaType != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, "invalid_request", "content-type must be application/json", requestIDFromContext(r.Context()))
+		return fmt.Errorf("unexpected content type")
+	}
+
 	var payload struct {
-		StaffID string `json:"staff_id"`
+		StaffID  string `json:"staff_id"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLoginBodyBytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "request body must contain staff_id and password", requestIDFromContext(r.Context()))
 		return err
 	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "request body must contain exactly one JSON object", requestIDFromContext(r.Context()))
+		return fmt.Errorf("unexpected trailing login request data")
+	}
 	payload.StaffID = strings.TrimSpace(payload.StaffID)
-	payload.Password = strings.TrimSpace(payload.Password)
 	if payload.StaffID == "" || payload.Password == "" {
 		writeError(w, http.StatusBadRequest, "invalid_request", "staff_id and password are required", requestIDFromContext(r.Context()))
 		return fmt.Errorf("missing staff_id or password")
 	}
 
-	account, err := service.Login(r.Context(), payload.StaffID, payload.Password)
+	clientKey, accountKey := rateLimitKeys(r, payload.StaffID)
+	if !limiter.allowKeys(clientKey, accountKey) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many failed login attempts; please wait a little while before retrying", requestIDFromContext(r.Context()))
+		return errors.New("login rate limited")
+	}
+
+	account, sessionID, err := service.Login(r.Context(), payload.StaffID, payload.Password)
 	if err != nil {
 		if errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			limiter.recordFailure(clientKey, accountKey)
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid staff credentials", requestIDFromContext(r.Context()))
 			return err
 		}
+		limiter.release(clientKey, accountKey)
 		logger.ErrorContext(r.Context(), "login service failure", "request_id", requestIDFromContext(r.Context()), "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "an internal error occurred", requestIDFromContext(r.Context()))
 		return err
 	}
-
-	sessionID := "sess_" + randomToken(24)
-	cookie := &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    sessionID,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   isSecureRequest(r),
-		MaxAge:   3600,
-		Expires:  time.Now().Add(time.Hour),
+	if sessionID == "" {
+		limiter.release(clientKey, accountKey)
+		writeError(w, http.StatusInternalServerError, "internal_error", "an internal error occurred", requestIDFromContext(r.Context()))
+		return errors.New("identity service returned an empty session token")
 	}
+	limiter.recordSuccess([]string{clientKey, accountKey}, accountKey)
+	cookie := buildSessionCookie(sessionID, application.SessionTTL)
 	http.SetCookie(w, cookie)
 	writeJSON(w, http.StatusOK, map[string]any{"user": account})
 	return nil
@@ -140,6 +313,8 @@ func handleLogout(w http.ResponseWriter, r *http.Request, service AuthService, l
 
 	if err := service.Logout(r.Context(), cookie.Value); err != nil {
 		logger.WarnContext(r.Context(), "logout service failed", "request_id", requestIDFromContext(r.Context()), "error", err)
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "logout could not be completed; please retry", requestIDFromContext(r.Context()))
+		return err
 	}
 	clearSessionCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
@@ -153,23 +328,105 @@ func clearSessionCookie(w http.ResponseWriter) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
 		MaxAge:   -1,
 		Expires:  time.Unix(0, 0),
 	})
 }
 
-func isSecureRequest(r *http.Request) bool {
-	return r != nil && (r.TLS != nil || strings.HasPrefix(r.URL.Scheme, "https"))
+func buildSessionCookie(value string, ttl time.Duration) *http.Cookie {
+	if ttl <= 0 {
+		ttl = application.SessionTTL
+	}
+	return &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    value,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		MaxAge:   int(ttl / time.Second),
+		Expires:  time.Now().Add(ttl),
+	}
 }
 
-func randomToken(length int) string {
-	count := length / 2
-	if count < 1 {
-		count = 1
+func rateLimitKeys(r *http.Request, staffID string) (string, string) {
+	clientIP := "unknown"
+	if r != nil {
+		remoteHost, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+		if err == nil {
+			if ip := net.ParseIP(remoteHost); ip != nil {
+				clientIP = ip.String()
+			}
+		} else if ip := net.ParseIP(strings.TrimSpace(r.RemoteAddr)); ip != nil {
+			clientIP = ip.String()
+		}
 	}
-	buf := make([]byte, count)
-	if _, err := rand.Read(buf); err != nil {
-		return "unavailable"
+	return "ip:" + clientIP, "account:" + strings.ToUpper(strings.TrimSpace(staffID))
+}
+
+type contextKey string
+
+const requestIDContextKey contextKey = "request_id"
+
+func requestIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
 	}
-	return hex.EncodeToString(buf)
+	requestID, _ := ctx.Value(requestIDContextKey).(string)
+	return requestID
+}
+
+func requestIDMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
+			if requestID == "" {
+				requestID = "req_" + strconv.FormatUint(uint64(time.Now().UnixNano()), 10)
+			}
+			ctx := context.WithValue(r.Context(), requestIDContextKey, requestID)
+			r = r.WithContext(ctx)
+			w.Header().Set("X-Request-ID", requestID)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func requestLoggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			next.ServeHTTP(w, r)
+			logger.InfoContext(r.Context(), "request", "method", r.Method, "path", r.URL.Path, "status", http.StatusText(0), "duration_ms", time.Since(start).Milliseconds())
+		})
+	}
+}
+
+func recoveryMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					logger.ErrorContext(r.Context(), "panic recovered", "request_id", requestIDFromContext(r.Context()), "panic", recovered)
+					writeError(w, http.StatusInternalServerError, "internal_error", "an internal error occurred", requestIDFromContext(r.Context()))
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		http.Error(w, `{"error":"internal_error"}`, http.StatusInternalServerError)
+	}
+}
+
+func writeError(w http.ResponseWriter, status int, code, message, requestID string) {
+	if requestID == "" {
+		requestID = "unknown"
+	}
+	writeJSON(w, status, map[string]any{"error": map[string]any{"code": code, "message": message, "request_id": requestID}})
 }

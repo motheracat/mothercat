@@ -35,12 +35,12 @@ type Config struct {
 // Load reads and validates the process environment.
 func Load() (Config, error) {
 	appEnv := strings.ToLower(strings.TrimSpace(env("APP_ENV", "development")))
-	if appEnv != "development" && appEnv != "test" && appEnv != "production" {
-		return Config{}, fmt.Errorf("APP_ENV must be development, test, or production")
+	if appEnv != "development" && appEnv != "test" && appEnv != "staging" && appEnv != "production" {
+		return Config{}, fmt.Errorf("APP_ENV must be development, test, staging, or production")
 	}
 
-	httpAddr := strings.TrimSpace(env("HTTP_ADDR", defaultHTTPAddr))
-	if err := validateHTTPAddr(httpAddr); err != nil {
+	httpAddr, err := loadHTTPAddr()
+	if err != nil {
 		return Config{}, err
 	}
 
@@ -97,6 +97,8 @@ func loadDatabaseURL(appEnv string) (string, error) {
 		sslDefault := "disable"
 		if appEnv == "production" {
 			sslDefault = "verify-full"
+		} else if appEnv == "staging" {
+			sslDefault = "require"
 		}
 		sslMode := strings.TrimSpace(env("POSTGRES_SSLMODE", sslDefault))
 		u := &url.URL{
@@ -122,7 +124,18 @@ func loadDatabaseURL(appEnv string) (string, error) {
 		return "", fmt.Errorf("DATABASE_URL must include a database password")
 	}
 
-	sslModes := parsed.Query()["sslmode"]
+	query := parsed.Query()
+	sslModes := query["sslmode"]
+	if len(sslModes) == 0 {
+		sslMode := strings.TrimSpace(os.Getenv("DATABASE_SSLMODE"))
+		if sslMode == "" {
+			return "", fmt.Errorf("PostgreSQL sslmode must be explicit or DATABASE_SSLMODE must be configured")
+		}
+		query.Set("sslmode", sslMode)
+		parsed.RawQuery = query.Encode()
+		connectionString = parsed.String()
+		sslModes = query["sslmode"]
+	}
 	if len(sslModes) != 1 {
 		return "", fmt.Errorf("PostgreSQL sslmode must be configured exactly once")
 	}
@@ -133,7 +146,26 @@ func loadDatabaseURL(appEnv string) (string, error) {
 	if appEnv == "production" && sslMode != "verify-full" {
 		return "", fmt.Errorf("production PostgreSQL connections require sslmode=verify-full")
 	}
+	if appEnv == "staging" && sslMode != "require" && sslMode != "verify-ca" && sslMode != "verify-full" {
+		return "", fmt.Errorf("staging PostgreSQL connections require TLS")
+	}
 	return connectionString, nil
+}
+
+func loadHTTPAddr() (string, error) {
+	if port := strings.TrimSpace(os.Getenv("PORT")); port != "" {
+		address := ":" + port
+		if err := validateHTTPAddr(address); err != nil {
+			return "", fmt.Errorf("PORT must be between 1 and 65535")
+		}
+		return address, nil
+	}
+
+	address := strings.TrimSpace(env("HTTP_ADDR", defaultHTTPAddr))
+	if err := validateHTTPAddr(address); err != nil {
+		return "", err
+	}
+	return address, nil
 }
 
 func validSSLMode(mode string) bool {

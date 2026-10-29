@@ -10,7 +10,9 @@ func setLocalDatabaseEnvironment(t *testing.T) {
 	t.Helper()
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("HTTP_ADDR", ":8080")
+	t.Setenv("PORT", "")
 	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DATABASE_SSLMODE", "")
 	t.Setenv("POSTGRES_HOST", "127.0.0.1")
 	t.Setenv("POSTGRES_PORT", "5432")
 	t.Setenv("POSTGRES_DB", "identity_test")
@@ -21,6 +23,58 @@ func setLocalDatabaseEnvironment(t *testing.T) {
 	t.Setenv("DB_CONNECT_TIMEOUT", "10s")
 	t.Setenv("HEALTH_CHECK_TIMEOUT", "2s")
 	t.Setenv("SHUTDOWN_TIMEOUT", "10s")
+}
+
+func TestLoadUsesRenderPortWhenProvided(t *testing.T) {
+	setLocalDatabaseEnvironment(t)
+	t.Setenv("HTTP_ADDR", ":8080")
+	t.Setenv("PORT", "10000")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.HTTPAddr != ":10000" {
+		t.Fatalf("HTTPAddr = %q, want :10000", cfg.HTTPAddr)
+	}
+}
+
+func TestLoadRejectsInvalidRenderPort(t *testing.T) {
+	setLocalDatabaseEnvironment(t)
+	t.Setenv("PORT", "not-a-port")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() succeeded with an invalid Render PORT; want an error")
+	}
+}
+
+func TestLoadAllowsRenderStagingTLSWithoutURLQuery(t *testing.T) {
+	setLocalDatabaseEnvironment(t)
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("DATABASE_URL", "postgres://identity:secret@db.example.test/identity")
+	t.Setenv("DATABASE_SSLMODE", "require")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	parsed, err := url.Parse(cfg.DatabaseURL)
+	if err != nil {
+		t.Fatalf("parse configured database URL: %v", err)
+	}
+	if got := parsed.Query().Get("sslmode"); got != "require" {
+		t.Fatalf("sslmode = %q, want require", got)
+	}
+}
+
+func TestLoadRejectsPlaintextStagingDatabaseURL(t *testing.T) {
+	setLocalDatabaseEnvironment(t)
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("DATABASE_URL", "postgres://identity:secret@db.example.test/identity?sslmode=disable")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() succeeded with plaintext staging database URL; want an error")
+	}
 }
 
 func TestLoadBuildsLocalDatabaseURL(t *testing.T) {
@@ -86,6 +140,7 @@ func TestLoadRejectsInvalidHTTPAddress(t *testing.T) {
 func TestLoadDoesNotIncludeDatabasePasswordInErrors(t *testing.T) {
 	setLocalDatabaseEnvironment(t)
 	t.Setenv("DATABASE_URL", "postgres://identity:secret@db.example.test/identity")
+	t.Setenv("DATABASE_SSLMODE", "")
 
 	_, err := Load()
 	if err == nil {

@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/application"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/config"
 	identityhttp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/http"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/observability"
@@ -37,7 +39,17 @@ func run(logger *slog.Logger) error {
 	}
 	defer pool.Close()
 
-	handler := identityhttp.NewHandler(pool, logger, cfg.HealthCheckTimeout)
+	authRepo := repository.NewAccountRepository(pool)
+	authService := application.NewService(authRepo)
+	baseHandler := identityhttp.NewHandler(pool, logger, cfg.HealthCheckTimeout)
+	authHandler := identityhttp.NewAuthHandler(authService, logger)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			authHandler.ServeHTTP(w, r)
+			return
+		}
+		baseHandler.ServeHTTP(w, r)
+	})
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,

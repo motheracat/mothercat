@@ -1,0 +1,29 @@
+# Disposable staging smoke test only. Do not use this Blueprint for production.
+# Render defaults both resources to Oregon; set the same region on both before
+# creating them if you need a different region.
+services:
+  - type: web
+    name: mothercat-identity-test
+    runtime: docker
+    plan: free
+    autoDeployTrigger: off
+    dockerfilePath: backend/services/identity/Dockerfile
+    dockerContext: backend/services/identity
+    healthCheckPath: /health/ready
+    envVars:
+      - key: APP_ENV
+        value: staging
+      - key: DATABASE_SSLMODE
+        value: require
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mothercat-identity-test-db
+          property: connectionString
+
+databases:
+  - name: mothercat-identity-test-db
+    databaseName: mothercat_identity_test
+    user: mothercat_identity_test
+    plan: free
+    postgresMajorVersion: "18"
+    ipAllowList: []
