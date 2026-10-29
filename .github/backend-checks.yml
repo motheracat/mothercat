@@ -2,8 +2,8 @@ name: Backend checks
 
 on:
   pull_request:
-    push:
-    branches: [main, development]
+  push:
+    branches: [development, main]
   workflow_dispatch:
 
 permissions:
