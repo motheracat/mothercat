@@ -17,10 +17,19 @@ export function MobileMenu({ logoSrc, navItems }: MobileMenuProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const previousPathnameRef = useRef(pathname);
 
   useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
+    if (!open || previousPathnameRef.current === pathname) {
+      previousPathnameRef.current = pathname;
+      return;
+    }
+
+    previousPathnameRef.current = pathname;
+    const timeoutId = window.setTimeout(() => setOpen(false), 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [open, pathname]);
 
   useEffect(() => {
     if (!open) return;
@@ -65,15 +74,18 @@ export function MobileMenu({ logoSrc, navItems }: MobileMenuProps) {
       }
     };
 
+    const trigger = triggerRef.current;
+    const closeButton = closeRef.current;
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("resize", handleResize);
-    closeRef.current?.focus();
+    closeButton?.focus();
 
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("resize", handleResize);
-      triggerRef.current?.focus();
+      trigger?.focus();
     };
   }, [open]);
 
