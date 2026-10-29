@@ -21,8 +21,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          go-version-file: backend/services/identity/go.mod
+          cache-dependency-path: backend/services/identity/go.sum
 
       - name: Run backend checks
         working-directory: backend
