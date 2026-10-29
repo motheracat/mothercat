@@ -10,7 +10,6 @@ import (
 	"mime"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -202,10 +201,7 @@ func NewAuthHandler(service AuthService, logger *slog.Logger) http.Handler {
 		}
 	})
 
-	wrapped := recoveryMiddleware(logger)(mux)
-	wrapped = requestLoggingMiddleware(logger)(wrapped)
-	wrapped = requestIDMiddleware(logger)(wrapped)
-	return wrapped
+	return requestIDMiddleware(logger, requestLoggingMiddleware(logger, recoveryMiddleware(logger, mux)))
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request, service AuthService, logger *slog.Logger, limiter *loginRateLimiter) error {
@@ -363,70 +359,4 @@ func rateLimitKeys(r *http.Request, staffID string) (string, string) {
 		}
 	}
 	return "ip:" + clientIP, "account:" + strings.ToUpper(strings.TrimSpace(staffID))
-}
-
-type contextKey string
-
-const requestIDContextKey contextKey = "request_id"
-
-func requestIDFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	requestID, _ := ctx.Value(requestIDContextKey).(string)
-	return requestID
-}
-
-func requestIDMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
-			if requestID == "" {
-				requestID = "req_" + strconv.FormatUint(uint64(time.Now().UnixNano()), 10)
-			}
-			ctx := context.WithValue(r.Context(), requestIDContextKey, requestID)
-			r = r.WithContext(ctx)
-			w.Header().Set("X-Request-ID", requestID)
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func requestLoggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
-			next.ServeHTTP(w, r)
-			logger.InfoContext(r.Context(), "request", "method", r.Method, "path", r.URL.Path, "status", http.StatusText(0), "duration_ms", time.Since(start).Milliseconds())
-		})
-	}
-}
-
-func recoveryMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer func() {
-				if recovered := recover(); recovered != nil {
-					logger.ErrorContext(r.Context(), "panic recovered", "request_id", requestIDFromContext(r.Context()), "panic", recovered)
-					writeError(w, http.StatusInternalServerError, "internal_error", "an internal error occurred", requestIDFromContext(r.Context()))
-				}
-			}()
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		http.Error(w, `{"error":"internal_error"}`, http.StatusInternalServerError)
-	}
-}
-
-func writeError(w http.ResponseWriter, status int, code, message, requestID string) {
-	if requestID == "" {
-		requestID = "unknown"
-	}
-	writeJSON(w, status, map[string]any{"error": map[string]any{"code": code, "message": message, "request_id": requestID}})
 }
