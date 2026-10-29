@@ -21,46 +21,81 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
   return (
     <div className="min-h-screen bg-white text-slate-900">
       {!isHome && (
-        <header className="sticky top-0 z-50 border-b border-[#d6dfef] bg-white">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-            <Link href="/" className="flex items-center" aria-label="Mothercat home">
-              <span className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white p-1 shadow-[0_10px_25px_rgba(15,23,42,0.08)] sm:h-14 sm:w-14">
-                <Image
-                  src={logoSrc}
-                  alt="Mothercat logo"
-                  width={160}
-                  height={160}
-                  className="h-full w-full rounded-full object-contain"
-                />
-              </span>
-            </Link>
+        <header className="sticky top-0 z-50 px-3 pt-3 sm:px-4">
+          <div className="mx-auto max-w-6xl rounded-full border border-slate-200 bg-white/90 px-2 py-2 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-md sm:px-3">
+            <div className="flex items-center justify-between gap-2">
+              <Link href="/" className="flex items-center" aria-label="Mothercat home">
+                <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white p-1 shadow-[0_8px_20px_rgba(15,23,42,0.06)] sm:h-12 sm:w-12">
+                  <Image
+                    src={logoSrc}
+                    alt="Mothercat logo"
+                    width={160}
+                    height={160}
+                    className="h-full w-full rounded-full object-contain"
+                  />
+                </span>
+              </Link>
 
-            <nav aria-label="Main navigation" className="hidden items-center gap-8 text-[14px] font-semibold md:flex">
-              {navItems.map((item) => (
+              <nav aria-label="Main navigation" className="hidden items-center gap-2 text-[13px] font-semibold md:flex">
+                {navItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`rounded-full px-3 py-2 transition ${pathname === item.href ? "bg-[#eaf1ff] text-[#0a4a8a]" : "text-[#0a4a8a] hover:bg-slate-100"}`}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </nav>
+
+              <div className="hidden items-center gap-2 md:flex">
                 <Link
-                  key={item.href}
-                  href={item.href}
-                  className="pb-1 text-[#0a4a8a] transition hover:border-b-2 hover:border-[#0a4a8a]"
+                  href="/login"
+                  className="inline-flex h-10 items-center gap-2 rounded-full bg-[#1f63d8] px-[18px] text-sm font-semibold text-white transition hover:bg-[#1855b4]"
                 >
-                  {item.label}
+                  Sign in
                 </Link>
-              ))}
-            </nav>
+                <Link
+                  href="/contact"
+                  className="inline-flex h-10 items-center gap-2 rounded-full bg-[#1f63d8] px-[18px] text-sm font-semibold text-white shadow-[0_10px_18px_rgba(31,99,216,0.25)] transition hover:bg-[#1855b4]"
+                >
+                  Contact
+                  <ArrowRight size={16} />
+                </Link>
+              </div>
 
-            <div className="hidden items-center gap-3 md:flex">
-              <Link
-                href="/login"
-                className="inline-flex h-10 items-center gap-2 rounded-[3px] bg-[#1f63d8] px-[18px] text-sm font-semibold !text-white transition hover:bg-[#1855b4]"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/contact"
-                className="inline-flex h-10 items-center gap-2 rounded-[3px] bg-[#1f63d8] px-[22px] text-sm font-semibold text-white shadow-[0_10px_18px_rgba(31,99,216,0.25)] transition hover:bg-[#1855b4]"
-              >
-                Contact
-                <ArrowRight size={16} />
-              </Link>
+              <div className="flex items-center gap-2 md:hidden">
+                <Link
+                  href="/login"
+                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-[#1f63d8] px-3 text-[11px] font-semibold leading-none text-white shadow-[0_8px_16px_rgba(31,99,216,0.25)] transition hover:bg-[#1855b4]"
+                >
+                  Sign in
+                </Link>
+              </div>
+            </div>
+
+            <div className="mt-2 overflow-x-auto pb-1 md:hidden">
+              <nav aria-label="Mobile navigation" className="flex min-w-max items-center gap-2">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href;
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-2 text-[10px] font-semibold leading-none tracking-tight transition ${
+                        isActive
+                          ? "border-[#cfe0ff] bg-[#eaf1ff] text-[#0a4a8a]"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      <Icon size={13} />
+                      <span className="whitespace-nowrap">{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
             </div>
           </div>
         </header>
@@ -68,24 +103,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
 
       {!isHome && (
         <>
-          <nav aria-label="Bottom navigation" className="fixed inset-x-0 bottom-0 z-50 border-t border-[#d6dfef] bg-white/95 px-3 py-2 shadow-[0_-10px_25px_rgba(15,23,42,0.08)] backdrop-blur-md md:hidden">
-            <div className="mx-auto grid max-w-md grid-cols-5 gap-3">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="flex flex-col items-center justify-center rounded-xl px-1 py-2 text-[10px] font-semibold text-[#0a4a8a] transition hover:bg-slate-100"
-                  >
-                    <Icon size={18} className="mb-1" />
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          </nav>
-
           <Link
             href="/contact"
             aria-label="Contact Mothercat"
@@ -96,7 +113,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
         </>
       )}
 
-      <div className={isHome ? "" : "pb-24 md:pb-0"}>{children}</div>
+      <div className={isHome ? "" : "pb-20 md:pb-0"}>{children}</div>
 
       <footer className="bg-[#071535] text-slate-200">
         <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.2fr_0.8fr_0.8fr_1fr] lg:px-8">
