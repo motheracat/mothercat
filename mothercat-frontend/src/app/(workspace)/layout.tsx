@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { isDevOpen } from "@/lib/auth/mode";
 import { getCurrentSession } from "@/lib/auth/session";
+import { WorkspaceSidebar } from "@/components/workspace/sidebar";
 
 const logoSrc = "/Mothercat%20Logo%20Variations%20Sheet%20(Edited%202).png";
 
@@ -32,15 +33,23 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
               </span>
             </Link>
           </div>
-          <nav className="space-y-2 p-4 text-sm">
-            <Link href="/dashboard" className="block rounded-md bg-white/5 px-3 py-2 hover:bg-white/10">Dashboard</Link>
-            <Link href="/staff" className="block rounded-md bg-white/5 px-3 py-2 hover:bg-white/10">Staff</Link>
-            <Link href="/departments" className="block rounded-md bg-white/5 px-3 py-2 hover:bg-white/10">Departments</Link>
-            <Link href="/roles" className="block rounded-md bg-white/5 px-3 py-2 hover:bg-white/10">Roles & Permissions</Link>
-            <Link href="/audit" className="block rounded-md bg-white/5 px-3 py-2 hover:bg-white/10">Audit log</Link>
-            <Link href="/settings" className="block rounded-md bg-white/5 px-3 py-2 hover:bg-white/10">Settings</Link>
-          </nav>
+          <WorkspaceSidebar session={session} />
         </aside>
+
+        <div className="flex-1">
+          <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Workspace</p>
+              <h1 className="mt-2 font-serif text-4xl text-[#0f1b33]">Dashboard</h1>
+            </div>
+            <div className="text-sm text-slate-600">{session?.displayName ?? "Not signed in"}</div>
+          </header>
+          <main className="p-6">{children}</main>
+        </div>
+      </div>
+    </div>
+  );
+}
 
         <div className="flex-1">
           <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">

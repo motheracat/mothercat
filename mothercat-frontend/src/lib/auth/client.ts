@@ -9,8 +9,16 @@ function canRunClientAuthentication() {
 }
 
 function isDevelopmentRuntime() {
-  return process.env.NEXT_PUBLIC_AUTH_MODE === "dev-open" ||
-    (canRunClientAuthentication() && ["localhost", "127.0.0.1"].includes(window.location.hostname));
+  if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_AUTH_MODE === "dev-open") {
+    return true;
+  }
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return true;
+    }
+  }
+  return false;
 }
 
 function persistSession(session: AuthSession) {
@@ -70,7 +78,8 @@ export async function login(credentials: LoginCredentials): Promise<AuthSession>
     const payload = (await response.json()) as { data?: AuthSession; message?: string };
 
     if (!response.ok) {
-      throw new Error(payload.message ?? "Unable to sign in.");
+      // Per requirements: generic message
+      throw new Error("sign-in failed");
     }
 
     const session = payload.data ?? fallbackSession;
@@ -82,7 +91,7 @@ export async function login(credentials: LoginCredentials): Promise<AuthSession>
       return fallbackSession;
     }
 
-    throw error instanceof Error ? error : new Error("Unable to sign in.");
+    throw error instanceof Error ? error : new Error("sign-in failed");
   }
 }
 

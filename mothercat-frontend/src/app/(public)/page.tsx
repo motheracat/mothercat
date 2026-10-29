@@ -89,6 +89,12 @@ export default function HomePage() {
 
               <div className="flex items-center justify-end gap-3">
                 <Link
+                  href="/login"
+                  className="rounded-lg bg-white/10 px-4 py-2.5 text-[13px] font-semibold !text-white transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#2d8fd8]"
+                >
+                  Sign in
+                </Link>
+                <Link
                   href="/contact"
                   className="rounded-lg bg-white px-5 py-2.5 text-[13px] font-semibold text-[#0f1b33] shadow-sm transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#2d8fd8]"
                 >

@@ -1,0 +1,56 @@
+name: CI checks
+
+on:
+  pull_request:
+  push:
+    branches: [development, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend - Format, test, vet, and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Run backend checks
+        working-directory: backend
+        run: make format-check test vet build
+
+  frontend:
+    name: Frontend - Lint and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mothercat-frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mothercat-frontend
+        run: npm ci
+
+      - name: Run lint
+        working-directory: mothercat-frontend
+        run: npm run lint
+
+      - name: Build
+        working-directory: mothercat-frontend
+        run: npm run build

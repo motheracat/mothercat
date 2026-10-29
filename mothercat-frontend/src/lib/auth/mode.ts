@@ -1,5 +1,3 @@
-import "server-only";
-
 export function isDevOpen(): boolean {
   return (process.env.AUTH_MODE ?? "strict") === "dev-open";
 }

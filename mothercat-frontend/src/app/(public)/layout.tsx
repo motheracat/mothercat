@@ -47,7 +47,13 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
               ))}
             </nav>
 
-            <div className="hidden items-center md:flex">
+            <div className="hidden items-center gap-3 md:flex">
+              <Link
+                href="/login"
+                className="inline-flex h-10 items-center gap-2 rounded-[3px] bg-[#1f63d8] px-[18px] text-sm font-semibold !text-white transition hover:bg-[#1855b4]"
+              >
+                Sign in
+              </Link>
               <Link
                 href="/contact"
                 className="inline-flex h-10 items-center gap-2 rounded-[3px] bg-[#1f63d8] px-[22px] text-sm font-semibold text-white shadow-[0_10px_18px_rgba(31,99,216,0.25)] transition hover:bg-[#1855b4]"
