@@ -65,6 +65,15 @@ func migrationDatabaseURL() (string, error) {
 	}
 	query := parsed.Query()
 	modes := query["sslmode"]
+	if len(modes) == 0 {
+		mode := strings.TrimSpace(os.Getenv("DATABASE_SSLMODE"))
+		if mode == "" {
+			return "", errors.New("set DATABASE_SSLMODE when the migration URL omits sslmode")
+		}
+		query.Set("sslmode", mode)
+		parsed.RawQuery = query.Encode()
+		modes = query["sslmode"]
+	}
 	if len(modes) != 1 {
 		return "", errors.New("migration database URL must contain exactly one sslmode")
 	}

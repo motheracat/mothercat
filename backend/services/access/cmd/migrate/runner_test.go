@@ -1,10 +1,30 @@
 package main
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestMigrationDatabaseURLAddsConfiguredSSLMode(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("DATABASE_SSLMODE", "require")
+	t.Setenv("DATABASE_ALLOW_UNVERIFIED_TLS", "true")
+	t.Setenv("MIGRATION_DATABASE_URL", "postgres://admin:secret@db.example.test/mothercat")
+
+	got, err := migrationDatabaseURL()
+	if err != nil {
+		t.Fatalf("migrationDatabaseURL() error = %v", err)
+	}
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	if modes := parsed.Query()["sslmode"]; len(modes) != 1 || modes[0] != "require" {
+		t.Fatalf("sslmode = %v, want [require]", modes)
+	}
+}
 
 func TestLoadMigrationsLoadsAccessMigration(t *testing.T) {
 	migrations, err := loadMigrations("../../migrations")
