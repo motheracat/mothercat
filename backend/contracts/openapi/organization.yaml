@@ -1,0 +1,142 @@
+openapi: 3.1.0
+info:
+  title: Mothercat Organization API
+  version: 1.0.0
+servers:
+  - url: /api/v1
+paths:
+  /staff:
+    post:
+      operationId: createStaff
+      summary: Create an approved staff record
+      description: >
+        Creates a pending Organization staff profile. Requires a valid
+        Identity session cookie, a same-origin request, and the staff.create
+        permission. This endpoint does not create login credentials or assign
+        roles. Until the official staff directory is supplied, authorized
+        administrators may enter approved records manually.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStaffRequest"
+      responses:
+        "201":
+          description: Staff profile created in pending status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [staff]
+                properties:
+                  staff:
+                    $ref: "#/components/schemas/Staff"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          description: Staff ID is already in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "415":
+          $ref: "#/components/responses/Error"
+        "503":
+          description: Identity, Audit, or Organization dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: mothercat_session
+  schemas:
+    CreateStaffRequest:
+      type: object
+      additionalProperties: false
+      required: [staff_id, full_name]
+      properties:
+        staff_id:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: "^[A-Za-z0-9._-]+$"
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        work_email:
+          type: string
+          format: email
+          maxLength: 254
+        job_title:
+          type: string
+          maxLength: 150
+        department_id:
+          type: string
+          format: uuid
+    Staff:
+      type: object
+      required:
+        - id
+        - staff_id
+        - full_name
+        - employment_status
+      properties:
+        id:
+          type: string
+          format: uuid
+        staff_id:
+          type: string
+        department_id:
+          type: [string, "null"]
+          format: uuid
+        full_name:
+          type: string
+        work_email:
+          type: [string, "null"]
+          format: email
+        job_title:
+          type: [string, "null"]
+        employment_status:
+          type: string
+          enum: [pending, active, inactive]
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, request_id]
+          properties:
+            code:
+              type: string
+            request_id:
+              type: string
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            request_id:
+              type: string
+  responses:
+    Error:
+      description: Request failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"

@@ -3,6 +3,48 @@
 # Keep the web service and database in the same Render region.
 services:
   - type: web
+    name: mothercat-audit
+    runtime: docker
+    plan: free
+    autoDeployTrigger: off
+    dockerfilePath: backend/services/audit/Dockerfile
+    dockerContext: backend/services/audit
+    healthCheckPath: /health/ready
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSLMODE
+        value: require
+      - key: DATABASE_ALLOW_UNVERIFIED_TLS
+        value: "true"
+      - key: AUDIT_SERVICE_TOKEN
+        sync: false
+  - type: web
+    name: mothercat-organization
+    runtime: docker
+    plan: free
+    autoDeployTrigger: off
+    dockerfilePath: backend/services/organization/Dockerfile
+    dockerContext: backend/services/organization
+    healthCheckPath: /health/ready
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSLMODE
+        value: require
+      - key: DATABASE_ALLOW_UNVERIFIED_TLS
+        value: "true"
+      - key: IDENTITY_SERVICE_URL
+        sync: false
+      - key: AUDIT_SERVICE_URL
+        sync: false
+      - key: AUDIT_SERVICE_TOKEN
+        sync: false
+  - type: web
     name: mothercat-access
     runtime: docker
     plan: free
