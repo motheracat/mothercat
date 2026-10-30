@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight, Phone } from "lucide-react";
 import { siteContent } from "@/content/site";
-import { MobileMenu } from "@/components/mobile-menu";
+import { MobileMenu } from "@/components/public/mobile-menu";
 
 const logoSrc = "/Mothercat%20Logo%20Variations%20Sheet%20(Edited%202).png";
 const navItems = [
