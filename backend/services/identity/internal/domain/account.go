@@ -15,7 +15,9 @@ type Account struct {
 	StaffID     string   `json:"staff_id"`
 	DisplayName string   `json:"display_name"`
 	Email       string   `json:"email"`
+	Role        string   `json:"role"`
 	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
 }
 
 // Session represents a server-issued user session.

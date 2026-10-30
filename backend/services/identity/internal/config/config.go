@@ -23,13 +23,24 @@ const (
 // Config contains validated runtime settings. Secret values are never included in
 // error messages or logged by the service.
 type Config struct {
-	AppEnv             string
-	HTTPAddr           string
-	DatabaseURL        string
-	DatabaseMaxConns   int32
-	DBConnectTimeout   time.Duration
-	HealthCheckTimeout time.Duration
-	ShutdownTimeout    time.Duration
+	AppEnv                 string
+	HTTPAddr               string
+	DatabaseURL            string
+	AccessServiceURL       string
+	AccessServiceToken     string
+	AccessServiceTimeout   time.Duration
+	OnboardingServiceToken string
+	SMTPHost               string
+	SMTPPort               int
+	SMTPUsername           string
+	SMTPPassword           string
+	SMTPFrom               string
+	PublicBaseURL          string
+	SMTPTimeout            time.Duration
+	DatabaseMaxConns       int32
+	DBConnectTimeout       time.Duration
+	HealthCheckTimeout     time.Duration
+	ShutdownTimeout        time.Duration
 }
 
 // Load reads and validates the process environment.
@@ -58,6 +69,18 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("DATABASE_ALLOW_UNVERIFIED_TLS is only valid with sslmode=require")
 		}
 	}
+	accessServiceURL, accessServiceToken, accessServiceTimeout, err := loadAccessService(appEnv)
+	if err != nil {
+		return Config{}, err
+	}
+	onboardingServiceToken, err := loadOnboardingServiceToken(appEnv)
+	if err != nil {
+		return Config{}, err
+	}
+	smtpConfig, err := loadSMTPConfig(appEnv)
+	if err != nil {
+		return Config{}, err
+	}
 
 	maxConns, err := int32Env("DATABASE_MAX_CONNS", defaultDatabaseMaxConns)
 	if err != nil || maxConns < 1 || maxConns > maximumDatabaseMaxConns {
@@ -78,14 +101,96 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		AppEnv:             appEnv,
-		HTTPAddr:           httpAddr,
-		DatabaseURL:        databaseURL,
-		DatabaseMaxConns:   maxConns,
-		DBConnectTimeout:   dbConnectTimeout,
-		HealthCheckTimeout: healthTimeout,
-		ShutdownTimeout:    shutdownTimeout,
+		AppEnv:                 appEnv,
+		HTTPAddr:               httpAddr,
+		DatabaseURL:            databaseURL,
+		AccessServiceURL:       accessServiceURL,
+		AccessServiceToken:     accessServiceToken,
+		AccessServiceTimeout:   accessServiceTimeout,
+		OnboardingServiceToken: onboardingServiceToken,
+		SMTPHost:               smtpConfig.host,
+		SMTPPort:               smtpConfig.port,
+		SMTPUsername:           smtpConfig.username,
+		SMTPPassword:           smtpConfig.password,
+		SMTPFrom:               smtpConfig.from,
+		PublicBaseURL:          smtpConfig.publicBaseURL,
+		SMTPTimeout:            smtpConfig.timeout,
+		DatabaseMaxConns:       maxConns,
+		DBConnectTimeout:       dbConnectTimeout,
+		HealthCheckTimeout:     healthTimeout,
+		ShutdownTimeout:        shutdownTimeout,
 	}, nil
+}
+
+func loadAccessService(appEnv string) (string, string, time.Duration, error) {
+	serviceURL := strings.TrimSpace(os.Getenv("ACCESS_SERVICE_URL"))
+	token := strings.TrimSpace(os.Getenv("ACCESS_SERVICE_TOKEN"))
+	if serviceURL == "" && token == "" && appEnv != "production" && appEnv != "staging" {
+		return "", "", 3 * time.Second, nil
+	}
+	parsed, err := url.Parse(serviceURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" ||
+		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
+		len(token) < 32 || strings.TrimSpace(token) != token {
+		return "", "", 0, fmt.Errorf("ACCESS_SERVICE_URL (HTTPS) and ACCESS_SERVICE_TOKEN (minimum 32 characters) are required together")
+	}
+	timeout, err := durationEnv("ACCESS_SERVICE_TIMEOUT", 3*time.Second)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("ACCESS_SERVICE_TIMEOUT must be a duration between 1s and %s", maximumConfiguredTimeout)
+	}
+	return strings.TrimRight(serviceURL, "/"), token, timeout, nil
+}
+
+func loadOnboardingServiceToken(appEnv string) (string, error) {
+	token := os.Getenv("IDENTITY_ONBOARDING_TOKEN")
+	if token == "" && appEnv != "production" && appEnv != "staging" {
+		return "", nil
+	}
+	if len(token) < 32 || strings.TrimSpace(token) != token {
+		return "", fmt.Errorf("IDENTITY_ONBOARDING_TOKEN must contain at least 32 characters")
+	}
+	return token, nil
+}
+
+type smtpConfig struct {
+	host          string
+	port          int
+	username      string
+	password      string
+	from          string
+	publicBaseURL string
+	timeout       time.Duration
+}
+
+func loadSMTPConfig(appEnv string) (smtpConfig, error) {
+	config := smtpConfig{
+		host:          strings.TrimSpace(os.Getenv("SMTP_HOST")),
+		username:      strings.TrimSpace(os.Getenv("SMTP_USERNAME")),
+		password:      os.Getenv("SMTP_PASSWORD"),
+		from:          strings.TrimSpace(os.Getenv("SMTP_FROM")),
+		publicBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")), "/"),
+		timeout:       10 * time.Second,
+	}
+	portValue := strings.TrimSpace(os.Getenv("SMTP_PORT"))
+	if config.host == "" && config.username == "" && config.password == "" &&
+		config.from == "" && config.publicBaseURL == "" && portValue == "" &&
+		appEnv != "production" && appEnv != "staging" {
+		return config, nil
+	}
+	if config.host == "" || config.username == "" || config.password == "" ||
+		config.from == "" || config.publicBaseURL == "" || portValue == "" {
+		return smtpConfig{}, fmt.Errorf("SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM, and PUBLIC_BASE_URL must be configured together")
+	}
+	port, err := strconv.Atoi(portValue)
+	if err != nil || port != 587 {
+		return smtpConfig{}, fmt.Errorf("SMTP_PORT must be 587 to require STARTTLS")
+	}
+	config.port = port
+	config.timeout, err = durationEnv("SMTP_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return smtpConfig{}, fmt.Errorf("SMTP_TIMEOUT must be a duration between 1s and %s", maximumConfiguredTimeout)
+	}
+	return config, nil
 }
 
 func loadDatabaseURL(appEnv string) (string, error) {

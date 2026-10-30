@@ -16,9 +16,10 @@ import (
 )
 
 type authServiceStub struct {
-	loginFn   func(context.Context, string, string) (identitydomain.Account, string, error)
-	sessionFn func(context.Context, string) (identitydomain.Account, error)
-	logoutFn  func(context.Context, string) error
+	loginFn      func(context.Context, string, string) (identitydomain.Account, string, error)
+	sessionFn    func(context.Context, string) (identitydomain.Account, error)
+	logoutFn     func(context.Context, string) error
+	activationFn func(context.Context, string) error
 }
 
 func (s *authServiceStub) Login(ctx context.Context, staffID, password string) (identitydomain.Account, string, error) {
@@ -42,12 +43,29 @@ func (s *authServiceStub) Logout(ctx context.Context, sessionID string) error {
 	return s.logoutFn(ctx, sessionID)
 }
 
+func (s *authServiceStub) RequestPasswordReset(context.Context, string) error { return nil }
+func (s *authServiceStub) CompletePasswordReset(context.Context, string, string) error {
+	return nil
+}
+func (s *authServiceStub) CompleteActivation(context.Context, string, string) error {
+	return nil
+}
+func (s *authServiceStub) ChangePassword(context.Context, string, string, string) error {
+	return nil
+}
+func (s *authServiceStub) CreateActivationToken(ctx context.Context, accountID string) error {
+	if s.activationFn != nil {
+		return s.activationFn(ctx, accountID)
+	}
+	return nil
+}
+
 func TestLoginSetsHttpOnlySessionCookieAndReturnsUser(t *testing.T) {
 	service := &authServiceStub{loginFn: func(_ context.Context, staffID, password string) (identitydomain.Account, string, error) {
 		if staffID != "STAFF-100" || password != "correct-password" {
 			return identitydomain.Account{}, "", identitydomain.ErrInvalidCredentials
 		}
-		return identitydomain.Account{ID: "acct_123", StaffID: "STAFF-100", DisplayName: "Ada Okafor", Email: "ada.okafor@company.com", Roles: []string{"superadmin"}}, "sess_derived_token", nil
+		return identitydomain.Account{ID: "acct_123", StaffID: "STAFF-100", DisplayName: "Ada Okafor", Email: "ada.okafor@company.com", Role: "SuperAdmin", Roles: []string{"SuperAdmin"}, Permissions: []string{"roles.manage"}}, "sess_derived_token", nil
 	}}
 
 	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)))
@@ -82,7 +100,9 @@ func TestLoginSetsHttpOnlySessionCookieAndReturnsUser(t *testing.T) {
 			ID          string   `json:"id"`
 			StaffID     string   `json:"staff_id"`
 			DisplayName string   `json:"display_name"`
+			Role        string   `json:"role"`
 			Roles       []string `json:"roles"`
+			Permissions []string `json:"permissions"`
 		} `json:"user"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
@@ -93,6 +113,10 @@ func TestLoginSetsHttpOnlySessionCookieAndReturnsUser(t *testing.T) {
 	}
 	if body.User.StaffID != "STAFF-100" {
 		t.Fatalf("staff id = %q, want STAFF-100", body.User.StaffID)
+	}
+	if body.User.Role != "SuperAdmin" || len(body.User.Roles) != 1 ||
+		len(body.User.Permissions) != 1 || body.User.Permissions[0] != "roles.manage" {
+		t.Fatalf("authorization = role %q, roles %v, permissions %v", body.User.Role, body.User.Roles, body.User.Permissions)
 	}
 }
 
@@ -241,5 +265,60 @@ func TestLogoutReportsFailureWhenSessionRevocationFails(t *testing.T) {
 	}
 	if cookies := response.Result().Cookies(); len(cookies) != 0 {
 		t.Fatalf("logout failure unexpectedly changed the session cookie: %#v", cookies)
+	}
+}
+
+func TestActivationIssuanceRequiresServiceToken(t *testing.T) {
+	service := &authServiceStub{activationFn: func(context.Context, string) error {
+		t.Fatal("activation must not be sent without service authentication")
+		return nil
+	}}
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), strings.Repeat("x", 32))
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/accounts/1c9491b8-21ce-4c66-a025-006bb346b810/activation", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestActivationIssuanceUsesServiceToken(t *testing.T) {
+	accountID := "1c9491b8-21ce-4c66-a025-006bb346b810"
+	called := false
+	service := &authServiceStub{activationFn: func(_ context.Context, gotID string) error {
+		called = true
+		if gotID != accountID {
+			t.Fatalf("account ID = %q, want %q", gotID, accountID)
+		}
+		return nil
+	}}
+	token := strings.Repeat("x", 32)
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), token)
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/accounts/"+accountID+"/activation", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusAccepted || !called {
+		t.Fatalf("status = %d, called=%v; want 202 and service call", response.Code, called)
+	}
+}
+
+func TestPasswordRecoveryRateLimitIsPerRemoteIP(t *testing.T) {
+	handler := NewAuthHandler(&authServiceStub{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	var lastStatus int
+	for range maxRecoveryAttemptsPerIP + 1 {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/forgot", strings.NewReader(`{"staff_id":"STAFF-100"}`))
+		request.RemoteAddr = "192.0.2.42:1234"
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		lastStatus = response.Code
+	}
+	if lastStatus != http.StatusTooManyRequests {
+		t.Fatalf("status after rate limit = %d, want %d", lastStatus, http.StatusTooManyRequests)
 	}
 }

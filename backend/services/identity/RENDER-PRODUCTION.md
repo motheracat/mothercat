@@ -1,8 +1,8 @@
 # Render production deployment
 
-The Blueprint at `backend/render.yaml` deploys the Identity API and its PostgreSQL
-database. Both resources must be in the same Render region so the service can
-use the database's private internal URL.
+The Blueprint at `backend/render.yaml` deploys the Identity and Access APIs and
+their shared PostgreSQL database. All resources must be in the same Render
+region so the services can use the database's private internal URL.
 
 The Blueprint currently selects Render's free plans only to bootstrap deployment.
 A keep-alive job can reduce idle spin-down for the web service, but it does not
@@ -20,43 +20,58 @@ web plan if you need an uptime guarantee.
    backed up or deliberately migrated.
 3. In Render, create a Blueprint from `backend/render.yaml` and check that the
    service and database are in the same region.
-4. Wait for the database to be available. The Blueprint leaves `DATABASE_URL`
-   unsynced intentionally; do not use the database's owner connection string as
-   the API's permanent runtime credential.
-5. Apply the Identity, Access, and Audit migrations using the database owner
+4. Wait for the database to be available. The Blueprint leaves both services'
+   `DATABASE_URL` values unsynced intentionally; do not use the database's
+   owner connection string as either API's permanent runtime credential.
+5. Apply the Identity, Access, and Audit migrations, including Identity
+   migration `004_secure_recovery_tokens.sql`, using the database owner
    credentials as described below.
-6. Create a restricted runtime database role and grant it only the access
-   Identity uses. In `psql`, connected as the database owner:
+6. Create separate restricted runtime roles for Identity and Access. In `psql`,
+   connected as the database owner:
 
    ```sql
    CREATE ROLE mothercat_identity_runtime LOGIN;
+   CREATE ROLE mothercat_access_runtime LOGIN;
    ```
 
-   Set its password interactively with:
+   Set each password interactively with:
 
    ```text
    \password mothercat_identity_runtime
+   \password mothercat_access_runtime
    ```
 
-   Then grant its required permissions:
+   Grant each role only its service's runtime access:
 
    ```sql
    GRANT CONNECT ON DATABASE mothercat_identity TO mothercat_identity_runtime;
+   GRANT CONNECT ON DATABASE mothercat_identity TO mothercat_access_runtime;
    GRANT USAGE ON SCHEMA identity TO mothercat_identity_runtime;
-   GRANT SELECT ON identity.user_accounts TO mothercat_identity_runtime;
+   GRANT SELECT, UPDATE ON identity.user_accounts TO mothercat_identity_runtime;
    GRANT SELECT, INSERT, UPDATE ON identity.user_sessions TO mothercat_identity_runtime;
+   GRANT SELECT, INSERT, UPDATE ON identity.password_reset_tokens TO mothercat_identity_runtime;
    GRANT INSERT ON identity.authentication_events TO mothercat_identity_runtime;
+   GRANT USAGE ON SCHEMA access TO mothercat_access_runtime;
+   GRANT SELECT ON access.roles, access.role_permissions, access.user_roles TO mothercat_access_runtime;
    ```
 
-7. In the Render Identity service's environment settings, set `DATABASE_URL` to
-   a connection URL using the internal database host, database
-   `mothercat_identity`, and the `mothercat_identity_runtime` credentials, with
-   `sslmode=require`. Treat the URL as a secret and URL-encode special
-   characters in its username or password.
-8. Deploy the service and verify `/health/live` and `/health/ready`. `APP_ENV`,
-   `DATABASE_SSLMODE`, and the explicit Render TLS opt-in are set by the
-   Blueprint. Auto-deploy is disabled; later updates require **Manual Deploy →
-   Deploy latest commit**.
+7. Set each service's `DATABASE_URL` to a connection URL using the internal
+   database host, database `mothercat_identity`, and that service's runtime
+   credentials, with `sslmode=require`. Treat both URLs as secrets and
+   URL-encode special characters in usernames or passwords.
+8. Configure the Identity environment:
+   - `ACCESS_SERVICE_URL`: Access's HTTPS Render URL.
+   - `ACCESS_SERVICE_TOKEN`: a fresh random value of at least 32 characters;
+     set the exact same value on Access.
+   - `IDENTITY_ONBOARDING_TOKEN`: a different fresh random value of at least 32
+     characters.
+   - `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, and
+     `PUBLIC_BASE_URL`: valid SMTP and HTTPS frontend settings. SMTP must
+     support STARTTLS on port 587.
+9. Deploy both services and verify `/health/live` and `/health/ready` on each.
+   `APP_ENV`, `DATABASE_SSLMODE`, and the explicit Render TLS opt-in are set by
+   the Blueprint. Auto-deploy is disabled; later updates require **Manual
+   Deploy → Deploy latest commit**.
 
 Render's private PostgreSQL connections use self-signed certificates and do not
 support certificate verification. `sslmode=require` encrypts the connection but
@@ -135,9 +150,9 @@ completion, remove the temporary external IP allowlist entry immediately.
 
 ## Verify and upgrade
 
-- Check the Render deploy logs for successful image build and service startup.
-- Check `/health/live` and `/health/ready`; readiness requires a database
-  connection.
+- Check the Render deploy logs for successful image builds and service startup.
+- Check `/health/live` and `/health/ready` on Identity and Access; readiness
+  requires a database connection.
 - Before accepting real users or production data, upgrade the database to a paid
   plan that provides backups/point-in-time recovery. Do not wait until the free
   database approaches its deletion date.
@@ -146,7 +161,6 @@ completion, remove the temporary external IP allowlist entry immediately.
 - Review the migration output and verify the restricted runtime account can log
   in and use Identity while it cannot alter schemas or tables.
 
-This Render Blueprint deploys only the Identity API. The Access and Audit
-bootstrap packages persist the initial role assignment and audit event, but
-their public APIs and the rest of the staff-onboarding workflow are not yet
-implemented or deployed.
+This Render Blueprint deploys Identity and Access. Access exposes only a
+service-token-protected authorization lookup; public role management and the
+Audit API remain outside this deployment scope.

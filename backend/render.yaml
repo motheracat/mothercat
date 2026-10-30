@@ -3,6 +3,25 @@
 # Keep the web service and database in the same Render region.
 services:
   - type: web
+    name: mothercat-access
+    runtime: docker
+    plan: free
+    autoDeployTrigger: off
+    dockerfilePath: backend/services/access/Dockerfile
+    dockerContext: backend/services/access
+    healthCheckPath: /health/ready
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSLMODE
+        value: require
+      - key: DATABASE_ALLOW_UNVERIFIED_TLS
+        value: "true"
+      - key: ACCESS_SERVICE_TOKEN
+        sync: false
+  - type: web
     name: mothercat-identity
     runtime: docker
     plan: free
@@ -19,7 +38,24 @@ services:
         value: "true"
       - key: DATABASE_URL
         sync: false
- 
+      - key: ACCESS_SERVICE_URL
+        sync: false
+      - key: ACCESS_SERVICE_TOKEN
+        sync: false
+      - key: IDENTITY_ONBOARDING_TOKEN
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
 databases:
   - name: mothercat-identity-db
     databaseName: mothercat_identity

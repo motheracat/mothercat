@@ -12,9 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/accessclient"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/application"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/config"
 	identityhttp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/http"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/mail"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/observability"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/repository"
 )
@@ -40,11 +42,31 @@ func run(logger *slog.Logger) error {
 	defer pool.Close()
 
 	authRepo := repository.NewAccountRepository(pool)
-	authService := application.NewService(authRepo)
+	var authorizationProvider application.AuthorizationProvider
+	if cfg.AccessServiceURL != "" {
+		client, err := accessclient.New(cfg.AccessServiceURL, cfg.AccessServiceToken, cfg.AccessServiceTimeout)
+		if err != nil {
+			return fmt.Errorf("configure Access authorization client: %w", err)
+		}
+		authorizationProvider = client
+	}
+	var mailer application.Mailer
+	if cfg.SMTPHost != "" {
+		sender, err := mail.NewSMTP(mail.SMTPConfig{
+			Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
+			Password: cfg.SMTPPassword, From: cfg.SMTPFrom,
+			PublicBaseURL: cfg.PublicBaseURL, Timeout: cfg.SMTPTimeout,
+		})
+		if err != nil {
+			return fmt.Errorf("configure Identity email delivery: %w", err)
+		}
+		mailer = sender
+	}
+	authService := application.NewService(authRepo, authorizationProvider, mailer)
 	baseHandler := identityhttp.NewHandler(pool, logger, cfg.HealthCheckTimeout)
-	authHandler := identityhttp.NewAuthHandler(authService, logger)
+	authHandler := identityhttp.NewAuthHandler(authService, logger, cfg.OnboardingServiceToken)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/") || strings.HasPrefix(r.URL.Path, "/internal/v1/") {
 			authHandler.ServeHTTP(w, r)
 			return
 		}

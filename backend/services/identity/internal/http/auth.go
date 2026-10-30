@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,11 +22,15 @@ import (
 
 const sessionCookieName = "mothercat_session"
 
+var accountIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
 const (
-	maxLoginBodyBytes     = 8 << 10
-	maxLoginAttemptsPerIP = 5
-	loginWindow           = 10 * time.Minute
-	maxRateLimitBuckets   = 10000
+	maxLoginBodyBytes        = 8 << 10
+	maxLoginAttemptsPerIP    = 5
+	loginWindow              = 10 * time.Minute
+	maxRecoveryAttemptsPerIP = 10
+	recoveryWindow           = 10 * time.Minute
+	maxRateLimitBuckets      = 10000
 )
 
 type loginRateLimiter struct {
@@ -175,15 +181,25 @@ type AuthService interface {
 	Login(context.Context, string, string) (identitydomain.Account, string, error)
 	ResolveSession(context.Context, string) (identitydomain.Account, error)
 	Logout(context.Context, string) error
+	RequestPasswordReset(context.Context, string) error
+	CompletePasswordReset(context.Context, string, string) error
+	CompleteActivation(context.Context, string, string) error
+	ChangePassword(context.Context, string, string, string) error
+	CreateActivationToken(context.Context, string) error
 }
 
 // NewAuthHandler registers the authenticated Identity API routes.
-func NewAuthHandler(service AuthService, logger *slog.Logger) http.Handler {
+func NewAuthHandler(service AuthService, logger *slog.Logger, onboardingServiceToken ...string) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	limiter := newLoginRateLimiter(maxLoginAttemptsPerIP, loginWindow)
+	recoveryLimiter := newLoginRateLimiter(maxRecoveryAttemptsPerIP, recoveryWindow)
+	internalToken := ""
+	if len(onboardingServiceToken) > 0 {
+		internalToken = onboardingServiceToken[0]
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if err := handleLogin(w, r, service, logger, limiter); err != nil {
@@ -200,8 +216,204 @@ func NewAuthHandler(service AuthService, logger *slog.Logger) http.Handler {
 			logger.WarnContext(r.Context(), "logout failed", "request_id", requestIDFromContext(r.Context()), "error", err)
 		}
 	})
+	mux.HandleFunc("POST /api/v1/auth/password/forgot", func(w http.ResponseWriter, r *http.Request) {
+		if !allowWorkflowRequest(w, r, recoveryLimiter) {
+			return
+		}
+		if err := handlePasswordForgot(w, r, service, logger); err != nil {
+			logger.ErrorContext(r.Context(), "password recovery request failed", "request_id", requestIDFromContext(r.Context()), "error", err)
+		}
+	})
+	mux.HandleFunc("POST /api/v1/auth/password/reset", func(w http.ResponseWriter, r *http.Request) {
+		if !allowWorkflowRequest(w, r, recoveryLimiter) {
+			return
+		}
+		if err := handlePasswordReset(w, r, service, logger); err != nil {
+			logger.WarnContext(r.Context(), "password reset failed", "request_id", requestIDFromContext(r.Context()), "error", err)
+		}
+	})
+	mux.HandleFunc("POST /api/v1/auth/password/change", func(w http.ResponseWriter, r *http.Request) {
+		if err := handlePasswordChange(w, r, service, logger); err != nil {
+			logger.WarnContext(r.Context(), "password change failed", "request_id", requestIDFromContext(r.Context()), "error", err)
+		}
+	})
+	mux.HandleFunc("POST /api/v1/auth/activation/complete", func(w http.ResponseWriter, r *http.Request) {
+		if !allowWorkflowRequest(w, r, recoveryLimiter) {
+			return
+		}
+		if err := handleActivationComplete(w, r, service, logger); err != nil {
+			logger.WarnContext(r.Context(), "account activation failed", "request_id", requestIDFromContext(r.Context()), "error", err)
+		}
+	})
+	mux.HandleFunc("POST /internal/v1/accounts/{accountID}/activation", func(w http.ResponseWriter, r *http.Request) {
+		provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if internalToken == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(internalToken)) != 1 {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "service authentication required", requestIDFromContext(r.Context()))
+			return
+		}
+		if service == nil {
+			writeError(w, http.StatusServiceUnavailable, "service_unavailable", "identity service unavailable", requestIDFromContext(r.Context()))
+			return
+		}
+		accountID := strings.TrimSpace(r.PathValue("accountID"))
+		if !accountIDPattern.MatchString(accountID) {
+			writeError(w, http.StatusBadRequest, "invalid_account_id", "account ID is invalid", requestIDFromContext(r.Context()))
+			return
+		}
+		if err := service.CreateActivationToken(r.Context(), accountID); err != nil {
+			logger.ErrorContext(r.Context(), "create account activation", "request_id", requestIDFromContext(r.Context()), "error", err)
+			writeError(w, http.StatusServiceUnavailable, "activation_unavailable", "account activation could not be initiated", requestIDFromContext(r.Context()))
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
 
 	return requestIDMiddleware(logger, requestLoggingMiddleware(logger, recoveryMiddleware(logger, mux)))
+}
+
+func allowWorkflowRequest(w http.ResponseWriter, r *http.Request, limiter *loginRateLimiter) bool {
+	clientKey, _ := rateLimitKeys(r, "")
+	if !limiter.allowKeys(clientKey) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests; please wait before retrying", requestIDFromContext(r.Context()))
+		return false
+	}
+	limiter.recordFailure(clientKey)
+	return true
+}
+
+func handlePasswordForgot(w http.ResponseWriter, r *http.Request, service AuthService, logger *slog.Logger) error {
+	var payload struct {
+		StaffID string `json:"staff_id"`
+	}
+	if err := decodeJSON(w, r, &payload); err != nil || strings.TrimSpace(payload.StaffID) == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "staff_id is required", requestIDFromContext(r.Context()))
+		return errors.New("invalid password recovery request")
+	}
+	if service == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "identity service unavailable", requestIDFromContext(r.Context()))
+		return errors.New("auth service is nil")
+	}
+	if err := service.RequestPasswordReset(r.Context(), strings.TrimSpace(payload.StaffID)); err != nil {
+		logger.ErrorContext(r.Context(), "deliver password recovery", "request_id", requestIDFromContext(r.Context()), "error", err)
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{
+		"status":  "accepted",
+		"message": "If the account is eligible, recovery instructions will be sent.",
+	})
+	return nil
+}
+
+func handlePasswordReset(w http.ResponseWriter, r *http.Request, service AuthService, logger *slog.Logger) error {
+	var payload struct {
+		Token           string `json:"token"`
+		Password        string `json:"password"`
+		ConfirmPassword string `json:"confirm_password"`
+	}
+	if err := decodeJSON(w, r, &payload); err != nil || payload.Token == "" ||
+		payload.Password == "" || payload.Password != payload.ConfirmPassword {
+		writeError(w, http.StatusBadRequest, "invalid_request", "token and matching passwords are required", requestIDFromContext(r.Context()))
+		return errors.New("invalid password reset payload")
+	}
+	if service == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "identity service unavailable", requestIDFromContext(r.Context()))
+		return errors.New("auth service is nil")
+	}
+	if err := service.CompletePasswordReset(r.Context(), payload.Token, payload.Password); err != nil {
+		return writeCredentialWorkflowError(w, r, logger, err, "password reset")
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+	return nil
+}
+
+func handleActivationComplete(w http.ResponseWriter, r *http.Request, service AuthService, logger *slog.Logger) error {
+	var payload struct {
+		Token           string `json:"token"`
+		Password        string `json:"password"`
+		ConfirmPassword string `json:"confirm_password"`
+	}
+	if err := decodeJSON(w, r, &payload); err != nil || payload.Token == "" ||
+		payload.Password == "" || payload.Password != payload.ConfirmPassword {
+		writeError(w, http.StatusBadRequest, "invalid_request", "token and matching passwords are required", requestIDFromContext(r.Context()))
+		return errors.New("invalid activation payload")
+	}
+	if service == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "identity service unavailable", requestIDFromContext(r.Context()))
+		return errors.New("auth service is nil")
+	}
+	if err := service.CompleteActivation(r.Context(), payload.Token, payload.Password); err != nil {
+		return writeCredentialWorkflowError(w, r, logger, err, "account activation")
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "activated"})
+	return nil
+}
+
+func handlePasswordChange(w http.ResponseWriter, r *http.Request, service AuthService, logger *slog.Logger) error {
+	var payload struct {
+		CurrentPassword string `json:"current_password"`
+		Password        string `json:"password"`
+		ConfirmPassword string `json:"confirm_password"`
+	}
+	if err := decodeJSON(w, r, &payload); err != nil || payload.CurrentPassword == "" ||
+		payload.Password == "" || payload.Password != payload.ConfirmPassword {
+		writeError(w, http.StatusBadRequest, "invalid_request", "current password and matching new passwords are required", requestIDFromContext(r.Context()))
+		return errors.New("invalid password change payload")
+	}
+	if service == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "identity service unavailable", requestIDFromContext(r.Context()))
+		return errors.New("auth service is nil")
+	}
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required", requestIDFromContext(r.Context()))
+		return errors.New("password change requires a session")
+	}
+	if err := service.ChangePassword(r.Context(), cookie.Value, payload.CurrentPassword, payload.Password); err != nil {
+		if errors.Is(err, application.ErrInvalidCurrentPassword) || errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			writeError(w, http.StatusUnauthorized, "invalid_credentials", "current password or session is invalid", requestIDFromContext(r.Context()))
+			return err
+		}
+		if strings.Contains(err.Error(), "password must") {
+			writeError(w, http.StatusBadRequest, "weak_password", err.Error(), requestIDFromContext(r.Context()))
+			return err
+		}
+		logger.ErrorContext(r.Context(), "change password", "request_id", requestIDFromContext(r.Context()), "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "an internal error occurred", requestIDFromContext(r.Context()))
+		return err
+	}
+	clearSessionCookie(w)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password_changed", "message": "Sign in again with your new password."})
+	return nil
+}
+
+func writeCredentialWorkflowError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error, operation string) error {
+	if errors.Is(err, application.ErrInvalidRecoveryToken) {
+		writeError(w, http.StatusBadRequest, "invalid_token", "token is invalid, expired, or already used", requestIDFromContext(r.Context()))
+		return err
+	}
+	if strings.Contains(err.Error(), "password must") {
+		writeError(w, http.StatusBadRequest, "weak_password", err.Error(), requestIDFromContext(r.Context()))
+		return err
+	}
+	logger.ErrorContext(r.Context(), operation+" failed", "request_id", requestIDFromContext(r.Context()), "error", err)
+	writeError(w, http.StatusInternalServerError, "internal_error", "an internal error occurred", requestIDFromContext(r.Context()))
+	return err
+}
+
+func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
+	mediaType, _, mediaTypeErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if mediaTypeErr != nil || mediaType != "application/json" {
+		return errors.New("content-type must be application/json")
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLoginBodyBytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("request must contain exactly one JSON object")
+	}
+	return nil
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request, service AuthService, logger *slog.Logger, limiter *loginRateLimiter) error {

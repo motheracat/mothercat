@@ -1,11 +1,10 @@
 # Identity service
 
-This service currently provides operational health endpoints and the initial
-login, session lookup, and logout APIs. Account activation, recovery, password
-change, Access integration, and complete onboarding workflows remain future
-work. The restricted initial SuperAdmin bootstrap command is documented below;
-there is no public account-creation route. The service does not create mock users,
-fabricate business responses, or run database migrations at startup.
+This service provides login/session/logout, Access-backed role and permission
+details, password recovery/reset, authenticated password change, and invited
+account activation. The restricted initial SuperAdmin bootstrap command is
+documented below; there is no public account-creation route. Database
+migrations are never run at API startup.
 
 ## Runtime configuration
 
@@ -31,6 +30,13 @@ service does not load `.env` files itself.
 | `DB_CONNECT_TIMEOUT` | No | `10s`; bounds each new PostgreSQL connection attempt |
 | `HEALTH_CHECK_TIMEOUT` | No | `2s`; bounds the readiness database ping |
 | `SHUTDOWN_TIMEOUT` | No | `10s`; bounds graceful HTTP shutdown |
+| `ACCESS_SERVICE_URL` | Production/staging | HTTPS URL of the Access service |
+| `ACCESS_SERVICE_TOKEN` | Production/staging | Bearer credential shared with Access; minimum 32 characters |
+| `ACCESS_SERVICE_TIMEOUT` | No | `3s`; bounded authorization lookup |
+| `IDENTITY_ONBOARDING_TOKEN` | Production/staging | Separate service credential for initiating activation email |
+| `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_PORT` | Production/staging | SMTP delivery; port must be `587` and STARTTLS is mandatory |
+| `PUBLIC_BASE_URL` | Production/staging | HTTPS frontend base URL used in reset/activation links |
+| `SMTP_TIMEOUT` | No | `10s`; bounds SMTP connection and send time |
 
 Production requires `sslmode=verify-full` by default, whether configuration is
 provided as a URL or as separate PostgreSQL variables. Render private PostgreSQL
@@ -61,6 +67,30 @@ HTTP responses expose a cryptographically random `X-Request-ID` header, and
 request logs include the same ID. Health errors are generic and do not return
 internal database details.
 
+## Account and authorization workflows
+
+- `POST /api/v1/auth/password/forgot` accepts `{"staff_id":"..."}` and always
+  returns a generic `202` response to avoid account enumeration.
+- `POST /api/v1/auth/password/reset` accepts a one-time email token and matching
+  new password fields.
+- `POST /api/v1/auth/password/change` requires the session cookie and current
+  password. Other sessions are revoked after a successful change.
+- `POST /internal/v1/accounts/{accountID}/activation` requires
+  `IDENTITY_ONBOARDING_TOKEN` as a bearer token. This trusted onboarding hook
+  sends an activation email for an inactive account.
+- `POST /api/v1/auth/activation/complete` consumes the single-use token and
+  activates the account.
+
+Recovery tokens are stored as SHA-256 hashes, expire, and are consumed
+transactionally. Password reset revokes existing sessions. Recovery and
+activation endpoints have per-IP in-process rate limits; deploy multiple
+instances behind the platform edge and consider a shared limiter before
+increasing scale.
+
+Login and session responses include `role`, `roles`, and `permissions` resolved
+from Access. A configured Access failure fails authentication closed rather
+than returning stale or empty authorization.
+
 ## Container
 
 Build the image with this directory as its build context. It uses a pinned Go
@@ -74,6 +104,10 @@ it is not production deployment configuration.
 See [`RENDER-PRODUCTION.md`](RENDER-PRODUCTION.md) and `backend/render.yaml`.
 Free Render resources are temporary bootstrap infrastructure, not an acceptable
 production runtime or store for real production data.
+Before deploying the updated blueprint, set its `sync: false` variables for both
+services. Use independent random values for `ACCESS_SERVICE_TOKEN` and
+`IDENTITY_ONBOARDING_TOKEN`; configure `ACCESS_SERVICE_URL` as the Access
+service's HTTPS URL, and use SMTP credentials from a trusted provider.
 
 ## Initial SuperAdmin bootstrap
 

@@ -3,11 +3,14 @@ package application
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -19,6 +22,13 @@ var ErrAccountNotFound = errors.New("account_not_found")
 var ErrSessionNotFound = errors.New("session_not_found")
 
 const SessionTTL = time.Hour
+const recoveryTokenTTL = 30 * time.Minute
+const activationTokenTTL = 24 * time.Hour
+const minimumPasswordLength = 14
+const maximumPasswordLength = 72
+
+var ErrInvalidRecoveryToken = errors.New("invalid_recovery_token")
+var ErrInvalidCurrentPassword = errors.New("invalid_current_password")
 
 // Repository defines the data access contract required for Identity auth flows.
 type Repository interface {
@@ -27,6 +37,24 @@ type Repository interface {
 	CreateSession(ctx context.Context, accountID, staffID, token string, expiresAt time.Time) error
 	RevokeSession(ctx context.Context, token string) error
 	RecordAuthenticationEvent(ctx context.Context, staffID string, accountID *string, successful bool) error
+	FindByAccountID(ctx context.Context, accountID string) (AccountRecord, error)
+	CreateRecoveryToken(ctx context.Context, accountID, purpose, tokenHash string, expiresAt time.Time) error
+	CompleteRecovery(ctx context.Context, tokenHash, purpose, passwordHash string, activate bool) (AccountRecord, error)
+	ChangePassword(ctx context.Context, sessionToken, passwordHash string) error
+}
+
+type Authorization struct {
+	Role        string
+	Roles       []string
+	Permissions []string
+}
+
+type AuthorizationProvider interface {
+	GetAuthorization(context.Context, string) (Authorization, error)
+}
+
+type Mailer interface {
+	SendRecovery(context.Context, string, string, string) error
 }
 
 // AccountRecord is the persistence representation of a user account. It keeps the
@@ -42,11 +70,13 @@ type AccountRecord struct {
 }
 
 type Service struct {
-	repository Repository
+	repository     Repository
+	authorizations AuthorizationProvider
+	mailer         Mailer
 }
 
-func NewService(repository Repository) *Service {
-	return &Service{repository: repository}
+func NewService(repository Repository, authorizations AuthorizationProvider, mailer Mailer) *Service {
+	return &Service{repository: repository, authorizations: authorizations, mailer: mailer}
 }
 
 func (s *Service) Login(ctx context.Context, staffID, password string) (identitydomain.Account, string, error) {
@@ -79,6 +109,10 @@ func (s *Service) Login(ctx context.Context, staffID, password string) (identity
 		}
 		return identitydomain.Account{}, "", identitydomain.ErrInvalidCredentials
 	}
+	authorization, err := s.authorization(ctx, accountRecord.ID)
+	if err != nil {
+		return identitydomain.Account{}, "", err
+	}
 
 	sessionToken, err := newSessionToken(rand.Reader)
 	if err != nil {
@@ -88,13 +122,7 @@ func (s *Service) Login(ctx context.Context, staffID, password string) (identity
 		return identitydomain.Account{}, "", err
 	}
 
-	return identitydomain.Account{
-		ID:          accountRecord.ID,
-		StaffID:     accountRecord.StaffID,
-		DisplayName: accountRecord.DisplayName,
-		Email:       accountRecord.Email,
-		Roles:       nil,
-	}, sessionToken, nil
+	return publicAccount(accountRecord, authorization), sessionToken, nil
 }
 
 func (s *Service) ResolveSession(ctx context.Context, sessionToken string) (identitydomain.Account, error) {
@@ -108,13 +136,11 @@ func (s *Service) ResolveSession(ctx context.Context, sessionToken string) (iden
 		}
 		return identitydomain.Account{}, err
 	}
-	return identitydomain.Account{
-		ID:          accountRecord.ID,
-		StaffID:     accountRecord.StaffID,
-		DisplayName: accountRecord.DisplayName,
-		Email:       accountRecord.Email,
-		Roles:       nil,
-	}, nil
+	authorization, err := s.authorization(ctx, accountRecord.ID)
+	if err != nil {
+		return identitydomain.Account{}, err
+	}
+	return publicAccount(accountRecord, authorization), nil
 }
 
 func (s *Service) Logout(ctx context.Context, sessionToken string) error {
@@ -122,6 +148,177 @@ func (s *Service) Logout(ctx context.Context, sessionToken string) error {
 		return identitydomain.ErrInvalidCredentials
 	}
 	return s.repository.RevokeSession(ctx, sessionToken)
+}
+
+func (s *Service) RequestPasswordReset(ctx context.Context, staffID string) error {
+	if s == nil || s.repository == nil || s.mailer == nil {
+		return errors.New("password recovery is not configured")
+	}
+	account, err := s.repository.FindByStaffID(ctx, strings.TrimSpace(staffID))
+	if err != nil {
+		if errors.Is(err, ErrAccountNotFound) {
+			return nil
+		}
+		return fmt.Errorf("find account for password recovery: %w", err)
+	}
+	if !account.IsActive {
+		return nil
+	}
+	token, err := newSessionToken(rand.Reader)
+	if err != nil {
+		return err
+	}
+	if err := s.repository.CreateRecoveryToken(ctx, account.ID, "password_reset", hashRecoveryToken(token), time.Now().Add(recoveryTokenTTL)); err != nil {
+		return fmt.Errorf("create password recovery token: %w", err)
+	}
+	if err := s.mailer.SendRecovery(ctx, account.Email, "password_reset", token); err != nil {
+		return fmt.Errorf("deliver password recovery message: %w", err)
+	}
+	return nil
+}
+
+// CreateActivationToken is intended for a trusted onboarding orchestrator, not
+// a public unauthenticated route. Only inactive accounts can receive one.
+func (s *Service) CreateActivationToken(ctx context.Context, accountID string) error {
+	if s == nil || s.repository == nil || s.mailer == nil {
+		return errors.New("account activation is not configured")
+	}
+	account, err := s.repository.FindByAccountID(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("find account for activation: %w", err)
+	}
+	if account.IsActive {
+		return errors.New("active account cannot be activated again")
+	}
+	token, err := newSessionToken(rand.Reader)
+	if err != nil {
+		return err
+	}
+	if err := s.repository.CreateRecoveryToken(ctx, account.ID, "activation", hashRecoveryToken(token), time.Now().Add(activationTokenTTL)); err != nil {
+		return fmt.Errorf("create account activation token: %w", err)
+	}
+	if err := s.mailer.SendRecovery(ctx, account.Email, "activation", token); err != nil {
+		return fmt.Errorf("deliver account activation message: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) CompletePasswordReset(ctx context.Context, token, password string) error {
+	return s.completeRecovery(ctx, token, password, "password_reset", false)
+}
+
+func (s *Service) CompleteActivation(ctx context.Context, token, password string) error {
+	return s.completeRecovery(ctx, token, password, "activation", true)
+}
+
+func (s *Service) completeRecovery(ctx context.Context, token, password, purpose string, activate bool) error {
+	if s == nil || s.repository == nil {
+		return errors.New("identity repository is unavailable")
+	}
+	if err := validatePassword(password); err != nil {
+		return err
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash replacement password: %w", err)
+	}
+	_, err = s.repository.CompleteRecovery(ctx, hashRecoveryToken(token), purpose, string(passwordHash), activate)
+	if err != nil {
+		if errors.Is(err, ErrInvalidRecoveryToken) {
+			return ErrInvalidRecoveryToken
+		}
+		return fmt.Errorf("complete credential recovery: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) ChangePassword(ctx context.Context, sessionToken, currentPassword, newPassword string) error {
+	if s == nil || s.repository == nil {
+		return errors.New("identity repository is unavailable")
+	}
+	if err := validatePassword(newPassword); err != nil {
+		return err
+	}
+	account, err := s.repository.FindBySessionToken(ctx, sessionToken)
+	if err != nil {
+		if errors.Is(err, ErrSessionNotFound) {
+			return identitydomain.ErrInvalidCredentials
+		}
+		return fmt.Errorf("find authenticated account: %w", err)
+	}
+	if err := verifyPasswordHash(account.PasswordHash, currentPassword); err != nil {
+		return ErrInvalidCurrentPassword
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash new password: %w", err)
+	}
+	return s.repository.ChangePassword(ctx, sessionToken, string(passwordHash))
+}
+
+func (s *Service) authorization(ctx context.Context, accountID string) (Authorization, error) {
+	if s.authorizations == nil {
+		return Authorization{Role: "Staff", Roles: []string{}, Permissions: []string{}}, nil
+	}
+	authorization, err := s.authorizations.GetAuthorization(ctx, accountID)
+	if err != nil {
+		return Authorization{}, fmt.Errorf("retrieve account authorization: %w", err)
+	}
+	if authorization.Roles == nil {
+		authorization.Roles = []string{}
+	}
+	if authorization.Permissions == nil {
+		authorization.Permissions = []string{}
+	}
+	if authorization.Role == "" && len(authorization.Roles) > 0 {
+		authorization.Role = authorization.Roles[0]
+	}
+	if authorization.Role == "" {
+		authorization.Role = "Staff"
+	}
+	return authorization, nil
+}
+
+func publicAccount(record AccountRecord, authorization Authorization) identitydomain.Account {
+	return identitydomain.Account{
+		ID: record.ID, StaffID: record.StaffID, DisplayName: record.DisplayName,
+		Email: record.Email, Role: authorization.Role, Roles: authorization.Roles,
+		Permissions: authorization.Permissions,
+	}
+}
+
+func validatePassword(password string) error {
+	if len(password) < minimumPasswordLength || len(password) > maximumPasswordLength {
+		return fmt.Errorf("password must be between %d and %d bytes", minimumPasswordLength, maximumPasswordLength)
+	}
+	upper, lower, digit, symbol := false, false, false, false
+	for _, char := range password {
+		switch {
+		case unicode.IsUpper(char):
+			upper = true
+		case unicode.IsLower(char):
+			lower = true
+		case unicode.IsDigit(char):
+			digit = true
+		default:
+			symbol = true
+		}
+	}
+	classes := 0
+	for _, present := range []bool{upper, lower, digit, symbol} {
+		if present {
+			classes++
+		}
+	}
+	if classes < 3 {
+		return errors.New("password must contain at least three character classes")
+	}
+	return nil
+}
+
+func hashRecoveryToken(token string) string {
+	digest := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(digest[:])
 }
 
 func verifyPasswordHash(passwordHash, password string) error {

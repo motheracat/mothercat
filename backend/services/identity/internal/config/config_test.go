@@ -20,10 +20,28 @@ func setLocalDatabaseEnvironment(t *testing.T) {
 	t.Setenv("POSTGRES_USER", "identity_test")
 	t.Setenv("POSTGRES_PASSWORD", "local-only-test-password")
 	t.Setenv("POSTGRES_SSLMODE", "disable")
+	t.Setenv("ACCESS_SERVICE_URL", "https://access.example.test")
+	t.Setenv("ACCESS_SERVICE_TOKEN", strings.Repeat("a", 32))
+	t.Setenv("ACCESS_SERVICE_TIMEOUT", "3s")
+	t.Setenv("IDENTITY_ONBOARDING_TOKEN", strings.Repeat("b", 32))
+	t.Setenv("SMTP_HOST", "smtp.example.test")
+	t.Setenv("SMTP_PORT", "587")
+	t.Setenv("SMTP_USERNAME", "identity@example.test")
+	t.Setenv("SMTP_PASSWORD", "local-only-smtp-password")
+	t.Setenv("SMTP_FROM", "identity@example.test")
+	t.Setenv("PUBLIC_BASE_URL", "https://app.example.test")
+	t.Setenv("SMTP_TIMEOUT", "10s")
 	t.Setenv("DATABASE_MAX_CONNS", "10")
 	t.Setenv("DB_CONNECT_TIMEOUT", "10s")
 	t.Setenv("HEALTH_CHECK_TIMEOUT", "2s")
 	t.Setenv("SHUTDOWN_TIMEOUT", "10s")
+}
+
+func setProductionDatabaseEnvironment(t *testing.T) {
+	t.Helper()
+	setLocalDatabaseEnvironment(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("DATABASE_URL", "postgresql://identity:local-test-password@db.example.test/identity?sslmode=verify-full")
 }
 
 func TestLoadUsesRenderPortWhenProvided(t *testing.T) {
@@ -157,6 +175,30 @@ func TestLoadRejectsInvalidDatabasePoolSize(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() succeeded with DATABASE_MAX_CONNS=0; want an error")
+	}
+}
+
+func TestLoadRequiresAccessInProduction(t *testing.T) {
+	setProductionDatabaseEnvironment(t)
+	t.Setenv("ACCESS_SERVICE_URL", "")
+	t.Setenv("ACCESS_SERVICE_TOKEN", "")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() succeeded without Access service configuration")
+	}
+}
+
+func TestLoadRequiresSMTPInProduction(t *testing.T) {
+	setProductionDatabaseEnvironment(t)
+	t.Setenv("SMTP_HOST", "")
+	t.Setenv("SMTP_PORT", "")
+	t.Setenv("SMTP_USERNAME", "")
+	t.Setenv("SMTP_PASSWORD", "")
+	t.Setenv("SMTP_FROM", "")
+	t.Setenv("PUBLIC_BASE_URL", "")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() succeeded without SMTP configuration")
 	}
 }
 
