@@ -1,6 +1,7 @@
 package identityclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,8 +19,10 @@ import (
 const maximumResponseBytes = 32 << 10
 
 type Client struct {
-	sessionURL string
-	http       *http.Client
+	baseURL      string
+	sessionURL   string
+	serviceToken string
+	http         *http.Client
 }
 
 func New(baseURL string, timeout time.Duration) (*Client, error) {
@@ -39,6 +42,7 @@ func New(baseURL string, timeout time.Duration) (*Client, error) {
 		timeout = 3 * time.Second
 	}
 	return &Client{
+		baseURL:    baseURL,
 		sessionURL: baseURL + "/api/v1/auth/session",
 		http: &http.Client{
 			Timeout: timeout,
@@ -47,6 +51,91 @@ func New(baseURL string, timeout time.Duration) (*Client, error) {
 			},
 		},
 	}, nil
+}
+
+func NewOnboarding(baseURL, serviceToken string, timeout time.Duration) (*Client, error) {
+	serviceToken = strings.TrimSpace(serviceToken)
+	if len(serviceToken) < 32 || strings.TrimSpace(serviceToken) != serviceToken {
+		return nil, errors.New("Identity onboarding credential must contain at least 32 characters")
+	}
+	client, err := New(baseURL, timeout)
+	if err != nil {
+		return nil, err
+	}
+	client.serviceToken = serviceToken
+	return client, nil
+}
+
+func (client *Client) ProvisionAccount(ctx context.Context, staffID, email, displayName string) (string, error) {
+	body, err := json.Marshal(map[string]string{
+		"staff_id": staffID, "email": email, "display_name": displayName,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode Identity account request: %w", err)
+	}
+	request, err := client.newOnboardingRequest(ctx, http.MethodPost, client.baseURL+"/internal/v1/accounts", body)
+	if err != nil {
+		return "", err
+	}
+	response, err := client.http.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("send Identity account request: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		if response.StatusCode == http.StatusConflict {
+			return "", fmt.Errorf("%w: Identity returned HTTP %d", application.ErrAccountProvisioningConflict, response.StatusCode)
+		}
+		return "", fmt.Errorf("Identity account provisioning returned HTTP %d", response.StatusCode)
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(nil, response.Body, 4096))
+	decoder.DisallowUnknownFields()
+	var result struct {
+		AccountID string `json:"account_id"`
+	}
+	if err := decoder.Decode(&result); err != nil || !validUUID(result.AccountID) {
+		return "", errors.New("Identity account provisioning returned an invalid response")
+	}
+	return result.AccountID, nil
+}
+
+func (client *Client) SendActivation(ctx context.Context, accountID string) error {
+	if !validUUID(accountID) {
+		return errors.New("Identity account identifier is invalid")
+	}
+	request, err := client.newOnboardingRequest(ctx, http.MethodPost,
+		client.baseURL+"/internal/v1/accounts/"+url.PathEscape(accountID)+"/activation", nil)
+	if err != nil {
+		return err
+	}
+	response, err := client.http.Do(request)
+	if err != nil {
+		return fmt.Errorf("send Identity activation request: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		if response.StatusCode == http.StatusServiceUnavailable {
+			return fmt.Errorf("%w: Identity returned HTTP %d", application.ErrEmailDeliveryUnavailable, response.StatusCode)
+		}
+		return fmt.Errorf("Identity activation request returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
+func (client *Client) newOnboardingRequest(ctx context.Context, method, endpoint string, body []byte) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, errors.New("create Identity onboarding request")
+	}
+	request.Header.Set("Authorization", "Bearer "+client.serviceToken)
+	request.Header.Set("Accept", "application/json")
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if requestID := strings.TrimSpace(application.RequestIDFromContext(ctx)); requestID != "" {
+		request.Header.Set("X-Request-ID", requestID)
+	}
+	return request, nil
 }
 
 func (client *Client) Authenticate(ctx context.Context, cookie string) (application.Principal, error) {

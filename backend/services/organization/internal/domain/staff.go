@@ -7,9 +7,11 @@ import (
 )
 
 var (
-	ErrInvalidStaff       = errors.New("invalid_staff")
-	ErrDuplicateStaffID   = errors.New("duplicate_staff_id")
-	ErrDepartmentNotFound = errors.New("department_not_found")
+	ErrInvalidStaff            = errors.New("invalid_staff")
+	ErrDuplicateStaffID        = errors.New("duplicate_staff_id")
+	ErrDepartmentNotFound      = errors.New("department_not_found")
+	ErrStaffNotFound           = errors.New("staff_not_found")
+	ErrStaffAlreadyProvisioned = errors.New("staff_already_provisioned")
 )
 
 type CreateStaffRequest struct {
@@ -22,6 +24,7 @@ type CreateStaffRequest struct {
 
 type Staff struct {
 	ID               string  `json:"id"`
+	AccountID        *string `json:"account_id,omitempty"`
 	StaffID          string  `json:"staff_id"`
 	DepartmentID     *string `json:"department_id"`
 	FullName         string  `json:"full_name"`
@@ -93,4 +96,8 @@ func isUUID(value string) bool {
 		}
 	}
 	return true
+}
+
+func IsUUID(value string) bool {
+	return isUUID(value)
 }

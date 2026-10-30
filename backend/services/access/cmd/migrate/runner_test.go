@@ -31,8 +31,10 @@ func TestLoadMigrationsLoadsAccessMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMigrations() error = %v", err)
 	}
-	if len(migrations) != 1 || migrations[0].version != 1 ||
-		migrations[0].name != "001_super_admin_bootstrap.sql" || len(migrations[0].checksum) != 64 {
+	if len(migrations) != 2 || migrations[0].version != 1 ||
+		migrations[0].name != "001_super_admin_bootstrap.sql" || len(migrations[0].checksum) != 64 ||
+		migrations[1].version != 2 || migrations[1].name != "002_staff_role.sql" ||
+		len(migrations[1].checksum) != 64 {
 		t.Fatalf("unexpected migrations: %+v", migrations)
 	}
 }

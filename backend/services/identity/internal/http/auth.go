@@ -186,6 +186,7 @@ type AuthService interface {
 	CompleteActivation(context.Context, string, string) error
 	ChangePassword(context.Context, string, string, string) error
 	CreateActivationToken(context.Context, string) error
+	ProvisionInactiveAccount(context.Context, string, string, string) (string, error)
 }
 
 // NewAuthHandler registers the authenticated Identity API routes.
@@ -270,6 +271,41 @@ func NewAuthHandler(service AuthService, logger *slog.Logger, onboardingServiceT
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
+	})
+	mux.HandleFunc("POST /internal/v1/accounts", func(w http.ResponseWriter, r *http.Request) {
+		provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if internalToken == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(internalToken)) != 1 {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "service authentication required", requestIDFromContext(r.Context()))
+			return
+		}
+		if service == nil {
+			writeError(w, http.StatusServiceUnavailable, "service_unavailable", "identity service unavailable", requestIDFromContext(r.Context()))
+			return
+		}
+		var payload struct {
+			StaffID     string `json:"staff_id"`
+			Email       string `json:"email"`
+			DisplayName string `json:"display_name"`
+		}
+		if err := decodeJSON(w, r, &payload); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", "valid staff_id, email, and display_name are required", requestIDFromContext(r.Context()))
+			return
+		}
+		accountID, err := service.ProvisionInactiveAccount(r.Context(), payload.StaffID, payload.Email, payload.DisplayName)
+		if errors.Is(err, application.ErrInvalidProvisioningDetails) {
+			writeError(w, http.StatusBadRequest, "invalid_account", "valid staff_id, email, and display_name are required", requestIDFromContext(r.Context()))
+			return
+		}
+		if errors.Is(err, application.ErrAccountConflict) {
+			writeError(w, http.StatusConflict, "account_conflict", "account already exists with different details or is active", requestIDFromContext(r.Context()))
+			return
+		}
+		if err != nil {
+			logger.ErrorContext(r.Context(), "provision inactive account", "request_id", requestIDFromContext(r.Context()), "error", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "account provisioning failed", requestIDFromContext(r.Context()))
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]string{"account_id": accountID})
 	})
 
 	return requestIDMiddleware(logger, requestLoggingMiddleware(logger, recoveryMiddleware(logger, mux)))

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	app "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/application"
 )
@@ -96,6 +97,44 @@ func (r *Repository) FindByAccountID(ctx context.Context, accountID string) (app
 		return app.AccountRecord{}, err
 	}
 	return record, nil
+}
+
+func (r *Repository) CreateInactiveAccount(ctx context.Context, staffID, email, passwordHash, displayName string) (string, error) {
+	if r == nil || r.db == nil {
+		return "", errors.New("repository unavailable")
+	}
+	var accountID string
+	err := r.db.QueryRow(ctx, `
+		INSERT INTO identity.user_accounts (staff_id, email, password_hash, display_name, is_active)
+		VALUES ($1, $2, $3, $4, FALSE)
+		ON CONFLICT (staff_id) DO NOTHING
+		RETURNING id
+	`, staffID, email, passwordHash, displayName).Scan(&accountID)
+	if err == nil {
+		return accountID, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) && postgresError.Code == "23505" {
+			return "", app.ErrAccountConflict
+		}
+		return "", err
+	}
+
+	var existingEmail, existingName string
+	var isActive bool
+	err = r.db.QueryRow(ctx, `
+		SELECT id, email, display_name, is_active
+		FROM identity.user_accounts
+		WHERE staff_id = $1
+	`, staffID).Scan(&accountID, &existingEmail, &existingName, &isActive)
+	if err != nil {
+		return "", err
+	}
+	if isActive || existingEmail != email || existingName != displayName {
+		return "", app.ErrAccountConflict
+	}
+	return accountID, nil
 }
 
 func (r *Repository) CreateSession(ctx context.Context, accountID, staffID, token string, expiresAt time.Time) error {

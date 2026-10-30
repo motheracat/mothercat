@@ -52,6 +52,13 @@ func (r *repositoryStub) CompleteRecovery(_ context.Context, _, purpose, passwor
 	return r.account, nil
 }
 func (*repositoryStub) ChangePassword(context.Context, string, string) error { return nil }
+func (r *repositoryStub) CreateInactiveAccount(_ context.Context, staffID, email, passwordHash, displayName string) (string, error) {
+	r.account = AccountRecord{
+		ID: "1c9491b8-21ce-4c66-a025-006bb346b810", StaffID: staffID,
+		Email: email, PasswordHash: passwordHash, DisplayName: displayName,
+	}
+	return r.account.ID, nil
+}
 
 type authorizationStub struct {
 	authorization Authorization

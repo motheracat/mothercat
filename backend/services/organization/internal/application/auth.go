@@ -6,8 +6,10 @@ import (
 )
 
 var (
-	ErrUnauthenticated = errors.New("unauthenticated")
-	ErrAuthUnavailable = errors.New("identity_unavailable")
+	ErrUnauthenticated             = errors.New("unauthenticated")
+	ErrAuthUnavailable             = errors.New("identity_unavailable")
+	ErrEmailDeliveryUnavailable    = errors.New("email_delivery_unavailable")
+	ErrAccountProvisioningConflict = errors.New("account_provisioning_conflict")
 )
 
 type Principal struct {
@@ -41,4 +43,18 @@ type AuditEvent struct {
 
 type AuditRecorder interface {
 	Record(context.Context, AuditEvent) error
+}
+
+type AccountProvisioner interface {
+	ProvisionAccount(context.Context, string, string, string) (string, error)
+	SendActivation(context.Context, string) error
+}
+
+type StaffRoleAssigner interface {
+	AssignDefaultStaffRole(context.Context, string) error
+}
+
+type OnboardingServices struct {
+	Identity AccountProvisioner
+	Access   StaffRoleAssigner
 }

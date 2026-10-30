@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/accessclient"
+	"github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/application"
 	"github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/auditclient"
 	organizationhttp "github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/http"
 	"github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/identityclient"
@@ -40,11 +42,16 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	identityURL := strings.TrimSpace(os.Getenv("IDENTITY_SERVICE_URL"))
+	identityToken := os.Getenv("IDENTITY_ONBOARDING_TOKEN")
 	auditURL := strings.TrimSpace(os.Getenv("AUDIT_SERVICE_URL"))
 	auditToken := os.Getenv("AUDIT_SERVICE_TOKEN")
+	accessURL := strings.TrimSpace(os.Getenv("ACCESS_SERVICE_URL"))
+	accessToken := os.Getenv("ACCESS_SERVICE_TOKEN")
 	if appEnv == "production" || appEnv == "staging" {
-		if identityURL == "" || auditURL == "" || len(auditToken) < 32 || strings.TrimSpace(auditToken) != auditToken {
-			return errors.New("IDENTITY_SERVICE_URL, AUDIT_SERVICE_URL, and AUDIT_SERVICE_TOKEN are required")
+		if identityURL == "" || len(identityToken) < 32 || strings.TrimSpace(identityToken) != identityToken ||
+			auditURL == "" || len(auditToken) < 32 || strings.TrimSpace(auditToken) != auditToken ||
+			accessURL == "" || len(accessToken) < 32 || strings.TrimSpace(accessToken) != accessToken {
+			return errors.New("Identity, Access, and Audit service URLs and credentials are required")
 		}
 	}
 	address, err := listenAddress()
@@ -67,10 +74,17 @@ func run(logger *slog.Logger) error {
 	defer pool.Close()
 
 	var authenticator *identityclient.Client
+	var onboardingIdentity *identityclient.Client
 	if identityURL != "" {
 		authenticator, err = identityclient.New(identityURL, 3*time.Second)
 		if err != nil {
 			return fmt.Errorf("configure Identity client: %w", err)
+		}
+		if identityToken != "" {
+			onboardingIdentity, err = identityclient.NewOnboarding(identityURL, identityToken, 3*time.Second)
+			if err != nil {
+				return fmt.Errorf("configure Identity onboarding client: %w", err)
+			}
 		}
 	}
 	var auditRecorder *auditclient.Client
@@ -80,9 +94,23 @@ func run(logger *slog.Logger) error {
 			return fmt.Errorf("configure Audit client: %w", err)
 		}
 	}
+	var roleAssigner *accessclient.Client
+	if accessURL != "" {
+		roleAssigner, err = accessclient.New(accessURL, accessToken, 3*time.Second)
+		if err != nil {
+			return fmt.Errorf("configure Access client: %w", err)
+		}
+	}
 	store := repository.NewStaffRepository(pool)
+	var onboarding []application.OnboardingServices
+	if onboardingIdentity != nil && roleAssigner != nil {
+		onboarding = append(onboarding, application.OnboardingServices{
+			Identity: onboardingIdentity,
+			Access:   roleAssigner,
+		})
+	}
 	server := &http.Server{
-		Addr: address, Handler: organizationhttp.NewHandler(store, authenticator, auditRecorder, logger),
+		Addr: address, Handler: organizationhttp.NewHandler(store, authenticator, auditRecorder, logger, onboarding...),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
 		WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
 		MaxHeaderBytes: 1 << 20,

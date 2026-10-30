@@ -16,6 +16,7 @@ import (
 type storeStub struct {
 	authorization accessdomain.Authorization
 	err           error
+	assignedUser  string
 }
 
 func (s *storeStub) GetUserAuthorization(context.Context, string) (accessdomain.Authorization, error) {
@@ -23,6 +24,10 @@ func (s *storeStub) GetUserAuthorization(context.Context, string) (accessdomain.
 }
 
 func (s *storeStub) Ping(context.Context) error { return nil }
+func (s *storeStub) AssignDefaultStaffRole(_ context.Context, userID string) error {
+	s.assignedUser = userID
+	return s.err
+}
 
 func TestAuthorizationRequiresServiceBearerToken(t *testing.T) {
 	handler := NewHandler(&storeStub{}, strings.Repeat("x", 32), slog.New(slog.NewJSONHandler(io.Discard, nil)))
@@ -108,5 +113,32 @@ func TestAuthorizationHidesStoreErrors(t *testing.T) {
 	}
 	if strings.Contains(response.Body.String(), "sensitive database detail") {
 		t.Fatalf("response leaked a store error: %s", response.Body.String())
+	}
+}
+
+func TestAssignDefaultStaffRoleRequiresServiceBearerToken(t *testing.T) {
+	handler := NewHandler(&storeStub{}, strings.Repeat("x", 32), slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	request := httptest.NewRequest(http.MethodPut, "/internal/v1/users/1c9491b8-21ce-4c66-a025-006bb346b810/roles/staff", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAssignDefaultStaffRoleIsAuthorizedAndIdempotentAtStoreBoundary(t *testing.T) {
+	const userID = "1c9491b8-21ce-4c66-a025-006bb346b810"
+	store := &storeStub{}
+	handler := NewHandler(store, strings.Repeat("x", 32), slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	request := httptest.NewRequest(http.MethodPut, "/internal/v1/users/"+userID+"/roles/staff", nil)
+	request.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 32))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent || store.assignedUser != userID {
+		t.Fatalf("status=%d assignedUser=%q", response.Code, store.assignedUser)
 	}
 }

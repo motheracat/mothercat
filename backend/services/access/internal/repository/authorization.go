@@ -27,6 +27,7 @@ func (r *AuthorizationRepository) GetUserAuthorization(ctx context.Context, user
 	if r == nil || r.pool == nil {
 		return accessdomain.Authorization{}, fmt.Errorf("Access database is unavailable")
 	}
+
 	rows, err := r.pool.Query(ctx, `
 		SELECT r.display_name, rp.permission_key
 		FROM access.user_roles ur
@@ -69,4 +70,19 @@ func (r *AuthorizationRepository) GetUserAuthorization(ctx context.Context, user
 		role = roles[0]
 	}
 	return accessdomain.Authorization{Role: role, Roles: roles, Permissions: permissions}, nil
+}
+
+func (r *AuthorizationRepository) AssignDefaultStaffRole(ctx context.Context, userID string) error {
+	if r == nil || r.pool == nil {
+		return fmt.Errorf("Access database is unavailable")
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO access.user_roles (user_id, role_id)
+		SELECT $1, id FROM access.roles WHERE role_key = 'staff' AND is_system_role = TRUE
+		ON CONFLICT (user_id, role_id) DO NOTHING
+	`, userID)
+	if err != nil {
+		return fmt.Errorf("assign default Staff role: %w", err)
+	}
+	return nil
 }

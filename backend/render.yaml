@@ -40,6 +40,12 @@ services:
         value: "true"
       - key: IDENTITY_SERVICE_URL
         sync: false
+      - key: IDENTITY_ONBOARDING_TOKEN
+        sync: false
+      - key: ACCESS_SERVICE_URL
+        sync: false
+      - key: ACCESS_SERVICE_TOKEN
+        sync: false
       - key: AUDIT_SERVICE_URL
         sync: false
       - key: AUDIT_SERVICE_TOKEN

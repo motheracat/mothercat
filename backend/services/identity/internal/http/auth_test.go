@@ -66,6 +66,9 @@ func (s *authServiceStub) CreateActivationToken(ctx context.Context, accountID s
 	}
 	return nil
 }
+func (*authServiceStub) ProvisionInactiveAccount(context.Context, string, string, string) (string, error) {
+	return "1c9491b8-21ce-4c66-a025-006bb346b810", nil
+}
 
 func TestLoginSetsHttpOnlySessionCookieAndReturnsUser(t *testing.T) {
 	service := &authServiceStub{loginFn: func(_ context.Context, staffID, password string) (identitydomain.Account, string, error) {

@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/mail"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -21,6 +23,8 @@ import (
 
 var ErrInactiveAccount = errors.New("inactive_account")
 var ErrAccountNotFound = errors.New("account_not_found")
+var ErrAccountConflict = errors.New("account_conflict")
+var ErrInvalidProvisioningDetails = errors.New("invalid_account_provisioning_details")
 var ErrSessionNotFound = errors.New("session_not_found")
 
 const SessionTTL = time.Hour
@@ -44,6 +48,7 @@ type Repository interface {
 	CreateRecoveryToken(ctx context.Context, accountID, purpose, tokenHash string, expiresAt time.Time) error
 	CompleteRecovery(ctx context.Context, tokenHash, purpose, passwordHash string, activate bool) (AccountRecord, error)
 	ChangePassword(ctx context.Context, sessionToken, passwordHash string) error
+	CreateInactiveAccount(ctx context.Context, staffID, email, passwordHash, displayName string) (string, error)
 }
 
 type Authorization struct {
@@ -244,6 +249,36 @@ func (s *Service) CreateActivationToken(ctx context.Context, accountID string) e
 		return fmt.Errorf("deliver account activation message: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) ProvisionInactiveAccount(ctx context.Context, staffID, email, displayName string) (string, error) {
+	if s == nil || s.repository == nil {
+		return "", errors.New("identity repository is unavailable")
+	}
+	staffID = strings.TrimSpace(staffID)
+	email = strings.TrimSpace(email)
+	displayName = strings.TrimSpace(displayName)
+	address, err := mail.ParseAddress(email)
+	if staffID == "" || len(staffID) > 80 || err != nil || address == nil || address.Address != email ||
+		len(email) > 254 || displayName == "" || utf8.RuneCountInString(displayName) > 160 {
+		return "", ErrInvalidProvisioningDetails
+	}
+	temporaryPassword, err := newSessionToken(rand.Reader)
+	if err != nil {
+		return "", fmt.Errorf("generate initial credential: %w", err)
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(temporaryPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("hash initial credential: %w", err)
+	}
+	accountID, err := s.repository.CreateInactiveAccount(ctx, staffID, email, string(passwordHash), displayName)
+	if err != nil {
+		if errors.Is(err, ErrAccountConflict) {
+			return "", ErrAccountConflict
+		}
+		return "", fmt.Errorf("create inactive account: %w", err)
+	}
+	return accountID, nil
 }
 
 func (s *Service) CompletePasswordReset(ctx context.Context, token, password string) error {

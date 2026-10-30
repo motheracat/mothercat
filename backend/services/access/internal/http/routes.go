@@ -23,6 +23,7 @@ type requestIDContextKey struct{}
 
 type authorizationStore interface {
 	GetUserAuthorization(context.Context, string) (accessdomain.Authorization, error)
+	AssignDefaultStaffRole(context.Context, string) error
 	Ping(context.Context) error
 }
 
@@ -94,6 +95,33 @@ func NewHandler(store authorizationStore, serviceToken string, logger *slog.Logg
 		}
 		writeJSON(w, http.StatusOK, authorization)
 	})
+	mux.HandleFunc("PUT /internal/v1/users/{userID}/roles/staff", func(w http.ResponseWriter, r *http.Request) {
+		provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if serviceToken == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(serviceToken)) != 1 {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		userID := strings.TrimSpace(r.PathValue("userID"))
+		if !uuidPattern.MatchString(userID) {
+			writeError(w, http.StatusBadRequest, "invalid_user_id")
+			return
+		}
+		if store == nil {
+			writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if err := store.AssignDefaultStaffRole(ctx, userID); err != nil {
+			logger.ErrorContext(ctx, "assign default Staff role",
+				"request_id", requestIDFromContext(ctx),
+				"error", err,
+			)
+			writeError(w, http.StatusInternalServerError, "internal_error")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	return requestLoggingMiddleware(logger, mux)
 }
 
@@ -134,6 +162,9 @@ func accessRouteName(path string) string {
 	}
 	if authorizationRoutePattern.MatchString(path) {
 		return "user_authorization"
+	}
+	if strings.HasPrefix(path, "/internal/v1/users/") && strings.HasSuffix(path, "/roles/staff") {
+		return "assign_staff_role"
 	}
 	return "unmatched"
 }
