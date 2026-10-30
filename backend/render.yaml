@@ -19,7 +19,7 @@ services:
         value: "true"
       - key: DATABASE_URL
         sync: false
-
+ 
 databases:
   - name: mothercat-identity-db
     databaseName: mothercat_identity
