@@ -1,6 +1,6 @@
 # Identity production deployment. The free plans are temporary bootstrap only:
 # upgrade the database before storing real production data.
-# Keep the web service and database in the same Render region.
+# Keep the web service and database in the same Render region..
 services:
   - type: web
     name: mothercat-identity
