@@ -188,7 +188,7 @@ func TestLoadRequiresAccessInProduction(t *testing.T) {
 	}
 }
 
-func TestLoadRequiresSMTPInProduction(t *testing.T) {
+func TestLoadAllowsSMTPToBeDisabledInProduction(t *testing.T) {
 	setProductionDatabaseEnvironment(t)
 	t.Setenv("SMTP_HOST", "")
 	t.Setenv("SMTP_PORT", "")
@@ -197,8 +197,26 @@ func TestLoadRequiresSMTPInProduction(t *testing.T) {
 	t.Setenv("SMTP_FROM", "")
 	t.Setenv("PUBLIC_BASE_URL", "")
 
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.SMTPHost != "" || cfg.SMTPPort != 0 || cfg.PublicBaseURL != "" {
+		t.Fatalf("SMTP should be disabled when all SMTP settings are absent: %+v", cfg)
+	}
+}
+
+func TestLoadRejectsPartialSMTPConfigurationInProduction(t *testing.T) {
+	setProductionDatabaseEnvironment(t)
+	t.Setenv("SMTP_HOST", "smtp.example.test")
+	t.Setenv("SMTP_PORT", "")
+	t.Setenv("SMTP_USERNAME", "")
+	t.Setenv("SMTP_PASSWORD", "")
+	t.Setenv("SMTP_FROM", "")
+	t.Setenv("PUBLIC_BASE_URL", "")
+
 	if _, err := Load(); err == nil {
-		t.Fatal("Load() succeeded without SMTP configuration")
+		t.Fatal("Load() succeeded with partial SMTP configuration")
 	}
 }
 

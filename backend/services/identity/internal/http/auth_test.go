@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/application"
 	identitydomain "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/domain"
 )
 
@@ -19,6 +20,7 @@ type authServiceStub struct {
 	loginFn      func(context.Context, string, string) (identitydomain.Account, string, error)
 	sessionFn    func(context.Context, string) (identitydomain.Account, error)
 	logoutFn     func(context.Context, string) error
+	forgotFn     func(context.Context, string) error
 	activationFn func(context.Context, string) error
 }
 
@@ -43,7 +45,12 @@ func (s *authServiceStub) Logout(ctx context.Context, sessionID string) error {
 	return s.logoutFn(ctx, sessionID)
 }
 
-func (s *authServiceStub) RequestPasswordReset(context.Context, string) error { return nil }
+func (s *authServiceStub) RequestPasswordReset(ctx context.Context, staffID string) error {
+	if s.forgotFn != nil {
+		return s.forgotFn(ctx, staffID)
+	}
+	return nil
+}
 func (s *authServiceStub) CompletePasswordReset(context.Context, string, string) error {
 	return nil
 }
@@ -304,6 +311,40 @@ func TestActivationIssuanceUsesServiceToken(t *testing.T) {
 
 	if response.Code != http.StatusAccepted || !called {
 		t.Fatalf("status = %d, called=%v; want 202 and service call", response.Code, called)
+	}
+}
+
+func TestPasswordForgotReportsEmailDisabled(t *testing.T) {
+	service := &authServiceStub{forgotFn: func(context.Context, string) error {
+		return application.ErrEmailDeliveryUnavailable
+	}}
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/forgot", strings.NewReader(`{"staff_id":"STAFF-100"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "email_delivery_disabled") {
+		t.Fatalf("status=%d body=%s; want email delivery disabled response", response.Code, response.Body.String())
+	}
+}
+
+func TestActivationIssuanceReportsEmailDisabled(t *testing.T) {
+	accountID := "1c9491b8-21ce-4c66-a025-006bb346b810"
+	service := &authServiceStub{activationFn: func(context.Context, string) error {
+		return application.ErrEmailDeliveryUnavailable
+	}}
+	token := strings.Repeat("x", 32)
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), token)
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/accounts/"+accountID+"/activation", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "email_delivery_disabled") {
+		t.Fatalf("status=%d body=%s; want email delivery disabled response", response.Code, response.Body.String())
 	}
 }
 

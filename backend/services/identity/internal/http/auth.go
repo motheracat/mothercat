@@ -262,6 +262,10 @@ func NewAuthHandler(service AuthService, logger *slog.Logger, onboardingServiceT
 		}
 		if err := service.CreateActivationToken(r.Context(), accountID); err != nil {
 			logger.ErrorContext(r.Context(), "create account activation", "request_id", requestIDFromContext(r.Context()), "error", err)
+			if errors.Is(err, application.ErrEmailDeliveryUnavailable) {
+				writeError(w, http.StatusServiceUnavailable, "email_delivery_disabled", "account activation email is not configured", requestIDFromContext(r.Context()))
+				return
+			}
 			writeError(w, http.StatusServiceUnavailable, "activation_unavailable", "account activation could not be initiated", requestIDFromContext(r.Context()))
 			return
 		}
@@ -294,6 +298,10 @@ func handlePasswordForgot(w http.ResponseWriter, r *http.Request, service AuthSe
 		return errors.New("auth service is nil")
 	}
 	if err := service.RequestPasswordReset(r.Context(), strings.TrimSpace(payload.StaffID)); err != nil {
+		if errors.Is(err, application.ErrEmailDeliveryUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "email_delivery_disabled", "password recovery email is not configured", requestIDFromContext(r.Context()))
+			return err
+		}
 		logger.ErrorContext(r.Context(), "deliver password recovery", "request_id", requestIDFromContext(r.Context()), "error", err)
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{

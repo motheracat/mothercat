@@ -73,15 +73,18 @@ web plan if you need an uptime guarantee.
 8. Configure Organization with `IDENTITY_SERVICE_URL` (Identity HTTPS URL),
    `AUDIT_SERVICE_URL` (Audit HTTPS URL), and `AUDIT_SERVICE_TOKEN` (a fresh
    random value of at least 32 characters). Set the same audit token on Audit.
-10. Configure Identity with its Access and email settings:
+10. Configure Identity with its Access settings:
    - `ACCESS_SERVICE_URL`: Access's HTTPS Render URL.
    - `ACCESS_SERVICE_TOKEN`: a fresh random value of at least 32 characters;
      set the exact same value on Access.
    - `IDENTITY_ONBOARDING_TOKEN`: a different fresh random value of at least 32
      characters.
-   - `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, and
-     `PUBLIC_BASE_URL`: valid SMTP and HTTPS frontend settings. SMTP must
-     support STARTTLS on port 587.
+   Email is optional for now. Leave all `SMTP_*` settings and `PUBLIC_BASE_URL`
+   unset to run without email; password recovery and account activation
+   requests will return `503 email_delivery_disabled`. To enable those flows,
+   configure all SMTP settings and `PUBLIC_BASE_URL` together; SMTP must
+   support STARTTLS on port 587. If `SMTP_PORT` or any other SMTP setting was
+   previously added to Render, remove it when leaving email disabled.
 11. Deploy all four services and verify `/health/live` and `/health/ready` on
     each. `APP_ENV`, `DATABASE_SSLMODE`, and the explicit Render TLS opt-in are
     set by the Blueprint. Auto-deploy is disabled; later updates require

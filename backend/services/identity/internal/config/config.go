@@ -77,7 +77,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	smtpConfig, err := loadSMTPConfig(appEnv)
+	smtpConfig, err := loadSMTPConfig()
 	if err != nil {
 		return Config{}, err
 	}
@@ -162,7 +162,7 @@ type smtpConfig struct {
 	timeout       time.Duration
 }
 
-func loadSMTPConfig(appEnv string) (smtpConfig, error) {
+func loadSMTPConfig() (smtpConfig, error) {
 	config := smtpConfig{
 		host:          strings.TrimSpace(os.Getenv("SMTP_HOST")),
 		username:      strings.TrimSpace(os.Getenv("SMTP_USERNAME")),
@@ -173,8 +173,7 @@ func loadSMTPConfig(appEnv string) (smtpConfig, error) {
 	}
 	portValue := strings.TrimSpace(os.Getenv("SMTP_PORT"))
 	if config.host == "" && config.username == "" && config.password == "" &&
-		config.from == "" && config.publicBaseURL == "" && portValue == "" &&
-		appEnv != "production" && appEnv != "staging" {
+		config.from == "" && config.publicBaseURL == "" && portValue == "" {
 		return config, nil
 	}
 	if config.host == "" || config.username == "" || config.password == "" ||

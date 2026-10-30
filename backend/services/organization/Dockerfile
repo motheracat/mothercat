@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 	./cmd/api
 
 FROM scratch
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/am i suppoca-certificates.crt
 COPY --from=build /out/organization-api /organization-api
 
 USER 65532:65532

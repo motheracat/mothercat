@@ -31,6 +31,7 @@ const maximumPasswordLength = 72
 
 var ErrInvalidRecoveryToken = errors.New("invalid_recovery_token")
 var ErrInvalidCurrentPassword = errors.New("invalid_current_password")
+var ErrEmailDeliveryUnavailable = errors.New("email_delivery_unavailable")
 
 // Repository defines the data access contract required for Identity auth flows.
 type Repository interface {
@@ -187,8 +188,11 @@ func (s *Service) Logout(ctx context.Context, sessionToken string) error {
 }
 
 func (s *Service) RequestPasswordReset(ctx context.Context, staffID string) error {
-	if s == nil || s.repository == nil || s.mailer == nil {
-		return errors.New("password recovery is not configured")
+	if s == nil || s.repository == nil {
+		return errors.New("identity repository is unavailable")
+	}
+	if s.mailer == nil {
+		return ErrEmailDeliveryUnavailable
 	}
 	account, err := s.repository.FindByStaffID(ctx, strings.TrimSpace(staffID))
 	if err != nil {
@@ -216,8 +220,11 @@ func (s *Service) RequestPasswordReset(ctx context.Context, staffID string) erro
 // CreateActivationToken is intended for a trusted onboarding orchestrator, not
 // a public unauthenticated route. Only inactive accounts can receive one.
 func (s *Service) CreateActivationToken(ctx context.Context, accountID string) error {
-	if s == nil || s.repository == nil || s.mailer == nil {
-		return errors.New("account activation is not configured")
+	if s == nil || s.repository == nil {
+		return errors.New("identity repository is unavailable")
+	}
+	if s.mailer == nil {
+		return ErrEmailDeliveryUnavailable
 	}
 	account, err := s.repository.FindByAccountID(ctx, accountID)
 	if err != nil {

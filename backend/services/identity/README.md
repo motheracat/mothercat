@@ -34,8 +34,8 @@ service does not load `.env` files itself.
 | `ACCESS_SERVICE_TOKEN` | Production/staging | Bearer credential shared with Access; minimum 32 characters |
 | `ACCESS_SERVICE_TIMEOUT` | No | `3s`; bounded authorization lookup |
 | `IDENTITY_ONBOARDING_TOKEN` | Production/staging | Separate service credential for initiating activation email |
-| `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_PORT` | Production/staging | SMTP delivery; port must be `587` and STARTTLS is mandatory |
-| `PUBLIC_BASE_URL` | Production/staging | HTTPS frontend base URL used in reset/activation links |
+| `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_PORT` | Optional; configure all together | SMTP delivery; port must be `587` and STARTTLS is mandatory |
+| `PUBLIC_BASE_URL` | Required with SMTP | HTTPS frontend base URL used in reset/activation links |
 | `SMTP_TIMEOUT` | No | `10s`; bounds SMTP connection and send time |
 
 Production requires `sslmode=verify-full` by default, whether configuration is
@@ -69,8 +69,15 @@ internal database details.
 
 ## Account and authorization workflows
 
+Email delivery is optional while the SMTP settings are all unset. During that
+period, login and authenticated password changes continue to work, but password
+recovery and account activation cannot be initiated and return
+`503 email_delivery_disabled`. Configure all SMTP settings and
+`PUBLIC_BASE_URL` together to enable those workflows.
+
 - `POST /api/v1/auth/password/forgot` accepts `{"staff_id":"..."}` and always
-  returns a generic `202` response to avoid account enumeration.
+  returns a generic `202` when email delivery is enabled, or
+  `503 email_delivery_disabled` when email is disabled.
 - `POST /api/v1/auth/password/reset` accepts a one-time email token and matching
   new password fields.
 - `POST /api/v1/auth/password/change` requires the session cookie and current
@@ -118,7 +125,8 @@ production runtime or store for real production data.
 Before deploying the updated blueprint, set its `sync: false` variables for both
 services. Use independent random values for `ACCESS_SERVICE_TOKEN` and
 `IDENTITY_ONBOARDING_TOKEN`; configure `ACCESS_SERVICE_URL` as the Access
-service's HTTPS URL, and use SMTP credentials from a trusted provider.
+service's HTTPS URL. SMTP is optional for now; if enabled, use credentials from
+a trusted provider and configure all SMTP variables plus `PUBLIC_BASE_URL`.
 
 ## Initial SuperAdmin bootstrap
 
