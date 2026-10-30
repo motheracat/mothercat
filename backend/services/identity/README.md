@@ -18,7 +18,8 @@ service does not load `.env` files itself.
 | `PORT` | No | When set, binds to `:<PORT>`; takes precedence over `HTTP_ADDR` (Render supplies this) |
 | `HTTP_ADDR` | No | `:8080`, used when `PORT` is unset |
 | `DATABASE_URL` | One DB option | PostgreSQL URL; include `sslmode`, or provide `DATABASE_SSLMODE` explicitly |
-| `DATABASE_SSLMODE` | For URL without `sslmode` | Explicit TLS mode appended to `DATABASE_URL`; Render staging uses `require` |
+| `DATABASE_SSLMODE` | For URL without `sslmode` | Explicit TLS mode appended to `DATABASE_URL`; Render private networking uses `require` |
+| `DATABASE_ALLOW_UNVERIFIED_TLS` | No | `false`; explicitly permits `sslmode=require` in production when the database provider's private endpoint uses a self-signed certificate |
 | `POSTGRES_HOST` | Alternative DB option | `localhost` |
 | `POSTGRES_PORT` | Alternative DB option | `5432` |
 | `POSTGRES_DB` | Alternative DB option | Required when `DATABASE_URL` is unset |
@@ -30,18 +31,23 @@ service does not load `.env` files itself.
 | `HEALTH_CHECK_TIMEOUT` | No | `2s`; bounds the readiness database ping |
 | `SHUTDOWN_TIMEOUT` | No | `10s`; bounds graceful HTTP shutdown |
 
-Production requires `sslmode=verify-full` whether configuration is provided as
-a URL or as separate PostgreSQL variables. Staging requires TLS; Render's
-internal PostgreSQL connection uses a self-signed certificate, so its staging
-connection uses `sslmode=require`. Supply credentials through a secret manager
+Production requires `sslmode=verify-full` by default, whether configuration is
+provided as a URL or as separate PostgreSQL variables. Render private PostgreSQL
+connections use self-signed certificates and cannot use `verify-full`; for that
+private-network connection only, set `sslmode=require` and explicitly enable
+`DATABASE_ALLOW_UNVERIFIED_TLS=true`. This encrypts the connection but does not
+authenticate the database certificate, so keep the database private, in the
+same Render region, and block external access unless temporarily needed for
+administration. For other production database providers, leave the opt-in unset
+and use certificate verification. Supply credentials through a secret manager
 or equivalent secure runtime mechanism; do not commit them or place them in
 container build arguments.
 
 The runtime database account should have only the permissions needed by the
 Identity service. Migration credentials and migration execution are separate,
 controlled deployment concerns and must not be added to the application runtime.
-For the limited free-tier Render smoke test, migrations are run manually from a
-developer workstation; see `RENDER-STAGING.md`.
+See [`RENDER-PRODUCTION.md`](RENDER-PRODUCTION.md) for the Render deployment and
+controlled migration steps.
 
 ## Health endpoints
 
@@ -62,8 +68,8 @@ TLS termination is expected at the HTTPS edge/reverse proxy, as specified by the
 platform blueprint. Local Docker Compose configuration is for development only;
 it is not production deployment configuration.
 
-## Render staging test
+## Render deployment
 
-See [`RENDER-STAGING.md`](RENDER-STAGING.md) and `backend/render.yaml`. This
-configuration is disposable smoke-test infrastructure only; free Render Postgres
-expires after 30 days and the free web service can spin down when idle.
+See [`RENDER-PRODUCTION.md`](RENDER-PRODUCTION.md) and `backend/render.yaml`.
+Free Render resources are temporary bootstrap infrastructure, not an acceptable
+production runtime or store for real production data.

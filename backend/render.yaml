@@ -1,9 +1,9 @@
-# Disposable staging smoke test only. Do not use this Blueprint for production.
-# Render defaults both resources to Oregon; set the same region on both before
-# creating them if you need a different region.
+# Identity production deployment. The free plans are temporary bootstrap only:
+# upgrade the database before storing real production data.
+# Keep the web service and database in the same Render region.
 services:
   - type: web
-    name: mothercat-identity-test
+    name: mothercat-identity
     runtime: docker
     plan: free
     autoDeployTrigger: off
@@ -12,18 +12,18 @@ services:
     healthCheckPath: /health/ready
     envVars:
       - key: APP_ENV
-        value: staging
+        value: production
       - key: DATABASE_SSLMODE
         value: require
+      - key: DATABASE_ALLOW_UNVERIFIED_TLS
+        value: "true"
       - key: DATABASE_URL
-        fromDatabase:
-          name: mothercat-identity-test-db
-          property: connectionString
+        sync: false
 
 databases:
-  - name: mothercat-identity-test-db
-    databaseName: mothercat_identity_test
-    user: mothercat_identity_test
+  - name: mothercat-identity-db
+    databaseName: mothercat_identity
+    user: mothercat_identity_admin
     plan: free
     postgresMajorVersion: "18"
     ipAllowList: []

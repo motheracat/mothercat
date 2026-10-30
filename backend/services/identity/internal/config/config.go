@@ -48,6 +48,16 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	allowUnverifiedTLS, err := boolEnv("DATABASE_ALLOW_UNVERIFIED_TLS", false)
+	if err != nil {
+		return Config{}, fmt.Errorf("DATABASE_ALLOW_UNVERIFIED_TLS must be true or false")
+	}
+	if appEnv == "production" && allowUnverifiedTLS {
+		parsed, err := url.Parse(databaseURL)
+		if err != nil || parsed.Query().Get("sslmode") != "require" {
+			return Config{}, fmt.Errorf("DATABASE_ALLOW_UNVERIFIED_TLS is only valid with sslmode=require")
+		}
+	}
 
 	maxConns, err := int32Env("DATABASE_MAX_CONNS", defaultDatabaseMaxConns)
 	if err != nil || maxConns < 1 || maxConns > maximumDatabaseMaxConns {
@@ -144,7 +154,10 @@ func loadDatabaseURL(appEnv string) (string, error) {
 		return "", fmt.Errorf("PostgreSQL sslmode must be explicitly configured")
 	}
 	if appEnv == "production" && sslMode != "verify-full" {
-		return "", fmt.Errorf("production PostgreSQL connections require sslmode=verify-full")
+		allowUnverifiedTLS, err := boolEnv("DATABASE_ALLOW_UNVERIFIED_TLS", false)
+		if err != nil || sslMode != "require" || !allowUnverifiedTLS {
+			return "", fmt.Errorf("production PostgreSQL connections require sslmode=verify-full, or sslmode=require with DATABASE_ALLOW_UNVERIFIED_TLS=true")
+		}
 	}
 	if appEnv == "staging" && sslMode != "require" && sslMode != "verify-ca" && sslMode != "verify-full" {
 		return "", fmt.Errorf("staging PostgreSQL connections require TLS")
@@ -211,6 +224,15 @@ func durationEnv(key string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("duration outside allowed range")
 	}
 	return parsed, nil
+}
+
+func boolEnv(key string, fallback bool) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	return parsed, err
 }
 
 func env(key, fallback string) string {

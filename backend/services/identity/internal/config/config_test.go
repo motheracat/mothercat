@@ -13,6 +13,7 @@ func setLocalDatabaseEnvironment(t *testing.T) {
 	t.Setenv("PORT", "")
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("DATABASE_SSLMODE", "")
+	t.Setenv("DATABASE_ALLOW_UNVERIFIED_TLS", "")
 	t.Setenv("POSTGRES_HOST", "127.0.0.1")
 	t.Setenv("POSTGRES_PORT", "5432")
 	t.Setenv("POSTGRES_DB", "identity_test")
@@ -102,10 +103,41 @@ func TestLoadBuildsLocalDatabaseURL(t *testing.T) {
 func TestLoadRequiresVerifiedTLSInProduction(t *testing.T) {
 	setLocalDatabaseEnvironment(t)
 	t.Setenv("APP_ENV", "production")
-	t.Setenv("DATABASE_URL", "postgres://identity:secret@db.example.test/identity?sslmode=require")
+	t.Setenv("DATABASE_URL", "postgres://identity:unit-test-password@db.example.test/identity?sslmode=require")
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() succeeded with production sslmode=require; want an error")
+	}
+}
+
+func TestLoadAllowsRenderPrivateNetworkTLSInProductionWhenExplicitlyEnabled(t *testing.T) {
+	setLocalDatabaseEnvironment(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("DATABASE_URL", "postgres://identity:secret@db.example.test/identity?sslmode=require")
+	t.Setenv("DATABASE_ALLOW_UNVERIFIED_TLS", "true")
+
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestLoadRejectsUnverifiedTLSOptInWithVerifiedMode(t *testing.T) {
+	setLocalDatabaseEnvironment(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("DATABASE_URL", "postgres://identity:unit-test-password@db.example.test/identity?sslmode=verify-full")
+	t.Setenv("DATABASE_ALLOW_UNVERIFIED_TLS", "true")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() accepted DATABASE_ALLOW_UNVERIFIED_TLS with sslmode=verify-full")
+	}
+}
+
+func TestLoadRejectsInvalidUnverifiedTLSSetting(t *testing.T) {
+	setLocalDatabaseEnvironment(t)
+	t.Setenv("DATABASE_ALLOW_UNVERIFIED_TLS", "sometimes")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() accepted an invalid DATABASE_ALLOW_UNVERIFIED_TLS value")
 	}
 }
 

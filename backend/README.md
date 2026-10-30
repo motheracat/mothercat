@@ -13,4 +13,4 @@ The local database runs in Docker Compose and binds only to `127.0.0.1`. Its dat
 
 To intentionally delete local database data, run `docker compose down --volumes` from this directory. This is destructive.
 
-Database migrations are not run automatically by service startup. Per the project blueprint, migrations will be owned by their service and applied through a controlled workflow after the schema decisions are finalized. Do not reuse local credentials in staging or production.
+Database migrations are not run automatically by service startup. Per the project blueprint, migrations are owned by their service and applied through a controlled workflow. Do not reuse local credentials in production. For the Identity Render deployment, see `services/identity/RENDER-PRODUCTION.md`.

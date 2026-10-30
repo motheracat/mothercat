@@ -68,3 +68,23 @@ func TestMigrationDatabaseURLRejectsPlaintextStagingTLS(t *testing.T) {
 		t.Fatal("migrationDatabaseURL accepted plaintext staging connection")
 	}
 }
+
+func TestMigrationDatabaseURLAllowsRenderPrivateNetworkTLSInProduction(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("MIGRATION_DATABASE_URL", "postgres://identity:unit-test-password@db.example.test:5432/identity?sslmode=require")
+	t.Setenv("DATABASE_ALLOW_UNVERIFIED_TLS", "true")
+
+	if _, err := migrationDatabaseURL(); err != nil {
+		t.Fatalf("migrationDatabaseURL returned error: %v", err)
+	}
+}
+
+func TestMigrationDatabaseURLRequiresOptInForUnverifiedProductionTLS(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("MIGRATION_DATABASE_URL", "postgres://identity:unit-test-password@db.example.test:5432/identity?sslmode=require")
+	t.Setenv("DATABASE_ALLOW_UNVERIFIED_TLS", "")
+
+	if _, err := migrationDatabaseURL(); err == nil {
+		t.Fatal("migrationDatabaseURL accepted unverified production TLS without opt-in")
+	}
+}

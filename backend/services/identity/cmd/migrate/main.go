@@ -84,7 +84,9 @@ func migrationDatabaseURL() (string, error) {
 			return "", errors.New("migration database URL must contain one valid sslmode")
 		}
 		if appEnv == "production" && modes[0] != "verify-full" {
-			return "", errors.New("production migrations require sslmode=verify-full")
+			if modes[0] != "require" || !allowUnverifiedProductionTLS() {
+				return "", errors.New("production migrations require sslmode=verify-full, or sslmode=require with DATABASE_ALLOW_UNVERIFIED_TLS=true")
+			}
 		}
 		if appEnv == "staging" && modes[0] != "require" && modes[0] != "verify-ca" && modes[0] != "verify-full" {
 			return "", errors.New("staging migrations require TLS")
@@ -111,7 +113,7 @@ func migrationDatabaseURL() (string, error) {
 		sslDefault = "require"
 	}
 	sslMode := strings.TrimSpace(env("POSTGRES_SSLMODE", sslDefault))
-	if !validSSLMode(sslMode) || (appEnv == "production" && sslMode != "verify-full") || (appEnv == "staging" && sslMode != "require" && sslMode != "verify-ca" && sslMode != "verify-full") {
+	if !validSSLMode(sslMode) || (appEnv == "production" && sslMode != "verify-full" && (sslMode != "require" || !allowUnverifiedProductionTLS())) || (appEnv == "staging" && sslMode != "require" && sslMode != "verify-ca" && sslMode != "verify-full") {
 		return "", errors.New("PostgreSQL TLS mode is not allowed for this environment")
 	}
 	u := &url.URL{Scheme: "postgres", User: url.UserPassword(username, password), Host: net.JoinHostPort(host, port), Path: "/" + database}
@@ -128,6 +130,11 @@ func validSSLMode(mode string) bool {
 	default:
 		return false
 	}
+}
+
+func allowUnverifiedProductionTLS() bool {
+	value, err := strconv.ParseBool(strings.TrimSpace(os.Getenv("DATABASE_ALLOW_UNVERIFIED_TLS")))
+	return err == nil && value
 }
 
 func env(key, fallback string) string {
