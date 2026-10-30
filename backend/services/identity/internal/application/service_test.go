@@ -1,12 +1,17 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/observability"
 )
 
 type repositoryStub struct {
@@ -110,6 +115,46 @@ func TestLoginFailsClosedWhenAccessIsUnavailable(t *testing.T) {
 	}
 	if repo.sessionCreated {
 		t.Fatal("a session was created without authorization data")
+	}
+}
+
+func TestLoginLogsCorrelatedStageTimingsWithoutCredentialsOrAccountIdentifiers(t *testing.T) {
+	password := "correct-password"
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &repositoryStub{account: AccountRecord{
+		ID: "account-private-id", StaffID: "STAFF-PRIVATE-ID",
+		PasswordHash: string(passwordHash), IsActive: true,
+	}}
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	service := NewService(repo, authorizationStub{authorization: Authorization{
+		Role: "SuperAdmin", Roles: []string{"SuperAdmin"},
+	}}, nil, logger)
+	ctx := observability.ContextWithRequestID(context.Background(), "0123456789abcdef0123456789abcdef")
+
+	if _, _, err := service.Login(ctx, "STAFF-PRIVATE-ID", password); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	logs := output.String()
+	for _, expected := range []string{
+		"0123456789abcdef0123456789abcdef",
+		"identity_account_lookup",
+		"password_hash_verify",
+		"access_authorization_lookup",
+		"identity_session_persist",
+		"duration_ms",
+	} {
+		if !strings.Contains(logs, expected) {
+			t.Errorf("logs do not contain %q: %s", expected, logs)
+		}
+	}
+	for _, privateValue := range []string{password, "STAFF-PRIVATE-ID", "account-private-id"} {
+		if strings.Contains(logs, privateValue) {
+			t.Errorf("logs contain private value %q", privateValue)
+		}
 	}
 }
 

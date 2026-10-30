@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/application"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/observability"
 )
 
 const maximumResponseBytes = 32 << 10
@@ -21,9 +23,10 @@ type Client struct {
 	baseURL string
 	token   string
 	http    *http.Client
+	logger  *slog.Logger
 }
 
-func New(baseURL, token string, timeout time.Duration) (*Client, error) {
+func New(baseURL, token string, timeout time.Duration, loggers ...*slog.Logger) (*Client, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	token = strings.TrimSpace(token)
 	parsed, err := url.Parse(baseURL)
@@ -41,9 +44,14 @@ func New(baseURL, token string, timeout time.Duration) (*Client, error) {
 	if timeout <= 0 {
 		timeout = 3 * time.Second
 	}
+	logger := slog.Default()
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
 	return &Client{
 		baseURL: baseURL,
 		token:   token,
+		logger:  logger,
 		http: &http.Client{
 			Timeout: timeout,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -64,11 +72,27 @@ func (c *Client) GetAuthorization(ctx context.Context, accountID string) (applic
 	}
 	request.Header.Set("Authorization", "Bearer "+c.token)
 	request.Header.Set("Accept", "application/json")
+	requestID := observability.RequestIDFromContext(ctx)
+	if requestID != "" {
+		request.Header.Set("X-Request-ID", requestID)
+	}
+	started := time.Now()
+	statusCode := 0
+	outcome := "error"
+	defer func() {
+		c.logger.InfoContext(ctx, "Access authorization HTTP request",
+			"request_id", requestID,
+			"duration_ms", time.Since(started).Milliseconds(),
+			"status", statusCode,
+			"outcome", outcome,
+		)
+	}()
 	response, err := c.http.Do(request)
 	if err != nil {
 		return application.Authorization{}, fmt.Errorf("request Access authorization: %w", err)
 	}
 	defer response.Body.Close()
+	statusCode = response.StatusCode
 	if response.StatusCode != http.StatusOK {
 		return application.Authorization{}, fmt.Errorf("Access authorization returned HTTP %d", response.StatusCode)
 	}
@@ -82,5 +106,6 @@ func (c *Client) GetAuthorization(ctx context.Context, accountID string) (applic
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return application.Authorization{}, errors.New("Access authorization response contains trailing data")
 	}
+	outcome = "success"
 	return authorization, nil
 }

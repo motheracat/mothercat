@@ -44,7 +44,7 @@ func run(logger *slog.Logger) error {
 	authRepo := repository.NewAccountRepository(pool)
 	var authorizationProvider application.AuthorizationProvider
 	if cfg.AccessServiceURL != "" {
-		client, err := accessclient.New(cfg.AccessServiceURL, cfg.AccessServiceToken, cfg.AccessServiceTimeout)
+		client, err := accessclient.New(cfg.AccessServiceURL, cfg.AccessServiceToken, cfg.AccessServiceTimeout, logger)
 		if err != nil {
 			return fmt.Errorf("configure Access authorization client: %w", err)
 		}
@@ -62,7 +62,7 @@ func run(logger *slog.Logger) error {
 		}
 		mailer = sender
 	}
-	authService := application.NewService(authRepo, authorizationProvider, mailer)
+	authService := application.NewService(authRepo, authorizationProvider, mailer, logger)
 	baseHandler := identityhttp.NewHandler(pool, logger, cfg.HealthCheckTimeout)
 	authHandler := identityhttp.NewAuthHandler(authService, logger, cfg.OnboardingServiceToken)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

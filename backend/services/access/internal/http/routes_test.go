@@ -56,6 +56,32 @@ func TestAuthorizationReturnsRoleAndPermissions(t *testing.T) {
 	}
 }
 
+func TestAuthorizationPropagatesRequestIDWithoutLoggingUserID(t *testing.T) {
+	const requestID = "0123456789abcdef0123456789abcdef"
+	const userID = "1c9491b8-21ce-4c66-a025-006bb346b810"
+	var logs strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	handler := NewHandler(&storeStub{authorization: accessdomain.Authorization{
+		Role: "SuperAdmin", Roles: []string{"SuperAdmin"}, Permissions: []string{"roles.manage"},
+	}}, strings.Repeat("x", 32), logger)
+	request := httptest.NewRequest(http.MethodGet, "/internal/v1/users/"+userID+"/authorization", nil)
+	request.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 32))
+	request.Header.Set("X-Request-ID", requestID)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if got := response.Header().Get("X-Request-ID"); got != requestID {
+		t.Fatalf("X-Request-ID = %q, want %q", got, requestID)
+	}
+	if !strings.Contains(logs.String(), requestID) {
+		t.Fatalf("Access logs do not include request ID %q: %s", requestID, logs.String())
+	}
+	if strings.Contains(logs.String(), userID) {
+		t.Fatalf("Access logs contain the account ID: %s", logs.String())
+	}
+}
+
 func TestAuthorizationRejectsMalformedUserID(t *testing.T) {
 	handler := NewHandler(&storeStub{}, strings.Repeat("x", 32), slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	request := httptest.NewRequest(http.MethodGet, "/internal/v1/users/not-a-uuid/authorization", nil)

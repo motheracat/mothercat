@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode"
@@ -15,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	identitydomain "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/domain"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/observability"
 )
 
 var ErrInactiveAccount = errors.New("inactive_account")
@@ -73,10 +75,15 @@ type Service struct {
 	repository     Repository
 	authorizations AuthorizationProvider
 	mailer         Mailer
+	logger         *slog.Logger
 }
 
-func NewService(repository Repository, authorizations AuthorizationProvider, mailer Mailer) *Service {
-	return &Service{repository: repository, authorizations: authorizations, mailer: mailer}
+func NewService(repository Repository, authorizations AuthorizationProvider, mailer Mailer, loggers ...*slog.Logger) *Service {
+	logger := slog.Default()
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
+	return &Service{repository: repository, authorizations: authorizations, mailer: mailer, logger: logger}
 }
 
 func (s *Service) Login(ctx context.Context, staffID, password string) (identitydomain.Account, string, error) {
@@ -87,28 +94,47 @@ func (s *Service) Login(ctx context.Context, staffID, password string) (identity
 		return identitydomain.Account{}, "", identitydomain.ErrInvalidCredentials
 	}
 
+	started := time.Now()
 	accountRecord, err := s.repository.FindByStaffID(ctx, staffID)
 	if err != nil {
+		outcome := "error"
+		if errors.Is(err, ErrAccountNotFound) {
+			outcome = "not_found"
+		}
+		s.logAuthStage(ctx, "identity_account_lookup", started, outcome)
 		if !errors.Is(err, ErrAccountNotFound) {
 			return identitydomain.Account{}, "", err
 		}
+		started = time.Now()
 		if eventErr := s.repository.RecordAuthenticationEvent(ctx, staffID, nil, false); eventErr != nil {
+			s.logAuthStage(ctx, "identity_auth_event_write", started, "error")
 			return identitydomain.Account{}, "", eventErr
 		}
+		s.logAuthStage(ctx, "identity_auth_event_write", started, "success")
 		return identitydomain.Account{}, "", identitydomain.ErrInvalidCredentials
 	}
+	s.logAuthStage(ctx, "identity_account_lookup", started, "found")
 	if !accountRecord.IsActive {
+		started = time.Now()
 		if eventErr := s.repository.RecordAuthenticationEvent(ctx, staffID, &accountRecord.ID, false); eventErr != nil {
+			s.logAuthStage(ctx, "identity_auth_event_write", started, "error")
 			return identitydomain.Account{}, "", eventErr
 		}
+		s.logAuthStage(ctx, "identity_auth_event_write", started, "success")
 		return identitydomain.Account{}, "", identitydomain.ErrInvalidCredentials
 	}
+	started = time.Now()
 	if err := verifyPasswordHash(accountRecord.PasswordHash, password); err != nil {
+		s.logAuthStage(ctx, "password_hash_verify", started, "invalid")
+		started = time.Now()
 		if eventErr := s.repository.RecordAuthenticationEvent(ctx, staffID, &accountRecord.ID, false); eventErr != nil {
+			s.logAuthStage(ctx, "identity_auth_event_write", started, "error")
 			return identitydomain.Account{}, "", eventErr
 		}
+		s.logAuthStage(ctx, "identity_auth_event_write", started, "success")
 		return identitydomain.Account{}, "", identitydomain.ErrInvalidCredentials
 	}
+	s.logAuthStage(ctx, "password_hash_verify", started, "valid")
 	authorization, err := s.authorization(ctx, accountRecord.ID)
 	if err != nil {
 		return identitydomain.Account{}, "", err
@@ -118,9 +144,12 @@ func (s *Service) Login(ctx context.Context, staffID, password string) (identity
 	if err != nil {
 		return identitydomain.Account{}, "", err
 	}
+	started = time.Now()
 	if err := s.repository.CreateSession(ctx, accountRecord.ID, accountRecord.StaffID, sessionToken, time.Now().Add(SessionTTL)); err != nil {
+		s.logAuthStage(ctx, "identity_session_persist", started, "error")
 		return identitydomain.Account{}, "", err
 	}
+	s.logAuthStage(ctx, "identity_session_persist", started, "success")
 
 	return publicAccount(accountRecord, authorization), sessionToken, nil
 }
@@ -129,13 +158,20 @@ func (s *Service) ResolveSession(ctx context.Context, sessionToken string) (iden
 	if s == nil || s.repository == nil {
 		return identitydomain.Account{}, identitydomain.ErrInvalidCredentials
 	}
+	started := time.Now()
 	accountRecord, err := s.repository.FindBySessionToken(ctx, sessionToken)
 	if err != nil {
+		outcome := "error"
+		if errors.Is(err, ErrSessionNotFound) {
+			outcome = "not_found"
+		}
+		s.logAuthStage(ctx, "identity_session_lookup", started, outcome)
 		if errors.Is(err, ErrSessionNotFound) {
 			return identitydomain.Account{}, identitydomain.ErrInvalidCredentials
 		}
 		return identitydomain.Account{}, err
 	}
+	s.logAuthStage(ctx, "identity_session_lookup", started, "found")
 	authorization, err := s.authorization(ctx, accountRecord.ID)
 	if err != nil {
 		return identitydomain.Account{}, err
@@ -258,12 +294,16 @@ func (s *Service) ChangePassword(ctx context.Context, sessionToken, currentPassw
 
 func (s *Service) authorization(ctx context.Context, accountID string) (Authorization, error) {
 	if s.authorizations == nil {
+		s.logAuthStage(ctx, "access_authorization_lookup", time.Now(), "not_configured")
 		return Authorization{Role: "Staff", Roles: []string{}, Permissions: []string{}}, nil
 	}
+	started := time.Now()
 	authorization, err := s.authorizations.GetAuthorization(ctx, accountID)
 	if err != nil {
+		s.logAuthStage(ctx, "access_authorization_lookup", started, "error")
 		return Authorization{}, fmt.Errorf("retrieve account authorization: %w", err)
 	}
+	s.logAuthStage(ctx, "access_authorization_lookup", started, "success")
 	if authorization.Roles == nil {
 		authorization.Roles = []string{}
 	}
@@ -277,6 +317,18 @@ func (s *Service) authorization(ctx context.Context, accountID string) (Authoriz
 		authorization.Role = "Staff"
 	}
 	return authorization, nil
+}
+
+func (s *Service) logAuthStage(ctx context.Context, stage string, started time.Time, outcome string) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.InfoContext(ctx, "authentication stage",
+		"request_id", observability.RequestIDFromContext(ctx),
+		"stage", stage,
+		"duration_ms", time.Since(started).Milliseconds(),
+		"outcome", outcome,
+	)
 }
 
 func publicAccount(record AccountRecord, authorization Authorization) identitydomain.Account {

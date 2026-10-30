@@ -91,6 +91,17 @@ Login and session responses include `role`, `roles`, and `permissions` resolved
 from Access. A configured Access failure fails authentication closed rather
 than returning stale or empty authorization.
 
+## Authentication timing logs
+
+Each Identity request logs its route, status, request ID, and total
+`duration_ms`. Login additionally emits `authentication stage` entries with
+the same request ID and a `duration_ms` for account lookup, password hash
+verification, Access authorization, and session persistence. Identity also
+forwards the request ID to Access, whose logs report total request duration and
+the authorization database lookup duration. Search both services' logs for the
+same request ID to isolate latency. Logs deliberately omit passwords, session
+tokens, staff IDs, and account IDs.
+
 ## Container
 
 Build the image with this directory as its build context. It uses a pinned Go

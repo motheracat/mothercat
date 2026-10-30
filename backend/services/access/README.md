@@ -9,6 +9,9 @@ are returned:
 - `GET /health/live` is process-only health; `GET /health/ready` also checks
   PostgreSQL.
 - There is no public role-management or bootstrap route.
+- Structured logs include request ID, route, HTTP duration, and the duration of
+  the authorization database lookup. Identity forwards its request ID so a
+  login can be traced across both services.
 
 ## Runtime configuration
 

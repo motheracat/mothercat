@@ -9,13 +9,13 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/observability"
 )
 
 type pinger interface {
 	Ping(context.Context) error
 }
-
-type requestIDKey struct{}
 
 // NewHandler registers operational endpoints. Business routes are intentionally
 // absent until their API contracts and persistence behavior are implemented.
@@ -59,7 +59,7 @@ func requestIDMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 			logger.Error("generate request correlation ID", "error", err)
 			requestID = "unavailable"
 		}
-		ctx := context.WithValue(r.Context(), requestIDKey{}, requestID)
+		ctx := observability.ContextWithRequestID(r.Context(), requestID)
 		w.Header().Set("X-Request-ID", requestID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -148,8 +148,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 
 func requestIDFromContext(ctx context.Context) string {
-	requestID, _ := ctx.Value(requestIDKey{}).(string)
-	return requestID
+	return observability.RequestIDFromContext(ctx)
 }
 
 func newRequestID() (string, error) {
