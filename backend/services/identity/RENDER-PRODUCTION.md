@@ -23,8 +23,8 @@ web plan if you need an uptime guarantee.
 4. Wait for the database to be available. The Blueprint leaves `DATABASE_URL`
    unsynced intentionally; do not use the database's owner connection string as
    the API's permanent runtime credential.
-5. Apply the Identity migrations using the database owner credentials as
-   described below.
+5. Apply the Identity, Access, and Audit migrations using the database owner
+   credentials as described below.
 6. Create a restricted runtime database role and grant it only the access
    Identity uses. In `psql`, connected as the database owner:
 
@@ -75,7 +75,8 @@ allow only your current public IP as a `/32` in the Render database's external
 access settings. Copy the database owner's external URL from Render and add
 `sslmode=require` if it is not already present. Do not open access to all IPs.
 
-From `backend/services/identity`, run:
+From `backend/services/identity`, run the versioned migrations owned by each
+service:
 
 ```sh
 read -rsp 'Render external PostgreSQL URL: ' MIGRATION_DATABASE_URL
@@ -83,13 +84,54 @@ printf '\n'
 export MIGRATION_DATABASE_URL
 export APP_ENV=production DATABASE_SSLMODE=require DATABASE_ALLOW_UNVERIFIED_TLS=true
 go run ./cmd/migrate -dir migrations
+cd ../access
+go run ./cmd/migrate -dir migrations
+cd ../audit
+go run ./cmd/migrate -dir migrations
 unset MIGRATION_DATABASE_URL
+cd ../identity
+cd ../..
 ```
 
 Paste the owner URL only at the terminal prompt; never commit or send it in chat.
-The migration runner records versions and checksums, and is safe to rerun. After
-the role and grants are configured, remove the temporary external IP allowlist
-entry and use only the restricted runtime URL in the Render service.
+Each migration runner records versions and checksums and is safe to rerun.
+Keep the temporary external IP allowlist entry until the initial administrator
+bootstrap is complete; then remove it and use only the restricted runtime URL
+in the Render service.
+
+## Bootstrap the initial SuperAdmin
+
+The bootstrap command is operator-run and does not add a public setup route. It
+creates the account inactive, assigns the initial Milestone 1 SuperAdmin
+permissions through Access, writes the Audit event, and only then activates the
+account and consumes the secret. Keep the temporary IP allowlist in place only
+for this operation.
+
+From `backend`, generate a 32-byte random secret in the current shell, give it
+a 30-minute expiry, and read the external database URL without echoing it:
+
+```sh
+export APP_ENV=production DATABASE_ALLOW_UNVERIFIED_TLS=true
+export BOOTSTRAP_SECRET="$(openssl rand -hex 32)"
+export BOOTSTRAP_SECRET_EXPIRES_AT="$(date -u -d '+30 minutes' '+%Y-%m-%dT%H:%M:%SZ')"
+read -rsp 'Render external PostgreSQL URL: ' BOOTSTRAP_DATABASE_URL
+printf '\n'
+export BOOTSTRAP_DATABASE_URL
+cd cmd/bootstrap-superadmin
+go run .
+unset BOOTSTRAP_SECRET BOOTSTRAP_SECRET_EXPIRES_AT BOOTSTRAP_DATABASE_URL
+```
+
+The command prompts for the initial staff ID, email, display name, and a strong
+password (hidden input; minimum 14 characters and at least three character
+classes). It requires the database-owner URL in `BOOTSTRAP_DATABASE_URL` because
+the operation writes through the Identity-, Access-, and Audit-owned bootstrap
+packages. Do not place that URL or bootstrap secret in the running API service.
+The database stores only the secret hash and clears it after success. If a
+service step fails, the account remains inactive; retry with the same secret
+and password before it expires. If the secret expires, generate a new one and
+rerun with the original account details and password. After successful
+completion, remove the temporary external IP allowlist entry immediately.
 
 ## Verify and upgrade
 
@@ -104,5 +146,7 @@ entry and use only the restricted runtime URL in the Render service.
 - Review the migration output and verify the restricted runtime account can log
   in and use Identity while it cannot alter schemas or tables.
 
-This deployment runs only the Identity API. The other backend services are not
-included in this Blueprint and are not yet implemented for production use.
+This Render Blueprint deploys only the Identity API. The Access and Audit
+bootstrap packages persist the initial role assignment and audit event, but
+their public APIs and the rest of the staff-onboarding workflow are not yet
+implemented or deployed.

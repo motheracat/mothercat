@@ -1,15 +1,15 @@
 BACKEND_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-GO_MODULES := services/identity services/organization services/access services/audit
+GO_MODULES := services/identity services/organization services/access services/audit cmd/bootstrap-superadmin
 COMPOSE = cd "$(BACKEND_DIR)" && docker compose
 
 .PHONY: format format-check check-go-modules test vet build security quality db-config-check db-check db-up db-down db-status db-logs
 
 format:
-	@find "$(BACKEND_DIR)/services" -type f -name '*.go' -print0 | xargs -0 -r gofmt -w
+	@find "$(BACKEND_DIR)/services" "$(BACKEND_DIR)/cmd" -type f -name '*.go' -print0 | xargs -0 -r gofmt -w
 
 format-check:
 	@set -eu; \
-	files="$$(find "$(BACKEND_DIR)/services" -type f -name '*.go' -print0 | xargs -0 -r gofmt -l)"; \
+	files="$$(find "$(BACKEND_DIR)/services" "$(BACKEND_DIR)/cmd" -type f -name '*.go' -print0 | xargs -0 -r gofmt -l)"; \
 	if [ -n "$$files" ]; then \
 		printf '%s\n' "Go files need formatting:" "$$files" >&2; \
 		exit 1; \

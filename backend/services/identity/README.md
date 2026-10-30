@@ -3,8 +3,9 @@
 This service currently provides operational health endpoints and the initial
 login, session lookup, and logout APIs. Account activation, recovery, password
 change, Access integration, and complete onboarding workflows remain future
-work. It does not create mock users, fabricate business responses, or run
-database migrations at startup.
+work. The restricted initial SuperAdmin bootstrap command is documented below;
+there is no public account-creation route. The service does not create mock users,
+fabricate business responses, or run database migrations at startup.
 
 ## Runtime configuration
 
@@ -73,3 +74,23 @@ it is not production deployment configuration.
 See [`RENDER-PRODUCTION.md`](RENDER-PRODUCTION.md) and `backend/render.yaml`.
 Free Render resources are temporary bootstrap infrastructure, not an acceptable
 production runtime or store for real production data.
+
+## Initial SuperAdmin bootstrap
+
+The initial administrator is created through the operator-only
+`backend/cmd/bootstrap-superadmin` command. It reads account fields from a
+terminal, reads the password without echoing it, creates the Identity account
+inactive, assigns the system SuperAdmin permissions through the Access-owned
+bootstrap package, records an immutable initialization event through the
+Audit-owned package, then activates the account and consumes the short-lived
+secret. No public setup endpoint is registered.
+
+Apply migrations for Identity, Access, and Audit before running the command.
+The bootstrap command requires `BOOTSTRAP_DATABASE_URL`, `BOOTSTRAP_SECRET`,
+`BOOTSTRAP_SECRET_EXPIRES_AT` (RFC3339, no more than one hour ahead), and
+`APP_ENV`. The connection is elevated and temporary; do not use the running
+Identity service's runtime database credential. See
+[`RENDER-PRODUCTION.md`](RENDER-PRODUCTION.md) for the complete procedure.
+If a step fails, the account remains inactive. Retry with the same secret and
+password before expiry; after expiry, issue a new short-lived secret and retry.
+Remove the secret from the environment/secret store after success.

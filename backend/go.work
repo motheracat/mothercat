@@ -5,4 +5,5 @@ use (
 	./services/organization
 	./services/access
 	./services/audit
+	./cmd/bootstrap-superadmin
 )
