@@ -25,7 +25,8 @@ staging environment first.
    to the API deployment rather than allowing all IP addresses.
 3. Create a runtime database user with only the required read/write privileges on the
    application database. Use a different restricted operator identity for collection
-   validators, index setup, and initial administrator provisioning.
+   validators and index setup. The one-time bootstrap endpoint uses the API's runtime
+   database identity and needs write access to the Identity, Access, and Audit data.
 4. Store the URI in the hosting provider's secret manager. Prefer the DNS seed-list
    URI (`mongodb+srv://...`) provided by the cluster. Never commit it, paste it into
    logs, or expose it to the frontend.
