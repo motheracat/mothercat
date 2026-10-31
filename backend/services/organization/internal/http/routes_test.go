@@ -15,10 +15,10 @@ import (
 )
 
 type staffStoreStub struct {
-	staff   domain.Staff
-	err     error
-	created bool
-	request domain.CreateStaffRequest
+	staff     domain.Staff
+	err       error
+	created   bool
+	request   domain.CreateStaffRequest
 	completed bool
 }
 
@@ -27,29 +27,6 @@ func (store *staffStoreStub) Create(_ context.Context, id string, request domain
 	store.created, store.request = true, request
 	if store.err != nil {
 		return domain.Staff{}, store.err
-	}
-	func (store *staffStoreStub) FindByID(_ context.Context, id string) (domain.Staff, error) {
-		if store.err != nil {
-			return domain.Staff{}, store.err
-		}
-		staff := store.staff
-		if staff.ID == "" {
-			staff.ID = id
-		}
-		if staff.ID != id {
-			return domain.Staff{}, domain.ErrStaffNotFound
-		}
-		return staff, nil
-	}
-	func (store *staffStoreStub) CompleteProvisioning(_ context.Context, staffID, accountID string) (domain.Staff, error) {
-		if store.err != nil {
-			return domain.Staff{}, store.err
-		}
-		store.completed = true
-		store.staff.ID = staffID
-		store.staff.AccountID = &accountID
-		store.staff.EmploymentStatus = "active"
-		return store.staff, nil
 	}
 	staff := store.staff
 	staff.ID = id
@@ -60,6 +37,31 @@ func (store *staffStoreStub) Create(_ context.Context, id string, request domain
 	staff.DepartmentID = request.DepartmentID
 	staff.EmploymentStatus = "pending"
 	return staff, nil
+}
+
+func (store *staffStoreStub) FindByID(_ context.Context, id string) (domain.Staff, error) {
+	if store.err != nil {
+		return domain.Staff{}, store.err
+	}
+	staff := store.staff
+	if staff.ID == "" {
+		staff.ID = id
+	}
+	if staff.ID != id {
+		return domain.Staff{}, domain.ErrStaffNotFound
+	}
+	return staff, nil
+}
+
+func (store *staffStoreStub) CompleteProvisioning(_ context.Context, staffID, accountID string) (domain.Staff, error) {
+	if store.err != nil {
+		return domain.Staff{}, store.err
+	}
+	store.completed = true
+	store.staff.ID = staffID
+	store.staff.AccountID = &accountID
+	store.staff.EmploymentStatus = "active"
+	return store.staff, nil
 }
 
 type authenticatorStub struct {
@@ -87,11 +89,11 @@ func (audit *auditStub) Record(_ context.Context, event application.AuditEvent) 
 }
 
 type onboardingIdentityStub struct {
-	accountID    string
-	provisionErr error
+	accountID     string
+	provisionErr  error
 	activationErr error
-	provisioned  bool
-	activated    bool
+	provisioned   bool
+	activated     bool
 }
 
 func (identity *onboardingIdentityStub) ProvisionAccount(_ context.Context, _, _, _ string) (string, error) {
@@ -247,100 +249,100 @@ func TestCreateStaffRejectsUnknownJSONFields(t *testing.T) {
 	if response.Code != http.StatusBadRequest || store.created {
 		t.Fatalf("status=%d created=%v; want 400 with no write", response.Code, store.created)
 	}
+}
 
-	func TestProvisionStaffCreatesInactiveAccountAssignsStaffRoleAndSendsInvitation(t *testing.T) {
-		const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
-		const accountID = "1c9491b8-21ce-4c66-a025-006bb346b810"
-		email := "staff@example.test"
-		store := &staffStoreStub{staff: domain.Staff{
-			ID: staffID, StaffID: "ENG-104", FullName: "Ada Okafor",
-			WorkEmail: &email, EmploymentStatus: "pending",
-		}}
-		identity := &onboardingIdentityStub{accountID: accountID}
-		access := &staffRoleAssignerStub{}
-		audit := &auditStub{}
-		services := application.OnboardingServices{Identity: identity, Access: access}
-		handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, audit,
-			slog.New(slog.NewJSONHandler(io.Discard, nil)), services)
-		response := httptest.NewRecorder()
+func TestProvisionStaffCreatesInactiveAccountAssignsStaffRoleAndSendsInvitation(t *testing.T) {
+	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
+	const accountID = "1c9491b8-21ce-4c66-a025-006bb346b810"
+	email := "staff@example.test"
+	store := &staffStoreStub{staff: domain.Staff{
+		ID: staffID, StaffID: "ENG-104", FullName: "Ada Okafor",
+		WorkEmail: &email, EmploymentStatus: "pending",
+	}}
+	identity := &onboardingIdentityStub{accountID: accountID}
+	access := &staffRoleAssignerStub{}
+	audit := &auditStub{}
+	services := application.OnboardingServices{Identity: identity, Access: access}
+	handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, audit,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)), services)
+	response := httptest.NewRecorder()
 
-		handler.ServeHTTP(response, provisionRequest(staffID))
+	handler.ServeHTTP(response, provisionRequest(staffID))
 
-		if response.Code != http.StatusOK {
-			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
-		}
-		if !identity.provisioned || !access.called || access.accountID != accountID ||
-			!identity.activated || !store.completed {
-			t.Fatalf("provisioned=%v assigned=%v activated=%v completed=%v", identity.provisioned, access.called, identity.activated, store.completed)
-		}
-		if len(audit.events) != 2 || audit.events[0].Action != "staff.provision.requested" ||
-			audit.events[1].Action != "staff.provision.completed" {
-			t.Fatalf("audit events = %+v", audit.events)
-		}
-		if !strings.Contains(response.Body.String(), `"employment_status":"active"`) ||
-			!strings.Contains(response.Body.String(), `"invitation_sent":true`) {
-			t.Fatalf("response does not report completed provisioning: %s", response.Body.String())
-		}
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-
-	func TestProvisionStaffRequiresRoleAssignmentPermission(t *testing.T) {
-		const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
-		store := &staffStoreStub{staff: domain.Staff{ID: staffID}}
-		identity := &onboardingIdentityStub{}
-		access := &staffRoleAssignerStub{}
-		services := application.OnboardingServices{Identity: identity, Access: access}
-		auth := &authenticatorStub{principal: application.Principal{
-			ID: authorizedPrincipal().ID, Permissions: []string{"staff.create"},
-		}}
-		handler := NewHandler(store, auth, &auditStub{}, slog.New(slog.NewJSONHandler(io.Discard, nil)), services)
-		response := httptest.NewRecorder()
-
-		handler.ServeHTTP(response, provisionRequest(staffID))
-
-		if response.Code != http.StatusForbidden || identity.provisioned || access.called {
-			t.Fatalf("status=%d provisioned=%v roleAssigned=%v", response.Code, identity.provisioned, access.called)
-		}
+	if !identity.provisioned || !access.called || access.accountID != accountID ||
+		!identity.activated || !store.completed {
+		t.Fatalf("provisioned=%v assigned=%v activated=%v completed=%v", identity.provisioned, access.called, identity.activated, store.completed)
 	}
-
-	func TestProvisionStaffRequiresWorkEmail(t *testing.T) {
-		const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
-		store := &staffStoreStub{staff: domain.Staff{ID: staffID, EmploymentStatus: "pending"}}
-		identity := &onboardingIdentityStub{}
-		access := &staffRoleAssignerStub{}
-		audit := &auditStub{}
-		services := application.OnboardingServices{Identity: identity, Access: access}
-		handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, audit,
-			slog.New(slog.NewJSONHandler(io.Discard, nil)), services)
-		response := httptest.NewRecorder()
-
-		handler.ServeHTTP(response, provisionRequest(staffID))
-
-		if response.Code != http.StatusBadRequest || identity.provisioned || audit.called {
-			t.Fatalf("status=%d provisioned=%v audit=%v", response.Code, identity.provisioned, audit.called)
-		}
+	if len(audit.events) != 2 || audit.events[0].Action != "staff.provision.requested" ||
+		audit.events[1].Action != "staff.provision.completed" {
+		t.Fatalf("audit events = %+v", audit.events)
 	}
+	if !strings.Contains(response.Body.String(), `"employment_status":"active"`) ||
+		!strings.Contains(response.Body.String(), `"invitation_sent":true`) {
+		t.Fatalf("response does not report completed provisioning: %s", response.Body.String())
+	}
+}
 
-	func TestProvisionStaffLeavesRecordPendingWhenEmailIsUnavailable(t *testing.T) {
-		const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
-		const accountID = "1c9491b8-21ce-4c66-a025-006bb346b810"
-		email := "staff@example.test"
-		store := &staffStoreStub{staff: domain.Staff{
-			ID: staffID, StaffID: "ENG-104", FullName: "Ada Okafor",
-			WorkEmail: &email, EmploymentStatus: "pending",
-		}}
-		identity := &onboardingIdentityStub{accountID: accountID, activationErr: application.ErrEmailDeliveryUnavailable}
-		access := &staffRoleAssignerStub{}
-		audit := &auditStub{}
-		services := application.OnboardingServices{Identity: identity, Access: access}
-		handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, audit,
-			slog.New(slog.NewJSONHandler(io.Discard, nil)), services)
-		response := httptest.NewRecorder()
+func TestProvisionStaffRequiresRoleAssignmentPermission(t *testing.T) {
+	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
+	store := &staffStoreStub{staff: domain.Staff{ID: staffID}}
+	identity := &onboardingIdentityStub{}
+	access := &staffRoleAssignerStub{}
+	services := application.OnboardingServices{Identity: identity, Access: access}
+	auth := &authenticatorStub{principal: application.Principal{
+		ID: authorizedPrincipal().ID, Permissions: []string{"staff.create"},
+	}}
+	handler := NewHandler(store, auth, &auditStub{}, slog.New(slog.NewJSONHandler(io.Discard, nil)), services)
+	response := httptest.NewRecorder()
 
-		handler.ServeHTTP(response, provisionRequest(staffID))
+	handler.ServeHTTP(response, provisionRequest(staffID))
 
-		if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "email_delivery_disabled") ||
-			store.completed {
-			t.Fatalf("status=%d completed=%v body=%s", response.Code, store.completed, response.Body.String())
-		}
+	if response.Code != http.StatusForbidden || identity.provisioned || access.called {
+		t.Fatalf("status=%d provisioned=%v roleAssigned=%v", response.Code, identity.provisioned, access.called)
+	}
+}
+
+func TestProvisionStaffRequiresWorkEmail(t *testing.T) {
+	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
+	store := &staffStoreStub{staff: domain.Staff{ID: staffID, EmploymentStatus: "pending"}}
+	identity := &onboardingIdentityStub{}
+	access := &staffRoleAssignerStub{}
+	audit := &auditStub{}
+	services := application.OnboardingServices{Identity: identity, Access: access}
+	handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, audit,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)), services)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, provisionRequest(staffID))
+
+	if response.Code != http.StatusBadRequest || identity.provisioned || audit.called {
+		t.Fatalf("status=%d provisioned=%v audit=%v", response.Code, identity.provisioned, audit.called)
+	}
+}
+
+func TestProvisionStaffLeavesRecordPendingWhenEmailIsUnavailable(t *testing.T) {
+	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
+	const accountID = "1c9491b8-21ce-4c66-a025-006bb346b810"
+	email := "staff@example.test"
+	store := &staffStoreStub{staff: domain.Staff{
+		ID: staffID, StaffID: "ENG-104", FullName: "Ada Okafor",
+		WorkEmail: &email, EmploymentStatus: "pending",
+	}}
+	identity := &onboardingIdentityStub{accountID: accountID, activationErr: application.ErrEmailDeliveryUnavailable}
+	access := &staffRoleAssignerStub{}
+	audit := &auditStub{}
+	services := application.OnboardingServices{Identity: identity, Access: access}
+	handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, audit,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)), services)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, provisionRequest(staffID))
+
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "email_delivery_disabled") ||
+		store.completed {
+		t.Fatalf("status=%d completed=%v body=%s", response.Code, store.completed, response.Body.String())
 	}
 }

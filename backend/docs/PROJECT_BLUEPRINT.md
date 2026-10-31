@@ -2,14 +2,14 @@
 
 This note is a concise backend-focused reference derived from the supplied *Construction & Civil Engineering Management System: Project Breakdown and Implementation Blueprint* (19 pages). The supplied PDF remains authoritative if this summary omits or conflicts with a detail. Review this note before backend implementation; keep all code and documentation changes inside `backend/` unless the user explicitly changes that scope.
 
-## Fixed architecture
+## Target architecture
 
-- Backend: independently runnable Go services with versioned REST/JSON APIs under `/api/v1`.
-- Initial services: Identity, Organization, Access, and Audit. Do not split further without a workflow need.
-- Persistence: PostgreSQL; one schema owned by each service. Each service owns its schema, migrations, and queries. Other services interact through APIs or explicit integration contracts, not direct writes to another service's tables.
-- Each service is its own Go module with `cmd/api/main.go`, `internal/{config,domain,application,repository,http,observability}`, `internal/http/{handlers,middleware,routes.go}`, `migrations/`, `tests/`, `Dockerfile`, `go.mod`, and `README.md`.
-- OpenAPI contracts live in `contracts/openapi/`, one specification per service. Migrations live with their owning service and are run through a controlled deployment workflow, not automatically by every service at startup.
-- Start with managed hosting; no Kubernetes or message broker in the first release. Use HTTP between services initially.
+- Backend: one deployable Go modular monolith, one public HTTP server, and versioned REST/JSON APIs. Keep Identity, Organization, Access, and Audit as internal packages/modules for maintainability, not separate deployed services.
+- Persistence: one MongoDB database accessed through a single long-lived MongoDB client. Keep collections logically separated by domain (`user_accounts`, `user_sessions`, `staff_members`, `roles`, `audit_events`, and related collections). Use a controlled MongoDB setup command for indexes and validators.
+- Cross-domain operations run through in-process application interfaces. Do not make the server call its own public listener or retain inter-service URLs/tokens when consolidating.
+- Keep current public API paths and response shapes where practical so the frontend does not need an unrelated rewrite.
+- Deploy one API application and the frontend, plus a managed MongoDB deployment. Do not add Kubernetes or a message broker in the first release.
+- **Implementation status:** the backend runs as one Go server using MongoDB. Identity, Organization, Access, and Audit remain internal Go modules; their operations communicate in-process. The current API is partial; full API coverage, collection validators, and replica-set integration coverage are not yet implemented or verified. The initial administrator bootstrap is available as a one-time, token-protected endpoint. Do not treat the prototype as production-ready until the remaining items are complete.
 
 ## Service ownership
 
@@ -20,7 +20,7 @@ This note is a concise backend-focused reference derived from the supplied *Cons
 
 ## API scope from Milestone 1
 
-- Identity: `POST /auth/login`, `POST /auth/logout`, `GET /auth/session`, `POST /auth/password/forgot`, `POST /auth/password/reset`, `POST /auth/password/change`, `POST /auth/activation/complete`.
+- Identity: one-time `POST /api/v1/auth/bootstrap`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/session`, `POST /auth/password/forgot`, `POST /auth/password/reset`, `POST /auth/password/change`, `POST /auth/activation/complete`.
 - Organization: staff list/create/get/update/deactivate/import and import-status endpoints; department list/create/update endpoints.
 - Access: role list/create/update; permission list; replace role permissions; inspect and assign user roles.
 - Audit: paginated/filterable audit-event search and authorized event retrieval. No general edit/delete endpoint.
@@ -33,33 +33,36 @@ This note is a concise backend-focused reference derived from the supplied *Cons
 - Revoke sessions on logout, password reset, account suspension, and configured security events. Define a revocation window if session/permission data is cached.
 - Use generic login failures and rate limits. Recovery/activation tokens must be random, short-lived, single-use, and stored securely.
 - Never hardcode staff accounts/credentials, expose password hashes or secrets, or trust frontend authorization as enforcement. No local-storage authoritative business data or fake success behavior.
-- Bootstrap the initial administrator through a restricted, one-time operation with a short-lived secret, no permanent public setup endpoint, and an audit record.
+- Bootstrap the initial administrator through a one-time endpoint protected by a high-entropy secret, with atomic database closure after success and an audit record. Never expose the endpoint without the secret or retain the secret after setup.
 
-## Data, migrations, and cross-service workflows
+## Data and cross-domain workflows
 
-- The PDF's schema/table listing is illustrative, not a finalized production schema. Before the first migration, finalize identity account/session tables, audit fields, cross-service foreign-key/integrity strategy, and exact status constraints.
-- Use versioned SQL migrations (the PDF suggests golang-migrate). Test clean installs and representative upgrades. Use expand-and-contract for zero-downtime changes; document rollback/forward recovery.
-- Keep separate least-privilege migration and runtime database credentials; runtime services must not alter arbitrary schemas. Never put real credentials or production data in migrations or fixtures.
-- Staff onboarding spans services: prepare account (Identity), associate staff (Organization), assign authorized role (Access), record action (Audit). Use an explicit orchestrated workflow with idempotency, retries, and compensations; keep the account pending/unusable until required steps succeed. Do not claim a distributed transaction.
+- MongoDB has no relational foreign keys; validate references in application code and create unique/compound indexes for identifiers, lookup paths, and idempotency keys.
+- Set schema validation for security-sensitive collections. Apply index and validator changes using an explicit, versioned database setup command/job, never from every application replica at startup.
+- Identity flows that update multiple documents (for example password recovery plus session revocation) must use MongoDB transactions. The target MongoDB deployment must support transactions (a replica set or sharded cluster); a standalone `mongod` is insufficient.
+- Keep production data out of source, fixtures, and logs. Grant the runtime database user only the required database/collection permissions; use a separate restricted operator identity for setup and bootstrap.
+- Staff onboarding spans domains: prepare account, associate staff, assign authorized role, and record action. Keep the account pending/unusable until required steps succeed. Use an explicit idempotent workflow and compensation for partial failure; use a transaction only where all involved writes are in the same MongoDB deployment and transaction boundary.
+- Every runtime and database setup operation must use the supplied MongoDB connection URI through `MONGODB_URI` and the explicit `MONGODB_DATABASE`, provided by the deployment environment or secret store. Do not use a local MongoDB instance, localhost URI, or local-database fallback. A connection string configures connectivity; it does not create application indexes or validators.
+- Use Brevo for transactional email. Add Cloudinary only with a defined media-upload feature; do not store Cloudinary credentials in frontend code.
 
 ## Production and verification bar
 
-- Production deployments require separate staging/production environments, HTTPS, managed secrets, restricted/private database connectivity where supported, backups and tested restore, controlled migration jobs, rollback plans, resource/scaling limits, and least-privilege credentials per service.
-- Services need health/readiness endpoints, structured JSON logs with correlation IDs, metrics/error monitoring, and graceful shutdown.
-- Verify with formatting, vet/static/dependency checks, unit and PostgreSQL integration tests, API contract validation, container/build checks, and real end-to-end workflows. Completion means verified behavior, not merely files or screens.
-- Clearly label local Docker Compose as development-only; it is not production deployment configuration.
+- Production deployments require separate staging/production environments, HTTPS, managed secrets, restricted/private database connectivity where supported, encrypted backups and tested restore, a controlled MongoDB setup job, rollback/forward-recovery plans, and resource limits.
+- The single API process needs health/readiness endpoints, structured JSON logs with correlation IDs, metrics/error monitoring, bounded database operations, and graceful shutdown of its shared MongoDB client.
+- Verify with formatting, vet/static/dependency checks, unit and MongoDB replica-set integration tests, API contract validation, container/build checks, and real end-to-end workflows. Completion means verified behavior, not merely files or screens.
+- Use only the supplied MongoDB URI for application and setup connections; do not rely on a local Docker Compose database.
 
 ## Delivery order and scope
 
-1. Repository/service foundations and backend development workflow.
-2. Database foundation and owned, tested migrations.
-3. Implement and verify the Identity + Organization onboarding/authentication flow.
-4. Add Access and Audit capabilities required to complete the Milestone 1 workflows, then verify authorization, audit, failure handling, and staging readiness.
-5. Do not implement later milestones or touch the frontend as part of backend work unless explicitly requested.
+1. Keep Identity, Organization, Access, and Audit in one deployable Go server while preserving internal domain boundaries and public API contracts.
+2. Complete MongoDB repositories, indexes, validators, and replica-set transaction tests.
+3. Verify onboarding, authentication, authorization, audit durability, failure handling, and the single-server staging deployment.
+4. Do not implement later milestones or touch the frontend as part of backend work unless explicitly requested.
 
-## Open decisions — do not assume
+## Open decisions — confirm before production
 
 - Hosting provider, region, production domain, and provider-specific deployment capabilities.
-- Final production schema details listed above.
+- MongoDB hosting provider, region, cluster tier, backup retention, and connection limits.
+- Final MongoDB collection validators, indexes, retention policies, and production setup window.
 - Official staff directory (pending from the company).
 - Any policy values not specified in the blueprint, such as exact session lifetimes, revocation/cache windows, password policy, retention, or resource limits.

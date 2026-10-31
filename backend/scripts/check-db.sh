@@ -29,11 +29,12 @@ case "${1:-ready}" in
 	ready)
 		compose config --quiet
 		running_services=$(compose ps --status running --services)
-		if ! printf '%s\n' "$running_services" | grep -Fxq postgres; then
-			printf '%s\n' 'Postgres is not running. Start it with `make db-up`, then retry.' >&2
+		if ! printf '%s\n' "$running_services" | grep -Fxq mongodb; then
+			printf '%s\n' 'MongoDB is not running. Start it with `make db-up`, then retry.' >&2
 			exit 1
 		fi
-		compose exec --no-TTY postgres pg_isready
+		compose exec --no-TTY mongodb mongosh --quiet --eval 'if (!db.hello().isWritablePrimary) quit(1)'
+		printf '%s\n' 'MongoDB replica-set primary is ready.'
 		;;
 	*)
 		printf 'Usage: %s [config|ready]\n' "$0" >&2

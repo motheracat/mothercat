@@ -1,113 +1,27 @@
-# Identity production deployment. The free plans are temporary bootstrap only:
-# upgrade the database before storing real production data.
-# Keep the web service and database in the same Render region.
 services:
   - type: web
-    name: mothercat-audit
+    name: mothercat-api
     runtime: docker
-    plan: free
-    autoDeployTrigger: off
-    dockerfilePath: backend/services/audit/Dockerfile
-    dockerContext: backend/services/audit
+    plan: starter
+    dockerfilePath: backend/services/monolith/Dockerfile
+    dockerContext: backend
     healthCheckPath: /health/ready
     envVars:
       - key: APP_ENV
         value: production
-      - key: DATABASE_URL
+      - key: MONGODB_URI
         sync: false
-      - key: DATABASE_SSLMODE
-        value: require
-      - key: DATABASE_ALLOW_UNVERIFIED_TLS
-        value: "true"
-      - key: AUDIT_SERVICE_TOKEN
-        sync: false
-  - type: web
-    name: mothercat-organization
-    runtime: docker
-    plan: free
-    autoDeployTrigger: off
-    dockerfilePath: backend/services/organization/Dockerfile
-    dockerContext: backend/services/organization
-    healthCheckPath: /health/ready
-    envVars:
-      - key: APP_ENV
-        value: production
-      - key: DATABASE_URL
-        sync: false
-      - key: DATABASE_SSLMODE
-        value: require
-      - key: DATABASE_ALLOW_UNVERIFIED_TLS
-        value: "true"
-      - key: IDENTITY_SERVICE_URL
-        sync: false
+      - key: MONGODB_DATABASE
+        value: mothercat
       - key: IDENTITY_ONBOARDING_TOKEN
         sync: false
-      - key: ACCESS_SERVICE_URL
+      - key: IDENTITY_BOOTSTRAP_TOKEN
         sync: false
-      - key: ACCESS_SERVICE_TOKEN
+      - key: BREVO_API_KEY
         sync: false
-      - key: AUDIT_SERVICE_URL
+      - key: BREVO_FROM_EMAIL
         sync: false
-      - key: AUDIT_SERVICE_TOKEN
-        sync: false
-  - type: web
-    name: mothercat-access
-    runtime: docker
-    plan: free
-    autoDeployTrigger: off
-    dockerfilePath: backend/services/access/Dockerfile
-    dockerContext: backend/services/access
-    healthCheckPath: /health/ready
-    envVars:
-      - key: APP_ENV
-        value: production
-      - key: DATABASE_URL
-        sync: false
-      - key: DATABASE_SSLMODE
-        value: require
-      - key: DATABASE_ALLOW_UNVERIFIED_TLS
-        value: "true"
-      - key: ACCESS_SERVICE_TOKEN
-        sync: false
-  - type: web
-    name: mothercat-identity
-    runtime: docker
-    plan: free
-    autoDeployTrigger: off
-    dockerfilePath: backend/services/identity/Dockerfile
-    dockerContext: backend/services/identity
-    healthCheckPath: /health/ready
-    envVars:
-      - key: APP_ENV
-        value: production
-      - key: DATABASE_SSLMODE
-        value: require
-      - key: DATABASE_ALLOW_UNVERIFIED_TLS
-        value: "true"
-      - key: DATABASE_URL
-        sync: false
-      - key: ACCESS_SERVICE_URL
-        sync: false
-      - key: ACCESS_SERVICE_TOKEN
-        sync: false
-      - key: IDENTITY_ONBOARDING_TOKEN
-        sync: false
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        sync: false
-      - key: SMTP_USERNAME
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
-      - key: SMTP_FROM
+      - key: BREVO_FROM_NAME
         sync: false
       - key: PUBLIC_BASE_URL
         sync: false
-databases:
-  - name: mothercat-identity-db
-    databaseName: mothercat_identity
-    user: mothercat_identity_admin
-    plan: free
-    postgresMajorVersion: "18"
-    ipAllowList: []

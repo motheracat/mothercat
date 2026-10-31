@@ -1,5 +1,5 @@
 BACKEND_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-GO_MODULES := services/identity services/organization services/access services/audit cmd/bootstrap-superadmin
+GO_MODULES := services/identity services/organization services/access services/audit services/monolith
 COMPOSE = cd "$(BACKEND_DIR)" && docker compose
 
 .PHONY: format format-check check-go-modules test vet build security quality db-config-check db-check db-up db-down db-status db-logs
@@ -67,7 +67,7 @@ db-check:
 	@sh "$(BACKEND_DIR)/scripts/check-db.sh" ready
 
 db-up:
-	$(COMPOSE) up --detach postgres
+	$(COMPOSE) up --detach mongodb
 
 db-down:
 	$(COMPOSE) down
@@ -76,4 +76,4 @@ db-status:
 	$(COMPOSE) ps
 
 db-logs:
-	$(COMPOSE) logs --follow postgres
+	$(COMPOSE) logs --follow mongodb

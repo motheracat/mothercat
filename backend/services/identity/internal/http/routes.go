@@ -41,7 +41,7 @@ func NewHandler(database pinger, logger *slog.Logger, healthTimeout time.Duratio
 		if err := database.Ping(ctx); err != nil {
 			logger.WarnContext(ctx, "readiness check failed",
 				"request_id", requestIDFromContext(r.Context()),
-				"dependency", "postgres",
+				"dependency", "mongodb",
 			)
 			writeNotReady(w, r)
 			return

@@ -187,21 +187,34 @@ type AuthService interface {
 	ChangePassword(context.Context, string, string, string) error
 	CreateActivationToken(context.Context, string) error
 	ProvisionInactiveAccount(context.Context, string, string, string) (string, error)
+	BootstrapSuperAdmin(context.Context, string, string, string, string) (string, error)
+}
+
+type AuthHandlerOptions struct {
+	OnboardingServiceToken string
+	BootstrapToken         string
 }
 
 // NewAuthHandler registers the authenticated Identity API routes.
-func NewAuthHandler(service AuthService, logger *slog.Logger, onboardingServiceToken ...string) http.Handler {
+func NewAuthHandler(service AuthService, logger *slog.Logger, configs ...AuthHandlerOptions) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	limiter := newLoginRateLimiter(maxLoginAttemptsPerIP, loginWindow)
 	recoveryLimiter := newLoginRateLimiter(maxRecoveryAttemptsPerIP, recoveryWindow)
-	internalToken := ""
-	if len(onboardingServiceToken) > 0 {
-		internalToken = onboardingServiceToken[0]
+	config := AuthHandlerOptions{}
+	if len(configs) > 0 {
+		config = configs[0]
 	}
 	mux := http.NewServeMux()
+	bootstrapLimiter := newLoginRateLimiter(maxLoginAttemptsPerIP, loginWindow)
+	mux.HandleFunc("POST /api/v1/auth/bootstrap", func(w http.ResponseWriter, r *http.Request) {
+		if err := handleBootstrap(w, r, service, logger, config.BootstrapToken, bootstrapLimiter); err != nil {
+			logger.WarnContext(r.Context(), "administrator bootstrap request failed",
+				"request_id", requestIDFromContext(r.Context()), "error", err)
+		}
+	})
 	mux.HandleFunc("POST /api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if err := handleLogin(w, r, service, logger, limiter); err != nil {
 			logger.ErrorContext(r.Context(), "login failed", "request_id", requestIDFromContext(r.Context()), "error", err)
@@ -248,7 +261,8 @@ func NewAuthHandler(service AuthService, logger *slog.Logger, onboardingServiceT
 	})
 	mux.HandleFunc("POST /internal/v1/accounts/{accountID}/activation", func(w http.ResponseWriter, r *http.Request) {
 		provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if internalToken == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(internalToken)) != 1 {
+		if config.OnboardingServiceToken == "" ||
+			subtle.ConstantTimeCompare([]byte(provided), []byte(config.OnboardingServiceToken)) != 1 {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "service authentication required", requestIDFromContext(r.Context()))
 			return
 		}
@@ -274,7 +288,8 @@ func NewAuthHandler(service AuthService, logger *slog.Logger, onboardingServiceT
 	})
 	mux.HandleFunc("POST /internal/v1/accounts", func(w http.ResponseWriter, r *http.Request) {
 		provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if internalToken == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(internalToken)) != 1 {
+		if config.OnboardingServiceToken == "" ||
+			subtle.ConstantTimeCompare([]byte(provided), []byte(config.OnboardingServiceToken)) != 1 {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "service authentication required", requestIDFromContext(r.Context()))
 			return
 		}
@@ -309,6 +324,74 @@ func NewAuthHandler(service AuthService, logger *slog.Logger, onboardingServiceT
 	})
 
 	return requestIDMiddleware(logger, requestLoggingMiddleware(logger, recoveryMiddleware(logger, mux)))
+}
+
+func handleBootstrap(
+	w http.ResponseWriter,
+	r *http.Request,
+	service AuthService,
+	logger *slog.Logger,
+	bootstrapToken string,
+	limiter *loginRateLimiter,
+) error {
+	requestID := requestIDFromContext(r.Context())
+	if bootstrapToken == "" {
+		writeError(w, http.StatusNotFound, "not_found", "endpoint not found", requestID)
+		return nil
+	}
+	clientKey, _ := rateLimitKeys(r, "")
+	if !limiter.allowKeys(clientKey) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests; please wait before retrying", requestID)
+		return nil
+	}
+	authorization := strings.Fields(r.Header.Get("Authorization"))
+	providedToken := ""
+	if len(authorization) == 2 && strings.EqualFold(authorization[0], "Bearer") {
+		providedToken = authorization[1]
+	}
+	if subtle.ConstantTimeCompare([]byte(providedToken), []byte(bootstrapToken)) != 1 {
+		limiter.recordFailure(clientKey)
+		writeError(w, http.StatusUnauthorized, "unauthorized", "valid bootstrap credentials are required", requestID)
+		return errors.New("invalid administrator bootstrap credentials")
+	}
+	limiter.recordSuccess([]string{clientKey}, clientKey)
+	if service == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "identity service unavailable", requestID)
+		return errors.New("auth service is nil")
+	}
+	var payload struct {
+		StaffID     string `json:"staff_id"`
+		Email       string `json:"email"`
+		DisplayName string `json:"display_name"`
+		Password    string `json:"password"`
+	}
+	if err := decodeJSON(w, r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "valid staff_id, email, display_name, and password are required", requestID)
+		return err
+	}
+	accountID, err := service.BootstrapSuperAdmin(
+		r.Context(), payload.StaffID, payload.Email, payload.DisplayName, payload.Password,
+	)
+	if errors.Is(err, application.ErrBootstrapClosed) {
+		writeError(w, http.StatusConflict, "bootstrap_closed", "administrator bootstrap has already been completed", requestID)
+		return err
+	}
+	if errors.Is(err, application.ErrInvalidProvisioningDetails) {
+		writeError(w, http.StatusBadRequest, "invalid_account", "valid staff_id, email, and display_name are required", requestID)
+		return err
+	}
+	if err != nil && strings.Contains(err.Error(), "password must") {
+		writeError(w, http.StatusBadRequest, "weak_password", err.Error(), requestID)
+		return err
+	}
+	if err != nil {
+		logger.ErrorContext(r.Context(), "create initial administrator",
+			"request_id", requestID, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "administrator bootstrap failed", requestID)
+		return err
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"account_id": accountID})
+	return nil
 }
 
 func allowWorkflowRequest(w http.ResponseWriter, r *http.Request, limiter *loginRateLimiter) bool {

@@ -24,6 +24,8 @@ type repositoryStub struct {
 	completedPurpose  string
 	completedHash     string
 	completedActivate bool
+	bootstrapAccount  AccountRecord
+	bootstrapErr      error
 }
 
 func (r *repositoryStub) FindByStaffID(context.Context, string) (AccountRecord, error) {
@@ -58,6 +60,10 @@ func (r *repositoryStub) CreateInactiveAccount(_ context.Context, staffID, email
 		Email: email, PasswordHash: passwordHash, DisplayName: displayName,
 	}
 	return r.account.ID, nil
+}
+func (r *repositoryStub) BootstrapSuperAdmin(_ context.Context, account AccountRecord) error {
+	r.bootstrapAccount = account
+	return r.bootstrapErr
 }
 
 type authorizationStub struct {
@@ -104,6 +110,53 @@ func TestLoginReturnsAccessAuthorization(t *testing.T) {
 	if account.Role != "SuperAdmin" || len(account.Roles) != 1 ||
 		len(account.Permissions) != 1 || account.Permissions[0] != "roles.manage" {
 		t.Fatalf("authorization = role %q, roles %v, permissions %v", account.Role, account.Roles, account.Permissions)
+	}
+}
+
+func TestBootstrapSuperAdminCreatesActiveAdministratorWithHashedPassword(t *testing.T) {
+	repo := &repositoryStub{}
+	service := NewService(repo, nil, nil)
+
+	accountID, err := service.BootstrapSuperAdmin(
+		context.Background(), " ADM-001 ", "admin@example.test", "Initial Admin", "MyVeryStrongPass123!",
+	)
+	if err != nil {
+		t.Fatalf("BootstrapSuperAdmin() error = %v", err)
+	}
+	if accountID != repo.bootstrapAccount.ID || !repo.bootstrapAccount.IsActive ||
+		repo.bootstrapAccount.StaffID != "ADM-001" {
+		t.Fatalf("bootstrap account = %+v", repo.bootstrapAccount)
+	}
+	if repo.bootstrapAccount.PasswordHash == "" ||
+		verifyPasswordHash(repo.bootstrapAccount.PasswordHash, "MyVeryStrongPass123!") != nil {
+		t.Fatal("administrator password was not stored as a verifiable hash")
+	}
+	if len(accountID) != 36 || accountID[14] != '4' {
+		t.Fatalf("administrator account ID is not a UUIDv4: %q", accountID)
+	}
+}
+
+func TestBootstrapSuperAdminRejectsWeakPasswordBeforeWriting(t *testing.T) {
+	repo := &repositoryStub{}
+	service := NewService(repo, nil, nil)
+
+	_, err := service.BootstrapSuperAdmin(
+		context.Background(), "ADM-001", "admin@example.test", "Initial Admin", "weak",
+	)
+	if err == nil || repo.bootstrapAccount.ID != "" {
+		t.Fatalf("BootstrapSuperAdmin() error = %v, repository account = %+v", err, repo.bootstrapAccount)
+	}
+}
+
+func TestBootstrapSuperAdminMapsClosedBootstrap(t *testing.T) {
+	repo := &repositoryStub{bootstrapErr: ErrBootstrapClosed}
+	service := NewService(repo, nil, nil)
+
+	_, err := service.BootstrapSuperAdmin(
+		context.Background(), "ADM-001", "admin@example.test", "Initial Admin", "MyVeryStrongPass123!",
+	)
+	if !errors.Is(err, ErrBootstrapClosed) {
+		t.Fatalf("BootstrapSuperAdmin() error = %v, want ErrBootstrapClosed", err)
 	}
 }
 

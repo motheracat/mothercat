@@ -36,6 +36,7 @@ const maximumPasswordLength = 72
 var ErrInvalidRecoveryToken = errors.New("invalid_recovery_token")
 var ErrInvalidCurrentPassword = errors.New("invalid_current_password")
 var ErrEmailDeliveryUnavailable = errors.New("email_delivery_unavailable")
+var ErrBootstrapClosed = errors.New("administrator_bootstrap_closed")
 
 // Repository defines the data access contract required for Identity auth flows.
 type Repository interface {
@@ -49,6 +50,7 @@ type Repository interface {
 	CompleteRecovery(ctx context.Context, tokenHash, purpose, passwordHash string, activate bool) (AccountRecord, error)
 	ChangePassword(ctx context.Context, sessionToken, passwordHash string) error
 	CreateInactiveAccount(ctx context.Context, staffID, email, passwordHash, displayName string) (string, error)
+	BootstrapSuperAdmin(ctx context.Context, account AccountRecord) error
 }
 
 type Authorization struct {
@@ -281,6 +283,42 @@ func (s *Service) ProvisionInactiveAccount(ctx context.Context, staffID, email, 
 	return accountID, nil
 }
 
+func (s *Service) BootstrapSuperAdmin(ctx context.Context, staffID, email, displayName, password string) (string, error) {
+	if s == nil || s.repository == nil {
+		return "", errors.New("identity repository is unavailable")
+	}
+	staffID = strings.TrimSpace(staffID)
+	email = strings.TrimSpace(email)
+	displayName = strings.TrimSpace(displayName)
+	address, err := mail.ParseAddress(email)
+	if staffID == "" || len(staffID) > 80 || err != nil || address == nil || address.Address != email ||
+		len(email) > 254 || displayName == "" || utf8.RuneCountInString(displayName) > 160 {
+		return "", ErrInvalidProvisioningDetails
+	}
+	if err := validatePassword(password); err != nil {
+		return "", err
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("hash administrator password: %w", err)
+	}
+	accountID, err := newUUID()
+	if err != nil {
+		return "", fmt.Errorf("generate administrator account identifier: %w", err)
+	}
+	account := AccountRecord{
+		ID: accountID, StaffID: staffID, Email: email, DisplayName: displayName,
+		PasswordHash: string(passwordHash), IsActive: true,
+	}
+	if err := s.repository.BootstrapSuperAdmin(ctx, account); err != nil {
+		if errors.Is(err, ErrBootstrapClosed) || errors.Is(err, ErrAccountConflict) {
+			return "", ErrBootstrapClosed
+		}
+		return "", fmt.Errorf("bootstrap initial administrator: %w", err)
+	}
+	return accountID, nil
+}
+
 func (s *Service) CompletePasswordReset(ctx context.Context, token, password string) error {
 	return s.completeRecovery(ctx, token, password, "password_reset", false)
 }
@@ -437,4 +475,24 @@ func newSessionToken(source io.Reader) (string, error) {
 		return "", errors.New("generate session token: secure random source failed")
 	}
 	return "sess_" + hex.EncodeToString(buf), nil
+}
+
+func newUUID() (string, error) {
+	var value [16]byte
+	if _, err := io.ReadFull(rand.Reader, value[:]); err != nil {
+		return "", errors.New("generate UUID: secure random source failed")
+	}
+	value[6] = (value[6] & 0x0f) | 0x40
+	value[8] = (value[8] & 0x3f) | 0x80
+	encoded := make([]byte, 36)
+	hex.Encode(encoded[0:8], value[0:4])
+	encoded[8] = '-'
+	hex.Encode(encoded[9:13], value[4:6])
+	encoded[13] = '-'
+	hex.Encode(encoded[14:18], value[6:8])
+	encoded[18] = '-'
+	hex.Encode(encoded[19:23], value[8:10])
+	encoded[23] = '-'
+	hex.Encode(encoded[24:36], value[10:16])
+	return string(encoded), nil
 }

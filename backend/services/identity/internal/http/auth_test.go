@@ -22,6 +22,7 @@ type authServiceStub struct {
 	logoutFn     func(context.Context, string) error
 	forgotFn     func(context.Context, string) error
 	activationFn func(context.Context, string) error
+	bootstrapFn  func(context.Context, string, string, string, string) (string, error)
 }
 
 func (s *authServiceStub) Login(ctx context.Context, staffID, password string) (identitydomain.Account, string, error) {
@@ -68,6 +69,78 @@ func (s *authServiceStub) CreateActivationToken(ctx context.Context, accountID s
 }
 func (*authServiceStub) ProvisionInactiveAccount(context.Context, string, string, string) (string, error) {
 	return "1c9491b8-21ce-4c66-a025-006bb346b810", nil
+}
+func (s *authServiceStub) BootstrapSuperAdmin(ctx context.Context, staffID, email, displayName, password string) (string, error) {
+	if s.bootstrapFn != nil {
+		return s.bootstrapFn(ctx, staffID, email, displayName, password)
+	}
+	return "1c9491b8-21ce-4c66-a025-006bb346b810", nil
+}
+
+func TestAdministratorBootstrapRequiresSecretAndClosesAfterSuccess(t *testing.T) {
+	var calls int
+	service := &authServiceStub{
+		bootstrapFn: func(_ context.Context, staffID, email, displayName, password string) (string, error) {
+			calls++
+			if staffID != "ADM-001" || email != "admin@example.test" ||
+				displayName != "Initial Admin" || password != "MyVeryStrongPass123!" {
+				t.Fatal("bootstrap request payload was not passed to the service as expected")
+			}
+			if calls > 1 {
+				return "", application.ErrBootstrapClosed
+			}
+			return "1c9491b8-21ce-4c66-a025-006bb346b810", nil
+		},
+	}
+	const bootstrapToken = "a-long-random-bootstrap-token-value"
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), AuthHandlerOptions{
+		BootstrapToken: bootstrapToken,
+	})
+	body := `{"staff_id":"ADM-001","email":"admin@example.test","display_name":"Initial Admin","password":"MyVeryStrongPass123!"}`
+
+	unauthorized := httptest.NewRequest(http.MethodPost, "/api/v1/auth/bootstrap", strings.NewReader(body))
+	unauthorized.Header.Set("Content-Type", "application/json")
+	unauthorized.Header.Set("Authorization", "Bearer wrong-token")
+	unauthorized.RemoteAddr = "192.0.2.10:12345"
+	unauthorizedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorizedResponse, unauthorized)
+	if unauthorizedResponse.Code != http.StatusUnauthorized || calls != 0 {
+		t.Fatalf("unauthorized status=%d calls=%d", unauthorizedResponse.Code, calls)
+	}
+
+	for attempt, wantStatus := range []int{http.StatusCreated, http.StatusConflict} {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/bootstrap", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Authorization", "Bearer "+bootstrapToken)
+		request.RemoteAddr = "192.0.2.10:12345"
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != wantStatus {
+			t.Fatalf("attempt %d status=%d body=%s, want %d", attempt+1, response.Code, response.Body.String(), wantStatus)
+		}
+		if strings.Contains(response.Body.String(), "MyVeryStrongPass123!") {
+			t.Fatal("bootstrap response leaked the submitted password")
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("bootstrap service calls=%d, want 2", calls)
+	}
+}
+
+func TestAdministratorBootstrapEndpointIsHiddenWithoutConfiguredToken(t *testing.T) {
+	service := &authServiceStub{bootstrapFn: func(context.Context, string, string, string, string) (string, error) {
+		t.Fatal("bootstrap service should not be called when endpoint is disabled")
+		return "", nil
+	}}
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/bootstrap", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404", response.Code)
+	}
 }
 
 func TestLoginSetsHttpOnlySessionCookieAndReturnsUser(t *testing.T) {
@@ -283,7 +356,9 @@ func TestActivationIssuanceRequiresServiceToken(t *testing.T) {
 		t.Fatal("activation must not be sent without service authentication")
 		return nil
 	}}
-	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), strings.Repeat("x", 32))
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), AuthHandlerOptions{
+		OnboardingServiceToken: strings.Repeat("x", 32),
+	})
 	request := httptest.NewRequest(http.MethodPost, "/internal/v1/accounts/1c9491b8-21ce-4c66-a025-006bb346b810/activation", nil)
 	response := httptest.NewRecorder()
 
@@ -305,7 +380,9 @@ func TestActivationIssuanceUsesServiceToken(t *testing.T) {
 		return nil
 	}}
 	token := strings.Repeat("x", 32)
-	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), token)
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), AuthHandlerOptions{
+		OnboardingServiceToken: token,
+	})
 	request := httptest.NewRequest(http.MethodPost, "/internal/v1/accounts/"+accountID+"/activation", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
 	response := httptest.NewRecorder()
@@ -339,7 +416,9 @@ func TestActivationIssuanceReportsEmailDisabled(t *testing.T) {
 		return application.ErrEmailDeliveryUnavailable
 	}}
 	token := strings.Repeat("x", 32)
-	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), token)
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), AuthHandlerOptions{
+		OnboardingServiceToken: token,
+	})
 	request := httptest.NewRequest(http.MethodPost, "/internal/v1/accounts/"+accountID+"/activation", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
 	response := httptest.NewRecorder()
