@@ -2,10 +2,9 @@ services:
   - type: web
     name: mothercat-api
     runtime: docker
-    plan: starter
+    plan: free
     dockerfilePath: backend/services/monolith/Dockerfile
     dockerContext: backend
-    preDeployCommand: /setup-mongodb
     healthCheckPath: /health/ready
     envVars:
       - key: APP_ENV
