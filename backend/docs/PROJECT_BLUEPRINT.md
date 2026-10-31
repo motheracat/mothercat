@@ -38,16 +38,16 @@ This note is a concise backend-focused reference derived from the supplied *Cons
 ## Data and cross-domain workflows
 
 - MongoDB has no relational foreign keys; validate references in application code and create unique/compound indexes for identifiers, lookup paths, and idempotency keys.
-- Set schema validation for security-sensitive collections. Apply index and validator changes using an explicit, versioned database setup command/job, never from every application replica at startup.
+- Set schema validation for security-sensitive collections. Render runs the bundled, idempotent index and baseline Access setup command before each deployment, rather than from every application replica at startup. Treat future schema-validator or destructive data changes as explicitly reviewed migrations.
 - Identity flows that update multiple documents (for example password recovery plus session revocation) must use MongoDB transactions. The target MongoDB deployment must support transactions (a replica set or sharded cluster); a standalone `mongod` is insufficient.
-- Keep production data out of source, fixtures, and logs. Grant the runtime database user only the required database/collection permissions; use a separate restricted operator identity for setup and bootstrap.
+- Keep production data out of source, fixtures, and logs. Grant the MongoDB user the application database permissions needed by the API and automated pre-deploy setup, including index creation.
 - Staff onboarding spans domains: prepare account, associate staff, assign authorized role, and record action. Keep the account pending/unusable until required steps succeed. Use an explicit idempotent workflow and compensation for partial failure; use a transaction only where all involved writes are in the same MongoDB deployment and transaction boundary.
 - Every runtime and database setup operation must use the supplied MongoDB connection URI through `MONGODB_URI` and the explicit `MONGODB_DATABASE`, provided by the deployment environment or secret store. Do not use a local MongoDB instance, localhost URI, or local-database fallback. A connection string configures connectivity; it does not create application indexes or validators.
 - Use Brevo for transactional email. Add Cloudinary only with a defined media-upload feature; do not store Cloudinary credentials in frontend code.
 
 ## Production and verification bar
 
-- Production deployments require separate staging/production environments, HTTPS, managed secrets, restricted/private database connectivity where supported, encrypted backups and tested restore, a controlled MongoDB setup job, rollback/forward-recovery plans, and resource limits.
+- Production deployments require separate staging/production environments, HTTPS, managed secrets, restricted/private database connectivity where supported, encrypted backups and tested restore, the automated pre-deploy MongoDB setup, rollback/forward-recovery plans, and resource limits.
 - The single API process needs health/readiness endpoints, structured JSON logs with correlation IDs, metrics/error monitoring, bounded database operations, and graceful shutdown of its shared MongoDB client.
 - Verify with formatting, vet/static/dependency checks, unit and MongoDB replica-set integration tests, API contract validation, container/build checks, and real end-to-end workflows. Completion means verified behavior, not merely files or screens.
 - Use only the supplied MongoDB URI for application and setup connections; do not rely on a local Docker Compose database.

@@ -23,10 +23,9 @@ staging environment first.
 2. Require TLS, enable managed encryption and automated backups, and configure
    private networking where the hosting provider supports it. Restrict network access
    to the API deployment rather than allowing all IP addresses.
-3. Create a runtime database user with only the required read/write privileges on the
-   application database. Use a different restricted operator identity for collection
-   validators and index setup. The one-time bootstrap endpoint uses the API's runtime
-   database identity and needs write access to the Identity, Access, and Audit data.
+3. Create a database user with the required read/write privileges on the application
+   database, including permission to create indexes. Render uses the same
+   `MONGODB_URI` for the API and the automated pre-deploy setup command.
 4. Store the URI in the hosting provider's secret manager. Prefer the DNS seed-list
    URI (`mongodb+srv://...`) provided by the cluster. Never commit it, paste it into
    logs, or expose it to the frontend.
@@ -42,8 +41,10 @@ Build and deploy the unified Go server as one application/container. It should:
 - Fail readiness when MongoDB is unavailable and avoid exposing driver errors or
   connection details in HTTP responses.
 - Use request-scoped contexts and bounded server-selection/operation deadlines.
-- Apply collection indexes and validators through a controlled setup job before the
-  new application is promoted; do not make every server replica alter the database.
+- Render runs `/setup-mongodb` from the built image before promoting each deployment.
+  It idempotently creates required indexes and initializes baseline Access records;
+  it does not run once per API replica. Keep future validator or destructive schema
+  changes in explicitly reviewed migrations.
 - Keep health checks independent of authentication and avoid putting secrets or PII
   into structured logs.
 
@@ -77,12 +78,13 @@ connections with the cluster's connection limit.
 1. Deploy the single API service to staging without routing production traffic to
    it. Keep the frontend and API on the same HTTPS origin where possible so the
    existing secure, HttpOnly session-cookie behavior can be retained.
-2. Run the controlled MongoDB setup job using the restricted operator credential.
-   Confirm expected unique indexes for staff IDs, account IDs, session-token hashes,
-   recovery-token hashes, role/permission assignments, and audit idempotency keys.
-   Confirm the permission catalog is seeded and the default Staff role has only the
-   `staff.read` permission. Verify TTL indexes only apply to records that are safe
-   to expire.
+2. Deploy to Render. The pre-deploy setup command runs automatically using the
+   configured `MONGODB_URI` and `MONGODB_DATABASE`; confirm it succeeds in the deploy
+   logs. Verify expected unique indexes for staff IDs, account IDs, session-token
+   hashes, recovery-token hashes, role/permission assignments, and audit idempotency
+   keys. Confirm the permission catalog is seeded and the default Staff role has only
+   the `staff.read` permission. Verify TTL indexes only apply to records that are
+   safe to expire.
 3. Run unit and integration tests against a replica-set MongoDB instance, including
    transaction rollback, duplicate-key conflicts, single-use recovery tokens,
    session revocation, and audit write failures.

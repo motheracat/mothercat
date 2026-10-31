@@ -3,21 +3,22 @@
 The backend is one Go API server with Identity, Organization, Access, and Audit as
 internal domain modules. The single server connects to MongoDB using `MONGODB_URI`
 and `MONGODB_DATABASE`; domain operations run in-process on that single server.
-Indexes and required MongoDB setup are applied by the separate
-`services/monolith/cmd/setup-mongodb` command.
+Render automatically runs the bundled MongoDB setup program before each deployment.
+It creates required indexes and initializes the baseline Access roles and permissions
+using the same `MONGODB_URI` and `MONGODB_DATABASE` as the API; no manual command is
+needed. Make sure the MongoDB user can create indexes and write the baseline records.
 
 ## MongoDB configuration
 
-The API and the MongoDB setup command connect only through the supplied
-`MONGODB_URI` and `MONGODB_DATABASE`. Provide the MongoDB URI through the deployment
+The API and automatic pre-deploy setup connect only through the supplied
+`MONGODB_URI` and `MONGODB_DATABASE`. Provide the MongoDB URI through Render's
 environment or secret store; there is no localhost default or local-database
 fallback. Do not start or configure a local MongoDB instance for this workflow.
-Run the MongoDB setup command against that same configured database before deploying
-the API.
 
 Use a TLS-enabled MongoDB replica set, managed secrets, restricted network access,
-backups, and separately controlled database setup. Brevo is used for transactional
-email when configured. See the [single-server MongoDB deployment
+and backups. Render automatically runs the idempotent database setup before each
+deployment. Brevo is used for transactional email when configured. See the
+[single-server MongoDB deployment
 guide](docs/DEPLOYMENT-MONGODB.md) and [backend project blueprint](docs/PROJECT_BLUEPRINT.md).
 Cloudinary is not wired to a media-upload flow in the current API.
 
