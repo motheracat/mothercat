@@ -127,12 +127,9 @@ func (s *staffStore) FindByID(ctx context.Context, id string) (domain.Staff, err
 }
 
 func (s *staffStore) CompleteProvisioning(ctx context.Context, staffID, accountID string) (domain.Staff, error) {
-	filter := bson.M{
-		"id": staffID, "employment_status": "pending",
-		"$or": bson.A{bson.M{"account_id": bson.M{"$exists": false}}, bson.M{"account_id": nil}, bson.M{"account_id": accountID}},
-	}
+	filter := staffProvisioningFilter(staffID, accountID)
 	update := bson.M{"$set": bson.M{
-		"account_id": accountID, "employment_status": "active", "updated_at": time.Now().UTC(),
+		"accountid": accountID, "employmentstatus": "active", "updatedat": time.Now().UTC(),
 	}}
 	var staff domain.Staff
 	err := s.db.Collection("staff_members").FindOneAndUpdate(
@@ -154,13 +151,20 @@ func (s *staffStore) CompleteProvisioning(ctx context.Context, staffID, accountI
 	return staff, nil
 }
 
+func staffProvisioningFilter(staffID, accountID string) bson.M {
+	return bson.M{
+		"id": staffID, "employmentstatus": "pending",
+		"$or": bson.A{bson.M{"accountid": bson.M{"$exists": false}}, bson.M{"accountid": nil}, bson.M{"accountid": accountID}},
+	}
+}
+
 func EnsureIndexes(ctx context.Context, db *mongo.Database) error {
 	if db == nil {
 		return errors.New("MongoDB database is unavailable")
 	}
 	_, err := db.Collection("staff_members").Indexes().CreateMany(ctx, []mongo.IndexModel{
-		{Keys: bson.D{{Key: "staff_id", Value: 1}}, Options: options.Index().SetUnique(true)},
-		{Keys: bson.D{{Key: "account_id", Value: 1}}, Options: options.Index().SetSparse(true)},
+		{Keys: bson.D{{Key: "staffid", Value: 1}}, Options: options.Index().SetUnique(true)},
+		{Keys: bson.D{{Key: "accountid", Value: 1}}, Options: options.Index().SetSparse(true)},
 	})
 	if err != nil {
 		return fmt.Errorf("create staff indexes: %w", err)

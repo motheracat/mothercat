@@ -23,14 +23,14 @@ type CreateStaffRequest struct {
 }
 
 type Staff struct {
-	ID               string  `json:"id"`
-	AccountID        *string `json:"account_id,omitempty"`
-	StaffID          string  `json:"staff_id"`
-	DepartmentID     *string `json:"department_id"`
-	FullName         string  `json:"full_name"`
-	WorkEmail        *string `json:"work_email"`
-	JobTitle         *string `json:"job_title"`
-	EmploymentStatus string  `json:"employment_status"`
+	ID               string  `json:"id" bson:"id"`
+	AccountID        *string `json:"account_id,omitempty" bson:"accountid"`
+	StaffID          string  `json:"staff_id" bson:"staffid"`
+	DepartmentID     *string `json:"department_id" bson:"departmentid"`
+	FullName         string  `json:"full_name" bson:"fullname"`
+	WorkEmail        *string `json:"work_email" bson:"workemail"`
+	JobTitle         *string `json:"job_title" bson:"jobtitle"`
+	EmploymentStatus string  `json:"employment_status" bson:"employmentstatus"`
 }
 
 func (request *CreateStaffRequest) NormalizeAndValidate() error {
