@@ -1,19 +1,9 @@
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowRight, ArrowUpRight, Building2, Cog, Compass, Landmark, Layers, Leaf, Trees, type LucideIcon } from "lucide-react";
+import { ArrowRight, Building2, Cog, Compass, Landmark, Layers, Leaf, Trees, type LucideIcon } from "lucide-react";
 import { siteContent } from "@/content/site";
-import { MobileMenu } from "@/components/public/mobile-menu";
 
-/* Use the project’s real, existing branded assets so the home page resolves reliably. */
-const LOGO_SRC = "/Mothercat%20Logo%20Variations%20Sheet%20(Edited%202).png";
 const HERO_IMAGE = "/mothercat-welcome-hero.jpeg";
-
-const NAV = [
-  { href: "/", label: "Home" },
-  { href: "/services", label: "Services" },
-  { href: "/projects", label: "Projects" },
-  { href: "/about", label: "About" },
-];
 
 const serviceIcons: LucideIcon[] = [Landmark, Building2, Trees];
 const expertiseIcons: LucideIcon[] = [Cog, Compass, Leaf, Layers];
@@ -31,9 +21,6 @@ const projectImages = [
 
 const FEATURED_INTRO_FALLBACK =
   "A selection of our engineering and construction work across infrastructure, commercial and urban development.";
-
-const focus =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#2d8fd8]";
 
 export default function HomePage() {
   const { services, expertise, projects } = siteContent.home;
@@ -53,110 +40,57 @@ export default function HomePage() {
 
   return (
     <main className="bg-white text-slate-900">
-      {/* ───────────── Hero: framed card ───────────── */}
-      <section
-        aria-labelledby="hero-title"
-        className="bg-[#0a4a8a] p-3 sm:p-5 lg:p-6"
-      >
-        <div className="relative isolate mx-auto flex min-h-[780px] max-w-[1400px] flex-col overflow-hidden rounded-[22px] bg-[#0a4a8a] shadow-[0_30px_80px_rgba(12,56,118,0.35)] lg:min-h-[740px]">
-          {/* Photo: right side, fades into the blue on the left (no recolouring of the image) */}
-          <div className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-full opacity-60 lg:w-[66%] lg:opacity-100">
-            <Image
-              src={HERO_IMAGE}
-              alt=""
-              fill
-              priority
-              sizes="(max-width: 1024px) 100vw, 66vw"
-              className="object-cover grayscale-0 [-webkit-mask-image:linear-gradient(to_right,transparent,black_38%)] [mask-image:linear-gradient(to_right,transparent,black_38%)]"
-            />
-          </div>
-          {/* soft sky glow + water-line haze */}
-          <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(900px_420px_at_20%_0%,rgba(255,255,255,0.20),transparent_68%)]" aria-hidden="true" />
+      {/* ───────────── Hero: full-width photo, solid overlay, clear headline ───────────── */}
+      <section aria-labelledby="hero-title" className="relative isolate overflow-hidden bg-[#0a2a52]">
+        <Image
+          src={HERO_IMAGE}
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="-z-20 object-cover"
+        />
+        {/* Simple dark overlay for text legibility */}
+        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-[#071e3d]/90 via-[#071e3d]/70 to-[#071e3d]/30" aria-hidden="true" />
 
-          {/* Nav (inside the card) */}
-          <header className="relative z-30 border-b border-white/25">
-            <div className="grid h-[76px] grid-cols-[auto_1fr_auto] items-center gap-4 px-5 sm:px-8">
-              <Link href="/" aria-label="Mothercat home" className={`flex items-center gap-3 rounded-full ${focus}`}>
-                <Image src={LOGO_SRC} alt="Mothercat" width={48} height={48} className="h-12 w-12 rounded-full bg-white object-cover shadow-md" />
+        <div className="mx-auto flex min-h-[560px] max-w-6xl flex-col justify-center px-4 pb-20 pt-32 sm:px-6 sm:pt-36 lg:min-h-[640px] lg:px-8 lg:pt-40">
+          <div className="max-w-2xl motion-safe:animate-fade-up">
+            <span className="mb-5 block h-1 w-16 bg-white" aria-hidden="true" />
+            <h1 id="hero-title" className="text-4xl font-bold leading-tight text-white sm:text-5xl lg:text-6xl">
+              Advancing Innovative Engineering &amp; Construction
+            </h1>
+            <p className="mt-5 max-w-xl text-base leading-7 text-slate-200 sm:text-lg">
+              Reliable infrastructure, commercial and urban projects, delivered with quality, safety and integrity.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-4">
+              <Link
+                href="/projects"
+                className="inline-flex items-center gap-2 rounded-md bg-white px-6 py-3 text-sm font-bold text-[#0a2a52] transition-colors duration-200 hover:bg-black hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a2a52]"
+              >
+                View Our Projects
+                <ArrowRight size={16} aria-hidden="true" />
               </Link>
-
-              <nav aria-label="Primary" className="hidden justify-center gap-9 text-[13px] font-medium text-white md:flex">
-                {NAV.map((item) => (
-                  <Link key={item.href} href={item.href} className={`whitespace-nowrap rounded px-1 py-1 opacity-90 transition hover:opacity-100 ${focus}`}>
-                    {item.label}
-                  </Link>
-                ))}
-              </nav>
-
-              <div className="flex items-center justify-end gap-3">
-                <Link
-                  href="/login"
-                  className="hidden whitespace-nowrap rounded-lg bg-white/10 px-4 py-2.5 text-[13px] font-semibold !text-black transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#2d8fd8] md:inline-flex"
-                >
-                  Sign in
-                </Link>
-                <Link
-                  href="/contact"
-                  className="hidden whitespace-nowrap rounded-lg bg-white px-5 py-2.5 text-[13px] font-semibold !text-black shadow-sm transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#2d8fd8] md:inline-flex"
-                >
-                  Contact Us
-                </Link>
-
-                <MobileMenu logoSrc={LOGO_SRC} navItems={NAV} />
-              </div>
-            </div>
-          </header>
-
-          {/* Headline block */}
-          <div className="relative z-20 flex-1 px-5 pb-52 pt-12 sm:px-8 lg:pb-44 lg:pt-16">
-            <div className="max-w-[560px] motion-safe:animate-fade-up">
-              <h1 id="hero-title" className="font-serif text-5xl font-semibold leading-[1.05] tracking-tight text-white sm:text-6xl lg:text-7xl">
-                <span className="block">Advancing</span>
-                <span className="block">Innovative</span>
-                <span className="block">Engineering &amp;</span>
-                <span className="block">Construction</span>
-              </h1>
-           
-            </div>
-          </div>
-
-          {/* Bottom glass bar */}
-          <div className="absolute inset-x-0 bottom-0 z-20 border-t border-white/25 bg-gradient-to-t from-[#1d6fb0]/70 to-[#3a9ad8]/10 backdrop-blur-[3px]">
-            <div className="flex flex-col gap-6 px-5 py-6 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-center gap-5">
-                {/* Rotating "start the journey" badge */}
-                <Link href="#about" aria-label="Start the journey: scroll to About" className={`relative block h-[84px] w-[84px] shrink-0 rounded-full ${focus}`}>
-                  <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full motion-safe:animate-[spin_22s_linear_infinite]" aria-hidden="true">
-                    <defs>
-                      <path id="circ" d="M50,50 m-38,0 a38,38 0 1,1 76,0 a38,38 0 1,1 -76,0" />
-                    </defs>
-                    <text fill="white" fontSize="10.5" letterSpacing="2.2" fontWeight="500">
-                      <textPath href="#circ">START THE JOURNEY • START THE JOURNEY •</textPath>
-                    </text>
-                  </svg>
-                  <ArrowUpRight className="absolute inset-0 m-auto text-white" size={22} aria-hidden="true" />
-                </Link>
-              
-              </div>
-
-              {/* Impact card */}
-              <div className="w-full rounded-2xl border border-white/30 bg-white/15 p-5 backdrop-blur-md lg:w-[420px]">
-                <p className="text-[13px] font-medium text-white/90">Our impact in numbers</p>
-                <dl className="mt-3 grid grid-cols-3 divide-x divide-white/25 text-center text-white">
-                  {stats.slice(0, 3).map((s) => (
-                    <div key={s.label} className="px-2">
-                      <dt className="sr-only">{s.label}</dt>
-                      <dd className="text-[34px] font-light leading-none" style={{ fontFamily: "var(--font-barlow-condensed)" }}>
-                        {s.value}
-                      </dd>
-                      <p className="mt-2 text-[11px] text-white/85" aria-hidden="true">{s.label}</p>
-                    </div>
-                  ))}
-                </dl>
-              </div>
+              <Link
+                href="/contact"
+                className="inline-flex items-center rounded-md border border-white bg-white px-6 py-3 text-sm font-semibold text-[#0a2a52] transition-colors duration-200 hover:bg-black hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a2a52]"
+              >
+                Get in Touch
+              </Link>
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Stats strip */}
+      <section aria-label="Company at a glance" className="bg-[#0a4a8a]">
+        <dl className="mx-auto grid max-w-6xl grid-cols-3 divide-x divide-white/25 px-4 py-6 text-center text-white sm:px-6 lg:px-8">
+          {stats.slice(0, 3).map((s) => (
+            <div key={s.label} className="px-2">
+              <dd className="text-3xl font-bold leading-none sm:text-4xl">{s.value}</dd>
+              <dt className="mt-2 text-xs font-medium uppercase tracking-wide text-white/85 sm:text-sm">{s.label}</dt>
+            </div>
+          ))}
+        </dl>
       </section>
 
       {/* ───────────── Services ───────────── */}
