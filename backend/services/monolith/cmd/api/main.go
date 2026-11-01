@@ -2,19 +2,20 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	accessstore "github.com/mothercat-enterprise/mothercat/backend/services/access/monolith"
 	auditstore "github.com/mothercat-enterprise/mothercat/backend/services/audit/monolith"
@@ -43,30 +44,29 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	uri := strings.TrimSpace(os.Getenv("MONGODB_URI"))
-	databaseName := strings.TrimSpace(os.Getenv("MONGODB_DATABASE"))
-	if err := validateMongoSettings(uri, databaseName, appEnv); err != nil {
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if err := validateDatabaseSettings(databaseURL, appEnv); err != nil {
 		return err
 	}
 
 	connectCtx, cancelConnect := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelConnect()
-	client, err := mongo.Connect(connectCtx, options.Client().ApplyURI(uri))
+	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
-		return errors.New("connect to MongoDB")
+		return errors.New("configure PostgreSQL connection")
 	}
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := client.Disconnect(ctx); err != nil {
-			logger.Error("disconnect MongoDB client", "error", err)
+		if err := db.Close(); err != nil {
+			logger.Error("close PostgreSQL connection pool", "error", err)
 		}
 	}()
-	if err := client.Ping(connectCtx, nil); err != nil {
-		return errors.New("ping MongoDB")
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+	if err := db.PingContext(connectCtx); err != nil {
+		return errors.New("ping PostgreSQL")
 	}
 
-	db := client.Database(databaseName)
 	identityRepository := persistence.NewIdentityRepository(db)
 	access := accessstore.NewStore(db)
 	audit := auditstore.NewRecorder(db)
@@ -129,17 +129,19 @@ func run(logger *slog.Logger) error {
 	}
 }
 
-func validateMongoSettings(uri, database, appEnv string) error {
-	if uri == "" || database == "" || strings.ContainsAny(database, "/\\.") {
-		return errors.New("MONGODB_URI and a valid MONGODB_DATABASE are required")
+func validateDatabaseSettings(databaseURL, appEnv string) error {
+	if strings.TrimSpace(databaseURL) == "" {
+		return errors.New("DATABASE_URL is required")
 	}
-	clientOptions := options.Client().ApplyURI(uri)
-	if err := clientOptions.Validate(); err != nil {
-		return errors.New("MONGODB_URI is invalid")
+	parsed, err := url.Parse(databaseURL)
+	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") ||
+		parsed.Hostname() == "" || parsed.User == nil {
+		return errors.New("DATABASE_URL must be a valid PostgreSQL connection URL")
 	}
 	if appEnv == "production" || appEnv == "staging" {
-		if clientOptions.TLSConfig == nil || clientOptions.TLSConfig.InsecureSkipVerify {
-			return errors.New("MongoDB TLS with certificate verification is required in production or staging")
+		sslMode := parsed.Query().Get("sslmode")
+		if sslMode != "require" && sslMode != "verify-ca" && sslMode != "verify-full" {
+			return errors.New("DATABASE_URL must require TLS in production or staging")
 		}
 		if appEnv == "production" {
 			token := os.Getenv("IDENTITY_ONBOARDING_TOKEN")
@@ -192,7 +194,7 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func newRouter(db *mongo.Database, identity, organization http.Handler) http.Handler {
+func newRouter(db *sql.DB, identity, organization http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -201,7 +203,7 @@ func newRouter(db *mongo.Database, identity, organization http.Handler) http.Han
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if err := db.Client().Ping(ctx, nil); err != nil {
+		if err := db.PingContext(ctx); err != nil {
 			http.Error(w, "{\"error\":{\"code\":\"service_not_ready\"}}", http.StatusServiceUnavailable)
 			return
 		}

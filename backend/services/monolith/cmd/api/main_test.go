@@ -2,81 +2,69 @@ package main
 
 import "testing"
 
-func TestValidateMongoSettings(t *testing.T) {
+func TestValidateDatabaseSettings(t *testing.T) {
 	t.Setenv("IDENTITY_ONBOARDING_TOKEN", "a-long-enough-test-onboarding-token")
 	t.Setenv("IDENTITY_BOOTSTRAP_TOKEN", "")
 
 	tests := []struct {
-		name     string
-		uri      string
-		database string
-		appEnv   string
-		wantErr  bool
+		name        string
+		databaseURL string
+		appEnv      string
+		wantErr     bool
 	}{
 		{
-			name:     "development permits local non-TLS MongoDB",
-			uri:      "mongodb://localhost:27017",
-			database: "mothercat",
-			appEnv:   "development",
+			name:        "development accepts PostgreSQL URL without ssl mode",
+			databaseURL: "postgresql://user:pass@db.example.test:5432/mothercat",
+			appEnv:      "development",
 		},
 		{
-			name:     "production requires TLS",
-			uri:      "mongodb://localhost:27017/?tls=true",
-			database: "mothercat",
-			appEnv:   "production",
+			name:        "production accepts required TLS",
+			databaseURL: "postgresql://user:pass@db.example.test:5432/mothercat?sslmode=require",
+			appEnv:      "production",
 		},
 		{
-			name:     "production rejects missing TLS",
-			uri:      "mongodb://localhost:27017",
-			database: "mothercat",
-			appEnv:   "production",
-			wantErr:  true,
+			name:        "production rejects missing TLS",
+			databaseURL: "postgresql://user:pass@db.example.test:5432/mothercat",
+			appEnv:      "production",
+			wantErr:     true,
 		},
 		{
-			name:     "production rejects disabled TLS",
-			uri:      "mongodb://localhost:27017/?tls=false",
-			database: "mothercat",
-			appEnv:   "production",
-			wantErr:  true,
+			name:        "staging rejects disabled TLS",
+			databaseURL: "postgresql://user:pass@db.example.test:5432/mothercat?sslmode=disable",
+			appEnv:      "staging",
+			wantErr:     true,
 		},
 		{
-			name:     "production rejects insecure certificate verification",
-			uri:      "mongodb://localhost:27017/?tls=true&tlsInsecure=true",
-			database: "mothercat",
-			appEnv:   "production",
-			wantErr:  true,
-		},
-		{
-			name:     "staging requires TLS",
-			uri:      "mongodb://localhost:27017",
-			database: "mothercat",
-			appEnv:   "staging",
-			wantErr:  true,
+			name:        "rejects a non PostgreSQL URL",
+			databaseURL: "mongodb://user:pass@db.example.test",
+			appEnv:      "development",
+			wantErr:     true,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateMongoSettings(test.uri, test.database, test.appEnv)
+			err := validateDatabaseSettings(test.databaseURL, test.appEnv)
 			if (err != nil) != test.wantErr {
-				t.Fatalf("validateMongoSettings() error = %v, wantErr %t", err, test.wantErr)
+				t.Fatalf("validateDatabaseSettings() error = %v, wantErr %t", err, test.wantErr)
 			}
 		})
 	}
 }
 
-func TestValidateMongoSettingsValidatesOptionalBootstrapToken(t *testing.T) {
+func TestValidateDatabaseSettingsValidatesOptionalBootstrapToken(t *testing.T) {
 	t.Setenv("IDENTITY_ONBOARDING_TOKEN", "a-long-enough-test-onboarding-token")
 	t.Setenv("IDENTITY_BOOTSTRAP_TOKEN", "short")
-	if err := validateMongoSettings("mongodb://localhost:27017", "mothercat", "development"); err == nil {
-		t.Fatal("validateMongoSettings accepted a short bootstrap token")
+	databaseURL := "postgresql://user:pass@db.example.test:5432/mothercat"
+	if err := validateDatabaseSettings(databaseURL, "development"); err == nil {
+		t.Fatal("validateDatabaseSettings accepted a short bootstrap token")
 	}
 	t.Setenv("IDENTITY_BOOTSTRAP_TOKEN", "a-long-enough-test-bootstrap-token")
-	if err := validateMongoSettings("mongodb://localhost:27017", "mothercat", "development"); err != nil {
-		t.Fatalf("validateMongoSettings rejected a strong bootstrap token: %v", err)
+	if err := validateDatabaseSettings(databaseURL, "development"); err != nil {
+		t.Fatalf("validateDatabaseSettings rejected a strong bootstrap token: %v", err)
 	}
 	t.Setenv("IDENTITY_BOOTSTRAP_TOKEN", "a-long-enough-test-onboarding-token")
-	if err := validateMongoSettings("mongodb://localhost:27017", "mothercat", "development"); err == nil {
-		t.Fatal("validateMongoSettings accepted identical onboarding and bootstrap tokens")
+	if err := validateDatabaseSettings(databaseURL, "development"); err == nil {
+		t.Fatal("validateDatabaseSettings accepted identical onboarding and bootstrap tokens")
 	}
 }

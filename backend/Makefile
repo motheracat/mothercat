@@ -1,8 +1,7 @@
 BACKEND_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 GO_MODULES := services/identity services/organization services/access services/audit services/monolith
-COMPOSE = cd "$(BACKEND_DIR)" && docker compose
 
-.PHONY: format format-check check-go-modules test vet build security quality db-config-check db-check db-up db-down db-status db-logs
+.PHONY: format format-check check-go-modules test vet build security quality db-migrate
 
 format:
 	@find "$(BACKEND_DIR)/services" "$(BACKEND_DIR)/cmd" -type f -name '*.go' -print0 | xargs -0 -r gofmt -w
@@ -58,22 +57,7 @@ security: check-go-modules
 		(cd "$(BACKEND_DIR)/$$module" && govulncheck ./...); \
 	done
 
-quality: format-check test vet build security db-config-check
+quality: format-check test vet build security
 
-db-config-check:
-	@sh "$(BACKEND_DIR)/scripts/check-db.sh" config
-
-db-check:
-	@sh "$(BACKEND_DIR)/scripts/check-db.sh" ready
-
-db-up:
-	$(COMPOSE) up --detach mongodb
-
-db-down:
-	$(COMPOSE) down
-
-db-status:
-	$(COMPOSE) ps
-
-db-logs:
-	$(COMPOSE) logs --follow mongodb
+db-migrate:
+	@cd "$(BACKEND_DIR)" && go run ./services/monolith/cmd/setup-postgres

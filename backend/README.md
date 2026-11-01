@@ -1,40 +1,52 @@
 # Backend
 
-The backend is one Go API server with Identity, Organization, Access, and Audit as
-internal domain modules. The single server connects to MongoDB using `MONGODB_URI`
-and `MONGODB_DATABASE`; domain operations run in-process on that single server.
-Render automatically runs the bundled MongoDB setup program before each deployment.
-It creates required indexes and initializes the baseline Access roles and permissions
-using the same `MONGODB_URI` and `MONGODB_DATABASE` as the API; no manual command is
-needed. Make sure the MongoDB user can create indexes and write the baseline records.
+The backend is a Go modular monolith with Identity, Organization, Access, and
+Audit domains in one API process. PostgreSQL is the system of record; Supabase
+provides the managed PostgreSQL database. The API does not use MongoDB.
 
-## MongoDB configuration
+## Database configuration
 
-The API and automatic pre-deploy setup connect only through the supplied
-`MONGODB_URI` and `MONGODB_DATABASE`. Provide the MongoDB URI through Render's
-environment or secret store; there is no localhost default or local-database
-fallback. Do not start or configure a local MongoDB instance for this workflow.
+- `DATABASE_URL` is the TLS-enabled PostgreSQL URL used by the API at runtime.
+- `MIGRATIONS_DATABASE_URL` is a separate, short-lived, privileged URL used only
+  for controlled schema migrations and the one-time data import.
+- Never commit either URL, send it in chat, or expose it to frontend code. Keep
+  each in the hosting provider's secret manager. Use a least-privilege app role
+  for `DATABASE_URL`; do not give the API role schema-owner privileges.
+- `make db-migrate` runs the embedded, versioned migrations. It requires
+  `MIGRATIONS_DATABASE_URL`, TLS, and network access to the selected PostgreSQL
+  instance. Migrations are not automatically run by every API process.
+- The `DATABASE_URL` connection must also require TLS in staging and production.
+  Keep Supabase backups enabled and test restoring them before production use.
 
-Use a TLS-enabled MongoDB replica set, managed secrets, restricted network access,
-and backups. Render automatically runs the idempotent database setup before each
-deployment. Brevo is used for transactional email when configured. See the
-[single-server MongoDB deployment
-guide](docs/DEPLOYMENT-MONGODB.md) and [backend project blueprint](docs/PROJECT_BLUEPRINT.md).
-Cloudinary is not wired to a media-upload flow in the current API.
+The migration from MongoDB is a separate, one-time operation. It imports relaxed
+Extended JSON exports transactionally into an empty PostgreSQL database and
+preserves account IDs, password hashes, role assignments, audit events, and
+unexpired session/recovery-token hashes. See the [PostgreSQL and Supabase
+deployment guide](docs/DEPLOYMENT-POSTGRES.md) for staging verification and
+cutover steps. Do not deploy the PostgreSQL API against production until the
+import is complete and verified.
 
 ## Initial administrator
 
 The one-time `POST /api/v1/auth/bootstrap` endpoint creates the first active
 SuperAdmin account. It is available only when `IDENTITY_BOOTSTRAP_TOKEN` is
-configured and the MongoDB database contains no Identity accounts. Send the
-high-entropy token as `Authorization: Bearer <token>` over HTTPS, with JSON fields
-`staff_id`, `email`, `display_name`, and a strong `password` (at least 14 characters,
-including at least three character classes). The endpoint atomically creates the
-account, grants the SuperAdmin role, records an audit event, and permanently closes
-bootstrap. It does not return a session; sign in through the normal login endpoint.
+configured and PostgreSQL contains no Identity accounts. Send the high-entropy
+token in an `Authorization: Bearer <token>` header over HTTPS, with JSON fields
+`staff_id`, `email`, `display_name`, and a strong `password` (at least 14
+characters, including at least three character classes). The endpoint atomically
+creates the account, grants the SuperAdmin role, records an audit event, and
+permanently closes bootstrap. It does not return a session; sign in through the
+normal login endpoint.
 
-After a successful `201 Created`, remove `IDENTITY_BOOTSTRAP_TOKEN` from the hosting
-secret store and redeploy. The database prevents repeat bootstrap even if the
-environment variable is accidentally left configured. The MongoDB deployment must
-support transactions, and the MongoDB setup command must have run first. Never send
-the token or password over HTTP or store them in source control.
+After a successful `201 Created`, remove `IDENTITY_BOOTSTRAP_TOKEN` from the
+hosting secret store and redeploy. The database prevents repeat bootstrap even
+if the environment variable is accidentally retained. The migration must have
+run first. Never send the token or password over HTTP or store them in source
+control.
+
+## Scope and status
+
+The frontend is intentionally unchanged. The PostgreSQL migration is not
+production-ready until a Supabase-compatible PostgreSQL instance has accepted
+the schema, data import and restore have been tested, and the staging API has
+passed end-to-end verification.

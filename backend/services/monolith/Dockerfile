@@ -15,13 +15,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 	&& CGO_ENABLED=0 GOOS=linux go build \
 		-trimpath \
 		-ldflags="-s -w" \
-		-o /out/setup-mongodb \
-		./services/monolith/cmd/setup-mongodb
+		-o /out/setup-postgres \
+		./services/monolith/cmd/setup-postgres
 
 FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/mothercat-api /mothercat-api
-COPY --from=build /out/setup-mongodb /setup-mongodb
+COPY --from=build /out/setup-postgres /setup-postgres
 
 USER 65532:65532
 EXPOSE 8080

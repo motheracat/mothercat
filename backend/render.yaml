@@ -9,10 +9,8 @@ services:
     envVars:
       - key: APP_ENV
         value: production
-      - key: MONGODB_URI
+      - key: DATABASE_URL
         sync: false
-      - key: MONGODB_DATABASE
-        value: mothercat
       - key: IDENTITY_ONBOARDING_TOKEN
         sync: false
       - key: IDENTITY_BOOTSTRAP_TOKEN

@@ -2,15 +2,11 @@ package monolith
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
-
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	app "github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/application"
 	"github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/domain"
@@ -51,11 +47,11 @@ type StaffRoleAssigner interface {
 }
 
 type staffStore struct {
-	db *mongo.Database
+	db *sql.DB
 }
 
 func NewHandler(
-	db *mongo.Database,
+	db *sql.DB,
 	authenticator Authenticator,
 	audit AuditRecorder,
 	identity AccountProvisioner,
@@ -93,19 +89,23 @@ func (b auditBridge) Record(ctx context.Context, event app.AuditEvent) error {
 
 func (s *staffStore) Ping(ctx context.Context) error {
 	if s == nil || s.db == nil {
-		return errors.New("MongoDB is unavailable")
+		return errors.New("PostgreSQL database is unavailable")
 	}
-	return s.db.Client().Ping(ctx, nil)
+	return s.db.PingContext(ctx)
 }
 
 func (s *staffStore) Create(ctx context.Context, id string, request domain.CreateStaffRequest) (domain.Staff, error) {
-	staff := domain.Staff{
-		ID: id, StaffID: request.StaffID, DepartmentID: request.DepartmentID,
-		FullName: request.FullName, WorkEmail: request.WorkEmail, JobTitle: request.JobTitle,
-		EmploymentStatus: "pending",
+	if s == nil || s.db == nil {
+		return domain.Staff{}, errors.New("PostgreSQL database is unavailable")
 	}
-	_, err := s.db.Collection("staff_members").InsertOne(ctx, staff)
-	if mongo.IsDuplicateKeyError(err) {
+	staff, err := scanStaff(s.db.QueryRowContext(ctx, `
+		INSERT INTO organization.staff_members (
+			id, staff_id, department_id, full_name, work_email, job_title, employment_status
+		) VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, 'pending')
+		RETURNING id, account_id, staff_id, department_id, full_name, work_email, job_title, employment_status
+	`, id, request.StaffID, nullableUUID(request.DepartmentID), request.FullName,
+		nullableString(request.WorkEmail), nullableString(request.JobTitle)))
+	if isUniqueViolation(err) {
 		return domain.Staff{}, domain.ErrDuplicateStaffID
 	}
 	if err != nil {
@@ -115,9 +115,14 @@ func (s *staffStore) Create(ctx context.Context, id string, request domain.Creat
 }
 
 func (s *staffStore) FindByID(ctx context.Context, id string) (domain.Staff, error) {
-	var staff domain.Staff
-	err := s.db.Collection("staff_members").FindOne(ctx, bson.M{"id": id}).Decode(&staff)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	if s == nil || s.db == nil {
+		return domain.Staff{}, errors.New("PostgreSQL database is unavailable")
+	}
+	staff, err := scanStaff(s.db.QueryRowContext(ctx, `
+		SELECT id, account_id, staff_id, department_id, full_name, work_email, job_title, employment_status
+		FROM organization.staff_members WHERE id = $1::uuid
+	`, id))
+	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Staff{}, domain.ErrStaffNotFound
 	}
 	if err != nil {
@@ -127,15 +132,17 @@ func (s *staffStore) FindByID(ctx context.Context, id string) (domain.Staff, err
 }
 
 func (s *staffStore) CompleteProvisioning(ctx context.Context, staffID, accountID string) (domain.Staff, error) {
-	filter := staffProvisioningFilter(staffID, accountID)
-	update := bson.M{"$set": bson.M{
-		"accountid": accountID, "employmentstatus": "active", "updatedat": time.Now().UTC(),
-	}}
-	var staff domain.Staff
-	err := s.db.Collection("staff_members").FindOneAndUpdate(
-		ctx, filter, update, options.FindOneAndUpdate().SetReturnDocument(options.After),
-	).Decode(&staff)
-	if errors.Is(err, mongo.ErrNoDocuments) {
+	if s == nil || s.db == nil {
+		return domain.Staff{}, errors.New("PostgreSQL database is unavailable")
+	}
+	staff, err := scanStaff(s.db.QueryRowContext(ctx, `
+		UPDATE organization.staff_members
+		SET account_id = $2::uuid, employment_status = 'active', updated_at = now()
+		WHERE id = $1::uuid AND employment_status = 'pending'
+		  AND (account_id IS NULL OR account_id = $2::uuid)
+		RETURNING id, account_id, staff_id, department_id, full_name, work_email, job_title, employment_status
+	`, staffID, accountID))
+	if errors.Is(err, sql.ErrNoRows) {
 		existing, findErr := s.FindByID(ctx, staffID)
 		if findErr != nil {
 			return domain.Staff{}, findErr
@@ -151,23 +158,53 @@ func (s *staffStore) CompleteProvisioning(ctx context.Context, staffID, accountI
 	return staff, nil
 }
 
-func staffProvisioningFilter(staffID, accountID string) bson.M {
-	return bson.M{
-		"id": staffID, "employmentstatus": "pending",
-		"$or": bson.A{bson.M{"accountid": bson.M{"$exists": false}}, bson.M{"accountid": nil}, bson.M{"accountid": accountID}},
-	}
+type rowScanner interface {
+	Scan(dest ...any) error
 }
 
-func EnsureIndexes(ctx context.Context, db *mongo.Database) error {
-	if db == nil {
-		return errors.New("MongoDB database is unavailable")
-	}
-	_, err := db.Collection("staff_members").Indexes().CreateMany(ctx, []mongo.IndexModel{
-		{Keys: bson.D{{Key: "staffid", Value: 1}}, Options: options.Index().SetUnique(true)},
-		{Keys: bson.D{{Key: "accountid", Value: 1}}, Options: options.Index().SetSparse(true)},
-	})
+func scanStaff(row rowScanner) (domain.Staff, error) {
+	var staff domain.Staff
+	var accountID, departmentID, workEmail, jobTitle sql.NullString
+	err := row.Scan(
+		&staff.ID, &accountID, &staff.StaffID, &departmentID,
+		&staff.FullName, &workEmail, &jobTitle, &staff.EmploymentStatus,
+	)
 	if err != nil {
-		return fmt.Errorf("create staff indexes: %w", err)
+		return domain.Staff{}, err
 	}
-	return nil
+	staff.AccountID = nullableStringPointer(accountID)
+	staff.DepartmentID = nullableStringPointer(departmentID)
+	staff.WorkEmail = nullableStringPointer(workEmail)
+	staff.JobTitle = nullableStringPointer(jobTitle)
+	return staff, nil
+}
+
+func nullableUUID(value *string) any {
+	if value == nil || *value == "" {
+		return nil
+	}
+	return *value
+}
+
+func nullableString(value *string) any {
+	if value == nil || *value == "" {
+		return nil
+	}
+	return *value
+}
+
+func nullableStringPointer(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	result := value.String
+	return &result
+}
+
+func isUniqueViolation(err error) bool {
+	type sqlStateError interface {
+		SQLState() string
+	}
+	var stateErr sqlStateError
+	return errors.As(err, &stateErr) && stateErr.SQLState() == "23505"
 }
