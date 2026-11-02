@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 
+import { formatAuthError, logout } from "@/lib/auth/client";
 import type { AuthSession } from "@/lib/auth/types";
 
 type SidebarItem = {
@@ -23,8 +25,24 @@ const items: SidebarItem[] = [
 
 export function WorkspaceSidebar({ session }: { session: AuthSession | null }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   if (!session) return null;
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+    setLogoutError(null);
+    try {
+      await logout();
+      router.replace("/login");
+    } catch (error) {
+      setLogoutError(formatAuthError(error, "Unable to sign out. Please try again."));
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
 
   const perms = session.permissions ?? [];
   const hasWildcard = perms.includes("*");
@@ -36,6 +54,10 @@ export function WorkspaceSidebar({ session }: { session: AuthSession | null }) {
         <Link href="/dashboard" className="block rounded-md bg-white/5 px-3 py-2 hover:bg-white/10">Dashboard</Link>
         <div className="mt-4 px-3 py-2 text-xs text-white/70">Your role has no workspace permissions yet</div>
         <Link href="/account" className="block rounded-md bg-white/5 px-3 py-2 hover:bg-white/10">Password & security</Link>
+        <button type="button" onClick={handleLogout} disabled={isLoggingOut} className="w-full rounded-md bg-white/5 px-3 py-2 text-left hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60">
+          {isLoggingOut ? "Signing out..." : "Sign out"}
+        </button>
+        {logoutError ? <p role="alert" className="px-3 py-2 text-xs text-red-200">{logoutError}</p> : null}
       </nav>
     );
   }
@@ -61,6 +83,10 @@ export function WorkspaceSidebar({ session }: { session: AuthSession | null }) {
           {item.label}
         </Link>
       ))}
+      <button type="button" onClick={handleLogout} disabled={isLoggingOut} className="w-full rounded-md bg-white/5 px-3 py-2 text-left hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60">
+        {isLoggingOut ? "Signing out..." : "Sign out"}
+      </button>
+      {logoutError ? <p role="alert" className="px-3 py-2 text-xs text-red-200">{logoutError}</p> : null}
     </nav>
   );
 }

@@ -2,15 +2,24 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
-import { activateAccount } from "@/lib/auth/client";
+import { activateAccount, formatAuthError } from "@/lib/auth/client";
+import { validateNewPassword } from "@/lib/auth/password";
 
 function ActivatePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [token] = useState(() => searchParams.get("token") ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("token");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [token]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -18,20 +27,14 @@ function ActivatePageContent() {
     const formData = new FormData(event.currentTarget);
     const password = String(formData.get("password") ?? "");
     const confirmPassword = String(formData.get("confirmPassword") ?? "");
-    const token = searchParams.get("token") ?? "";
-
-    if (!password || !confirmPassword) {
-      setError("Please set and confirm your password.");
+    if (!token) {
+      setError("This activation link is missing its token. Contact your administrator.");
       return;
     }
 
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters long.");
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+    const passwordError = validateNewPassword(password, confirmPassword);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
 
@@ -40,9 +43,9 @@ function ActivatePageContent() {
 
     try {
       await activateAccount({ token, password, confirmPassword });
-      router.push("/login");
+      router.push("/login?activated=1");
     } catch (submissionError) {
-      setError(submissionError instanceof Error ? submissionError.message : "Unable to activate account.");
+      setError(formatAuthError(submissionError, "Unable to activate the account."));
     } finally {
       setIsSubmitting(false);
     }
@@ -56,14 +59,14 @@ function ActivatePageContent() {
       <form onSubmit={handleSubmit} className="mt-8 space-y-5">
         <div>
           <label htmlFor="password" className="mb-2 block text-sm font-medium text-[#0f1b33]">New password</label>
-          <input id="password" name="password" type="password" autoComplete="new-password" className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500" placeholder="Create a password" />
+          <input id="password" name="password" type="password" autoComplete="new-password" required className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500" placeholder="Create a password" />
         </div>
         <div>
           <label htmlFor="confirmPassword" className="mb-2 block text-sm font-medium text-[#0f1b33]">Confirm password</label>
-          <input id="confirmPassword" name="confirmPassword" type="password" autoComplete="new-password" className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500" placeholder="Confirm password" />
+          <input id="confirmPassword" name="confirmPassword" type="password" autoComplete="new-password" required className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500" placeholder="Confirm password" />
         </div>
 
-        {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
         <button type="submit" disabled={isSubmitting} className="w-full rounded-md bg-[#1f5fd0] px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(31,95,208,0.2)] transition hover:bg-[#2f74e6] disabled:cursor-not-allowed disabled:opacity-70">
           {isSubmitting ? "Activating..." : "Activate account"}

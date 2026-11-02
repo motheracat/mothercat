@@ -4,7 +4,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { isDevOpen } from "@/lib/auth/mode";
-import type { AuthSession } from "@/lib/auth/types";
+import { parseAuthSession, type AuthSession } from "@/lib/auth/types";
+import { env } from "@/lib/env";
 
 export const SESSION_COOKIE_NAME = "mothercat_session";
 
@@ -12,7 +13,9 @@ const DEV_SESSION: AuthSession = {
   userId: "dev-user",
   staffId: "DEV-001",
   displayName: "Development User",
+  email: "",
   role: "Super Admin",
+  roles: ["Super Admin"],
   permissions: ["*"],
   isActive: true,
 };
@@ -23,29 +26,37 @@ export async function getCurrentSession(): Promise<AuthSession | null> {
   }
 
   const cookieStore = await cookies();
-  const sessionValue = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
 
-  if (!sessionValue) {
+  if (!sessionCookie) {
     return null;
   }
 
+  const apiBaseUrl = env.API_BASE_URL.replace(/\/+$/, "");
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/session`, {
+    headers: {
+      Accept: "application/json",
+      Cookie: `${SESSION_COOKIE_NAME}=${sessionCookie.value}`,
+    },
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`The authentication service could not verify the session (HTTP ${response.status}).`);
+  }
+
+  let payload: unknown;
   try {
-    const session = JSON.parse(sessionValue) as Partial<AuthSession>;
-    if (session.userId && session.displayName && session.staffId) {
-      return {
-        userId: session.userId,
-        staffId: session.staffId,
-        displayName: session.displayName,
-        role: session.role ?? "Staff",
-        permissions: session.permissions ?? [],
-        isActive: session.isActive ?? true,
-      };
-    }
+    payload = await response.json();
   } catch {
-    return null;
+    throw new Error("The authentication service returned an invalid session response.");
   }
 
-  return null;
+  return parseAuthSession(payload);
 }
 
 export async function requireAuth(redirectPath = "/dashboard") {
@@ -56,22 +67,4 @@ export async function requireAuth(redirectPath = "/dashboard") {
   }
 
   return session;
-}
-
-export async function setSessionCookie(session: AuthSession) {
-  const cookieStore = await cookies();
-  const isSecure = process.env.NODE_ENV === "production";
-
-  cookieStore.set(SESSION_COOKIE_NAME, JSON.stringify(session), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: isSecure,
-    path: "/",
-    maxAge: 60 * 60 * 8,
-  });
-}
-
-export async function clearSessionCookie() {
-  const cookieStore = await cookies();
-  cookieStore.delete(SESSION_COOKIE_NAME);
 }

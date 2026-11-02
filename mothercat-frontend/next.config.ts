@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:8080";
+const apiBaseUrl = (process.env.API_BASE_URL ?? "https://mothercat-api.onrender.com").replace(/\/+$/, "");
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,

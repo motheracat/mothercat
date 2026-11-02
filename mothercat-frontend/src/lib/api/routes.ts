@@ -3,9 +3,10 @@ export const apiRoutes = {
     session: "/auth/session",
     login: "/auth/login",
     logout: "/auth/logout",
-    forgotPassword: "/auth/forgot-password",
-    resetPassword: "/auth/reset-password",
-    activate: "/auth/activate",
+    forgotPassword: "/auth/password/forgot",
+    resetPassword: "/auth/password/reset",
+    changePassword: "/auth/password/change",
+    activate: "/auth/activation/complete",
   },
   staff: {
     list: "/staff",

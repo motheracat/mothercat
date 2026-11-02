@@ -4,27 +4,42 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
-import { getClientSession } from "@/lib/auth/session-client";
-import { login } from "@/lib/auth/client";
+import { formatAuthError, getClientSession, login } from "@/lib/auth/client";
 import { getSafeRedirectPath } from "@/lib/auth/redirect";
 
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const redirectPath = getSafeRedirectPath(searchParams.get("redirect") ?? searchParams.get("next"));
+  const notice =
+    searchParams.get("passwordChanged") === "1"
+      ? "Your password was changed. Sign in again with your new password."
+      : searchParams.get("passwordReset") === "1"
+        ? "Your password was reset. Sign in with your new password."
+        : searchParams.get("activated") === "1"
+          ? "Your account is activated. Sign in to continue."
+          : null;
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    try {
-      const session = getClientSession();
-      if (session) {
-        const redirectPath = getSafeRedirectPath(searchParams.get("redirect") ?? searchParams.get("next"));
-        router.replace(redirectPath || "/dashboard");
-      }
-    } catch {
-      // Ignore
-    }
-  }, [router, searchParams]);
+    let active = true;
+    void getClientSession()
+      .then((session) => {
+        if (active && session) {
+          router.replace(redirectPath);
+        }
+      })
+      .catch((sessionError: unknown) => {
+        if (active) {
+          setError(formatAuthError(sessionError, "Unable to verify your current session."));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [redirectPath, router]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,7 +48,7 @@ function LoginPageContent() {
     const form = event.currentTarget;
     const formData = new FormData(form);
     const staffId = String(formData.get("staffId") ?? "").trim();
-    const password = String(formData.get("password") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
 
     if (!staffId || !password) {
       form.reportValidity();
@@ -46,14 +61,9 @@ function LoginPageContent() {
 
     try {
       await login({ staffId, password });
-      const redirectPath = getSafeRedirectPath(searchParams.get("redirect") ?? searchParams.get("next")) || "/dashboard";
       router.replace(redirectPath);
     } catch (submissionError) {
-      setError(
-        submissionError instanceof Error && submissionError.message
-          ? submissionError.message
-          : "Sign in failed. Please check your staff ID and password."
-      );
+      setError(formatAuthError(submissionError, "Sign in failed. Please check your staff ID and password."));
     } finally {
       setIsSubmitting(false);
     }
@@ -63,6 +73,7 @@ function LoginPageContent() {
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 shadow-sm">
       <h2 className="font-serif text-4xl text-[#0f1b33]">Sign in</h2>
       <p className="mt-2 text-sm text-slate-600">Use your staff ID and password to continue.</p>
+      {notice ? <p role="status" className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</p> : null}
 
       <form onSubmit={handleSubmit} noValidate className="mt-8 space-y-5">
         <div>
@@ -74,7 +85,7 @@ function LoginPageContent() {
           <input id="password" name="password" type="password" autoComplete="current-password" required className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-0 transition focus:border-blue-500" placeholder="Enter password" />
         </div>
 
-        {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
         <div className="flex items-center justify-between">
           <Link href="/forgot-password" className="text-sm font-medium text-blue-600">Forgot password?</Link>

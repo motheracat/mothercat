@@ -9,7 +9,7 @@ const envSchema = z.object({
     .string()
     .trim()
     .url()
-    .default("http://localhost:8080"),
+    .default("https://mothercat-api.onrender.com"),
   AUTH_MODE: authModeSchema.default("strict"),
   NEXT_PUBLIC_APP_NAME: z.string().default("Mothercat"),
   NEXT_PUBLIC_SITE_URL: z.string().url().default("http://localhost:3000"),
@@ -28,14 +28,10 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 
-if (env.AUTH_MODE === "dev-open" && (env.APP_ENV === "staging" || env.APP_ENV === "production")) {
-  throw new Error("AUTH_MODE=dev-open is invalid in staging or production environments.");
+if (env.AUTH_MODE === "dev-open" && (env.APP_ENV !== "development" || env.NODE_ENV !== "development")) {
+  throw new Error("AUTH_MODE=dev-open is only allowed during local development.");
 }
 
-if (env.AUTH_MODE === "dev-open" && env.NODE_ENV === "production" && env.APP_ENV !== "development") {
-  throw new Error("AUTH_MODE=dev-open requires APP_ENV=development in production builds.");
-}
-
-if (env.AUTH_MODE === "strict" && env.NODE_ENV === "production") {
-  // production builds keep strict mode by default; nothing else required here.
+if (env.APP_ENV !== "development" && new URL(env.API_BASE_URL).protocol !== "https:") {
+  throw new Error("API_BASE_URL must use HTTPS outside local development.");
 }

@@ -1,219 +1,153 @@
 import { buildApiUrl } from "@/lib/api/config";
 import { apiRoutes } from "@/lib/api/routes";
-import type { AccountActivationPayload, AuthSession, LoginCredentials, PasswordResetPayload, PasswordResetRequest } from "@/lib/auth/types";
+import {
+  parseAuthSession,
+  type LoginCredentials,
+  type PasswordChangePayload,
+  type PasswordCompletionPayload,
+  type PasswordResetRequest,
+} from "@/lib/auth/types";
 
-const SESSION_COOKIE_NAME = "mothercat_session";
-
-function canRunClientAuthentication() {
-  return typeof window !== "undefined";
-}
-
-function isDevelopmentRuntime() {
-  if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_AUTH_MODE === "dev-open") {
-    return true;
-  }
-  if (typeof window !== "undefined") {
-    const hostname = window.location.hostname;
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return true;
-    }
-  }
-  return false;
-}
-
-function persistSession(session: AuthSession) {
-  if (!canRunClientAuthentication()) {
-    return;
-  }
-
-  const expires = new Date(Date.now() + 8 * 60 * 60 * 1000).toUTCString();
-  const secure = window.location.protocol === "https:" ? "; Secure" : "";
-  document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(JSON.stringify(session))}; expires=${expires}; path=/; SameSite=Lax${secure}`;
-}
-
-function clearClientSession() {
-  if (!canRunClientAuthentication()) {
-    return;
-  }
-
-  document.cookie = `${SESSION_COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
-}
-
-async function parseApiError(response: Response, fallbackMessage: string) {
-  try {
-    const payload = (await response.json()) as { message?: string; error?: string };
-    return payload.message ?? payload.error ?? fallbackMessage;
-  } catch {
-    return fallbackMessage;
-  }
-}
-
-function getDevSession(staffId: string): AuthSession {
-  return {
-    userId: "dev-user",
-    staffId,
-    displayName: `${staffId.replace(/-/g, " ")}`.trim() || "Development User",
-    role: "Super Admin",
-    permissions: ["*"],
-    isActive: true,
+type ApiErrorPayload = {
+  error?: {
+    code?: string;
+    message?: string;
+    request_id?: string;
   };
-}
+};
 
-export async function login(credentials: LoginCredentials): Promise<AuthSession> {
-  const fallbackSession = getDevSession(credentials.staffId);
-
-  if (isDevelopmentRuntime()) {
-    persistSession(fallbackSession);
-    return fallbackSession;
-  }
-
-  try {
-    const response = await fetch(buildApiUrl(apiRoutes.auth.login), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(credentials),
-    });
-
-    const payload = (await response.json()) as { data?: AuthSession; message?: string; error?: string };
-
-    if (!response.ok) {
-      throw new Error(payload.message ?? payload.error ?? "Sign in failed. Please check your staff ID and password.");
-    }
-
-    const session = payload.data ?? fallbackSession;
-    persistSession(session);
-    return session;
-  } catch (error) {
-    if (isDevelopmentRuntime()) {
-      persistSession(fallbackSession);
-      return fallbackSession;
-    }
-
-    throw error instanceof Error ? error : new Error("sign-in failed");
+export class AuthApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string,
+    readonly requestId?: string,
+  ) {
+    super(message);
+    this.name = "AuthApiError";
   }
 }
 
-export async function forgotPassword(data: PasswordResetRequest): Promise<{ success: boolean; message: string }> {
-  if (isDevelopmentRuntime()) {
-    return {
-      success: true,
-      message: `Reset instructions were sent to ${data.staffId}.`,
-    };
-  }
+const NETWORK_ERROR_MESSAGE = "Unable to connect to the authentication service. Check your connection and try again.";
+
+async function requestApi(
+  path: string,
+  method: "GET" | "POST",
+  body?: Record<string, string>,
+): Promise<unknown> {
+  let response: Response;
 
   try {
-    const response = await fetch(buildApiUrl(apiRoutes.auth.forgotPassword), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    response = await fetch(buildApiUrl(path), {
+      method,
+      headers: {
+        Accept: "application/json",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
       credentials: "include",
-      body: JSON.stringify(data),
-    });
-
-    if (!response.ok) {
-      const message = await parseApiError(response, "Unable to send reset instructions.");
-      throw new Error(message);
-    }
-
-    return {
-      success: true,
-      message: "Reset instructions were sent successfully.",
-    };
-  } catch (error) {
-    if (isDevelopmentRuntime()) {
-      return {
-        success: true,
-        message: `Reset instructions were sent to ${data.staffId}.`,
-      };
-    }
-
-    throw error instanceof Error ? error : new Error("Unable to send reset instructions.");
-  }
-}
-
-export async function resetPassword(data: PasswordResetPayload): Promise<{ success: boolean; message: string }> {
-  if (isDevelopmentRuntime()) {
-    return {
-      success: true,
-      message: "Your password was reset successfully.",
-    };
-  }
-
-  try {
-    const response = await fetch(buildApiUrl(apiRoutes.auth.resetPassword), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(data),
-    });
-
-    if (!response.ok) {
-      const message = await parseApiError(response, "Unable to reset password.");
-      throw new Error(message);
-    }
-
-    return {
-      success: true,
-      message: "Your password was reset successfully.",
-    };
-  } catch (error) {
-    if (isDevelopmentRuntime()) {
-      return {
-        success: true,
-        message: "Your password was reset successfully.",
-      };
-    }
-
-    throw error instanceof Error ? error : new Error("Unable to reset password.");
-  }
-}
-
-export async function activateAccount(data: AccountActivationPayload): Promise<{ success: boolean; message: string }> {
-  if (isDevelopmentRuntime()) {
-    return {
-      success: true,
-      message: "Your account was activated successfully.",
-    };
-  }
-
-  try {
-    const response = await fetch(buildApiUrl(apiRoutes.auth.activate), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(data),
-    });
-
-    if (!response.ok) {
-      const message = await parseApiError(response, "Unable to activate the account.");
-      throw new Error(message);
-    }
-
-    return {
-      success: true,
-      message: "Your account was activated successfully.",
-    };
-  } catch (error) {
-    if (isDevelopmentRuntime()) {
-      return {
-        success: true,
-        message: "Your account was activated successfully.",
-      };
-    }
-
-    throw error instanceof Error ? error : new Error("Unable to activate the account.");
-  }
-}
-
-export async function logout() {
-  try {
-    await fetch(buildApiUrl(apiRoutes.auth.logout), {
-      method: "POST",
-      credentials: "include",
+      cache: "no-store",
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
-    // Ignore request failures here; the UI still clears its local session state.
-  } finally {
-    clearClientSession();
+    throw new Error(NETWORK_ERROR_MESSAGE);
   }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const apiError = (payload as ApiErrorPayload | null)?.error;
+    throw new AuthApiError(
+      typeof apiError?.message === "string" ? apiError.message : "The request could not be completed.",
+      response.status,
+      typeof apiError?.code === "string" ? apiError.code : "request_failed",
+      typeof apiError?.request_id === "string" ? apiError.request_id : undefined,
+    );
+  }
+
+  if (payload === null) {
+    throw new Error("The authentication service returned an invalid response.");
+  }
+
+  return payload;
+}
+
+export function formatAuthError(error: unknown, fallback: string): string {
+  if (error instanceof AuthApiError) {
+    const safeMessages: Record<string, string> = {
+      invalid_credentials: "Your staff ID or password is incorrect.",
+      unauthorized: "Your session has expired. Sign in again.",
+      invalid_session: "Your session has expired. Sign in again.",
+      invalid_request: "Some information is missing or invalid. Review the fields and try again.",
+      invalid_token: "This link is invalid, expired, or already used. Request a new link.",
+      weak_password: "Use 14–72 bytes and include at least three of uppercase, lowercase, numbers, and symbols.",
+      rate_limited: "Too many attempts. Wait a few minutes before trying again.",
+      email_delivery_disabled: "Recovery email delivery is temporarily unavailable. Contact your administrator.",
+      service_unavailable: "The authentication service is temporarily unavailable. Try again later.",
+      internal_error: "The request could not be completed. Try again later.",
+    };
+    const message = safeMessages[error.code] ?? fallback;
+    return error.requestId ? `${message} Reference: ${error.requestId}` : message;
+  }
+
+  if (error instanceof Error && error.message === NETWORK_ERROR_MESSAGE) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
+export async function getClientSession() {
+  try {
+    return parseAuthSession(await requestApi(apiRoutes.auth.session, "GET"));
+  } catch (error) {
+    if (error instanceof AuthApiError && error.status === 401) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function login(credentials: LoginCredentials) {
+  const payload = await requestApi(apiRoutes.auth.login, "POST", {
+    staff_id: credentials.staffId,
+    password: credentials.password,
+  });
+  return parseAuthSession(payload);
+}
+
+export async function forgotPassword(data: PasswordResetRequest): Promise<void> {
+  await requestApi(apiRoutes.auth.forgotPassword, "POST", { staff_id: data.staffId });
+}
+
+export async function resetPassword(data: PasswordCompletionPayload): Promise<void> {
+  await requestApi(apiRoutes.auth.resetPassword, "POST", {
+    token: data.token,
+    password: data.password,
+    confirm_password: data.confirmPassword,
+  });
+}
+
+export async function activateAccount(data: PasswordCompletionPayload): Promise<void> {
+  await requestApi(apiRoutes.auth.activate, "POST", {
+    token: data.token,
+    password: data.password,
+    confirm_password: data.confirmPassword,
+  });
+}
+
+export async function changePassword(data: PasswordChangePayload): Promise<void> {
+  await requestApi(apiRoutes.auth.changePassword, "POST", {
+    current_password: data.currentPassword,
+    password: data.password,
+    confirm_password: data.confirmPassword,
+  });
+}
+
+export async function logout(): Promise<void> {
+  await requestApi(apiRoutes.auth.logout, "POST");
 }
