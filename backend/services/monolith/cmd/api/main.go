@@ -64,7 +64,7 @@ func run(logger *slog.Logger) error {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxIdleTime(5 * time.Minute)
 	if err := db.PingContext(connectCtx); err != nil {
-		return errors.New("ping PostgreSQL")
+		return fmt.Errorf("ping PostgreSQL: %w", err)
 	}
 
 	identityRepository := persistence.NewIdentityRepository(db)
