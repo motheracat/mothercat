@@ -1,0 +1,690 @@
+openapi: 3.1.0
+info:
+  title: Mothercat Identity API
+  version: 1.0.0
+  description: |
+    Public authentication and account-security endpoints for the Mothercat API.
+    All endpoints use HTTPS in deployed environments. Authentication sessions
+    are carried in the Secure, HttpOnly `mothercat_session` cookie.
+
+    Login allows five failed attempts per client IP and staff ID per ten-minute
+    process-local window. Password recovery and activation allow ten requests
+    per client IP per ten-minute process-local window. These limits are not
+    shared across API replicas; enforce shared edge-level limits when running
+    multiple instances.
+servers:
+  - url: /
+    description: Current API host
+tags:
+  - name: Authentication
+    description: Login, session, logout, and credential workflows
+  - name: Account security
+    description: Initial administrator bootstrap and account suspension controls
+paths:
+  /api/v1/auth/bootstrap:
+    post:
+      tags: [Account security]
+      operationId: bootstrapSuperAdmin
+      summary: Create the initial SuperAdmin
+      description: >
+        One-time initialization endpoint. Available only while
+        `IDENTITY_BOOTSTRAP_TOKEN` is configured and no Identity account exists.
+        The token must be sent as a Bearer credential over HTTPS. Remove the
+        server-side token after a successful bootstrap. Requests are limited to
+        five failed attempts per client IP per ten-minute process-local window.
+      security:
+        - bootstrapBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BootstrapRequest"
+            example:
+              staff_id: STAFF-100
+              email: admin@example.org
+              display_name: Example Administrator
+              password: "Use-a-private-strong-password"
+      responses:
+        "201":
+          description: Initial administrator created; bootstrap is permanently closed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountIDResponse"
+        "400":
+          description: Invalid account details or password policy failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Bootstrap bearer token is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Bootstrap is disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Bootstrap has already been completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Sign in with staff ID and password
+      description: >
+        On success, sets the `mothercat_session` cookie. The cookie is Secure,
+        HttpOnly, SameSite=Lax, scoped to `/`, and expires after one hour.
+        Five failed attempts per client IP and staff ID are allowed per
+        ten-minute process-local window.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            example:
+              staff_id: STAFF-100
+              password: "your-password"
+      responses:
+        "200":
+          description: Login succeeded; session cookie issued
+          headers:
+            Set-Cookie:
+              description: Secure, HttpOnly session cookie; valid for one hour.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          description: Request body is malformed or required fields are missing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Staff ID or password is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "415":
+          description: Content-Type must be application/json
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/auth/session:
+    get:
+      tags: [Authentication]
+      operationId: getSession
+      summary: Get the current authenticated user
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Session is valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "401":
+          description: Session cookie is missing, invalid, expired, or revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: Revoke the current session
+      description: >
+        Revokes the session when a valid session cookie is present and clears
+        the cookie. Calling logout without a cookie is safe and still returns
+        success.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Logged out; session cookie cleared
+          headers:
+            Set-Cookie:
+              description: Expired cookie clearing `mothercat_session`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              example:
+                status: logged_out
+        "503":
+          description: Session revocation could not be completed; retry the request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /api/v1/auth/password/forgot:
+    post:
+      tags: [Authentication]
+      operationId: requestPasswordReset
+      summary: Request password recovery instructions
+      description: >
+        Returns the same accepted response whether or not the staff account is
+        eligible, to avoid account enumeration. Limited to ten requests per
+        client IP per ten-minute process-local window.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordForgotRequest"
+            example:
+              staff_id: STAFF-100
+      responses:
+        "202":
+          description: Request accepted; instructions are sent only if eligible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Staff ID is missing or request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Identity service or recovery email delivery is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /api/v1/auth/password/reset:
+    post:
+      tags: [Authentication]
+      operationId: resetPassword
+      summary: Complete a password reset
+      description: >
+        Uses a single-use recovery token. The new password must be 14-72 bytes
+        and contain at least three of these character classes: uppercase,
+        lowercase, digit, and other character.
+        Limited to ten requests per client IP per ten-minute process-local window.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompletePasswordRequest"
+      responses:
+        "200":
+          description: Password reset completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              example:
+                status: password_reset
+        "400":
+          description: Invalid, expired, or used token; password mismatch; or weak password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/auth/password/change:
+    post:
+      tags: [Authentication]
+      operationId: changePassword
+      summary: Change the authenticated user's password
+      description: >
+        Requires the current session and current password. The new password
+        must be 14-72 bytes and contain at least three character classes. On
+        success the current session is revoked and its cookie is cleared; sign
+        in again with the new password.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed; current session cookie cleared
+          headers:
+            Set-Cookie:
+              description: Expired cookie clearing `mothercat_session`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordChangedResponse"
+        "400":
+          description: Required fields are missing, passwords do not match, or password is weak
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Session or current password is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/auth/activation/complete:
+    post:
+      tags: [Authentication]
+      operationId: completeActivation
+      summary: Activate an account and set its password
+      description: >
+        Completes activation with a single-use activation token. The password
+        must be 14-72 bytes and contain at least three character classes.
+        Limited to ten requests per client IP per ten-minute process-local window.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompletePasswordRequest"
+      responses:
+        "200":
+          description: Account activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              example:
+                status: activated
+        "400":
+          description: Invalid, expired, or used token; password mismatch; or weak password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/auth/accounts/{staffID}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/StaffID"
+      - $ref: "#/components/parameters/Origin"
+    post:
+      tags: [Account security]
+      operationId: suspendAccount
+      summary: Suspend a login account
+      description: >
+        Requires a valid session, the `settings.manage` permission, and an
+        `Origin` matching the API host. Revokes the account's sessions and
+        invalidates outstanding activation and recovery tokens. The last active
+        SuperAdmin cannot be suspended.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Account suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountStateResponse"
+              example:
+                status: suspended
+                staff_id: STAFF-100
+        "400":
+          description: Staff ID is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Session is missing, invalid, or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Origin is not allowed or caller lacks `settings.manage`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Account was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Cannot suspend the last active SuperAdmin or account state conflicts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/auth/accounts/{staffID}/reactivate:
+    parameters:
+      - $ref: "#/components/parameters/StaffID"
+      - $ref: "#/components/parameters/Origin"
+    post:
+      tags: [Account security]
+      operationId: reactivateAccount
+      summary: Reactivate a suspended login account
+      description: >
+        Requires a valid session, the `settings.manage` permission, and an
+        `Origin` matching the API host. Reactivation clears the suspension;
+        the user must sign in again to create a new session.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Account reactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountStateResponse"
+              example:
+                status: reactivated
+                staff_id: STAFF-100
+        "400":
+          description: Staff ID is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Session is missing, invalid, or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Origin is not allowed or caller lacks `settings.manage`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Account was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Account state does not permit this operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: mothercat_session
+      description: >
+        Session cookie set by login. Secure, HttpOnly, SameSite=Lax, and valid
+        for one hour.
+    bootstrapBearer:
+      type: http
+      scheme: bearer
+      description: One-time IDENTITY_BOOTSTRAP_TOKEN; only available during initial setup.
+  parameters:
+    StaffID:
+      name: staffID
+      in: path
+      required: true
+      description: Official staff identifier for the login account
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 80
+        pattern: "^[A-Za-z0-9._-]+$"
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      description: Must match the API request's origin (scheme and host).
+      schema:
+        type: string
+        format: uri
+  schemas:
+    BootstrapRequest:
+      type: object
+      additionalProperties: false
+      required: [staff_id, email, display_name, password]
+      properties:
+        staff_id:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: "^[A-Za-z0-9._-]+$"
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        password:
+          $ref: "#/components/schemas/NewPassword"
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [staff_id, password]
+      properties:
+        staff_id:
+          type: string
+          minLength: 1
+          maxLength: 80
+        password:
+          type: string
+          minLength: 1
+          description: Account password
+    PasswordForgotRequest:
+      type: object
+      additionalProperties: false
+      required: [staff_id]
+      properties:
+        staff_id:
+          type: string
+          minLength: 1
+          maxLength: 80
+    CompletePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [token, password, confirm_password]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          writeOnly: true
+        password:
+          $ref: "#/components/schemas/NewPassword"
+        confirm_password:
+          $ref: "#/components/schemas/NewPassword"
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, password, confirm_password]
+      properties:
+        current_password:
+          type: string
+          minLength: 1
+          writeOnly: true
+        password:
+          $ref: "#/components/schemas/NewPassword"
+        confirm_password:
+          $ref: "#/components/schemas/NewPassword"
+    NewPassword:
+      type: string
+      writeOnly: true
+      description: >
+        Must be 14-72 bytes and contain at least three character classes:
+        uppercase letters, lowercase letters, digits, and other characters.
+    UserResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: "#/components/schemas/IdentityUser"
+    IdentityUser:
+      type: object
+      required: [id, staff_id, display_name, email, role, roles, permissions]
+      properties:
+        id:
+          type: string
+          description: Internal account identifier
+        staff_id:
+          type: string
+          description: Official staff identifier; distinct from the account ID
+        display_name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    AccountIDResponse:
+      type: object
+      required: [account_id]
+      properties:
+        account_id:
+          type: string
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+    AcceptedResponse:
+      type: object
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          const: accepted
+        message:
+          type: string
+    PasswordChangedResponse:
+      type: object
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          const: password_changed
+        message:
+          type: string
+    AccountStateResponse:
+      type: object
+      required: [status, staff_id]
+      properties:
+        status:
+          type: string
+          enum: [suspended, reactivated]
+        staff_id:
+          type: string
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            request_id:
+              type: string
+              description: Correlation ID for support and server logs
+  responses:
+    RateLimited:
+      description: Request limit reached; wait for the applicable rate-limit window to expire
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            error:
+              code: rate_limited
+              message: too many requests; please wait before retrying
+              request_id: 0123456789abcdef0123456789abcdef
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ServiceUnavailable:
+      description: Identity service or a required dependency is unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
