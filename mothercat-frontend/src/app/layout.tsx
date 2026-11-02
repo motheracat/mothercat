@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { connection } from "next/server";
 import { Barlow_Condensed, Cormorant_Garamond, Inter } from "next/font/google";
 import "./globals.css";
@@ -33,7 +34,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
   await connection();
 
   return (

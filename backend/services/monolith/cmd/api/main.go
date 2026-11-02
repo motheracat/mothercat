@@ -256,6 +256,10 @@ func (p localAccountProvisioner) SendActivation(ctx context.Context, accountID s
 	return p.service.CreateActivationToken(ctx, accountID)
 }
 
+func (p localAccountProvisioner) SuspendAccount(ctx context.Context, staffID, actorID string) error {
+	return p.service.SuspendAccount(ctx, staffID, actorID)
+}
+
 type localAuditRecorder struct {
 	recorder *auditstore.Recorder
 }

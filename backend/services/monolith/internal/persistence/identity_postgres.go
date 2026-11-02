@@ -213,10 +213,10 @@ func (r *PostgresRepository) SuspendAccount(ctx context.Context, staffID, actorI
 	if err != nil {
 		return fmt.Errorf("load account for suspension: %w", err)
 	}
-	if !active || suspended {
+	if suspended {
 		return app.ErrAccountStatusConflict
 	}
-	if superAdmin {
+	if active && superAdmin {
 		var remaining int
 		if err := tx.QueryRowContext(ctx, `
 			SELECT count(*)
@@ -233,7 +233,7 @@ func (r *PostgresRepository) SuspendAccount(ctx context.Context, staffID, actorI
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE identity.user_accounts
 		SET suspended_at = now(), suspended_by = $2::uuid, updated_at = now()
-		WHERE id = $1::uuid AND is_active AND suspended_at IS NULL
+		WHERE id = $1::uuid AND suspended_at IS NULL
 	`, accountID, actorID); err != nil {
 		return fmt.Errorf("mark account suspended: %w", err)
 	}
@@ -292,13 +292,13 @@ func (r *PostgresRepository) ReactivateAccount(ctx context.Context, staffID, act
 	if err != nil {
 		return fmt.Errorf("load account for reactivation: %w", err)
 	}
-	if !active || !suspended {
+	if !suspended {
 		return app.ErrAccountStatusConflict
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE identity.user_accounts
 		SET suspended_at = NULL, suspended_by = NULL, updated_at = now()
-		WHERE id = $1::uuid AND is_active AND suspended_at IS NOT NULL
+		WHERE id = $1::uuid AND suspended_at IS NOT NULL
 	`, accountID); err != nil {
 		return fmt.Errorf("clear account suspension: %w", err)
 	}
