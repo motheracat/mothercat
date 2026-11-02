@@ -7,6 +7,7 @@ import {
   type PasswordCompletionPayload,
   type PasswordResetRequest,
 } from "@/lib/auth/types";
+import { mapAuthError } from "@/lib/auth/map-auth-error";
 
 type ApiErrorPayload = {
   error?: {
@@ -22,13 +23,50 @@ export class AuthApiError extends Error {
     readonly status: number,
     readonly code: string,
     readonly requestId?: string,
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "AuthApiError";
   }
 }
 
-const NETWORK_ERROR_MESSAGE = "Unable to connect to the authentication service. Check your connection and try again.";
+export class AuthNetworkError extends Error {
+  constructor() {
+    super("Network request failed.");
+    this.name = "AuthNetworkError";
+  }
+}
+
+function parseRetryAfter(response: Response, payload: unknown): number | undefined {
+  const header = response.headers.get("Retry-After");
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds)) return Math.max(0, Math.ceil(seconds));
+    const dateMilliseconds = Date.parse(header);
+    if (Number.isFinite(dateMilliseconds)) return Math.max(0, Math.ceil((dateMilliseconds - Date.now()) / 1000));
+  }
+
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const body = payload as {
+    retry_after_seconds?: unknown;
+    retryAfterSeconds?: unknown;
+    retry_after?: unknown;
+    error?: { retry_after_seconds?: unknown; retryAfterSeconds?: unknown; retry_after?: unknown };
+  };
+  for (const candidate of [
+    body.retry_after_seconds,
+    body.retryAfterSeconds,
+    body.retry_after,
+    body.error?.retry_after_seconds,
+    body.error?.retryAfterSeconds,
+    body.error?.retry_after,
+  ]) {
+    if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0) {
+      return Math.ceil(candidate);
+    }
+  }
+  return undefined;
+}
 
 async function requestApi(
   path: string,
@@ -36,6 +74,12 @@ async function requestApi(
   body?: Record<string, string>,
 ): Promise<unknown> {
   let response: Response;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, 10_000);
 
   try {
     response = await fetch(buildApiUrl(path), {
@@ -46,10 +90,12 @@ async function requestApi(
       },
       credentials: "include",
       cache: "no-store",
+      signal: controller.signal,
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
-    throw new Error(NETWORK_ERROR_MESSAGE);
+    clearTimeout(timeout);
+    throw new AuthNetworkError();
   }
 
   let payload: unknown;
@@ -57,7 +103,11 @@ async function requestApi(
     payload = await response.json();
   } catch {
     payload = null;
+  } finally {
+    clearTimeout(timeout);
   }
+
+  if (timedOut) throw new AuthNetworkError();
 
   if (!response.ok) {
     const apiError = (payload as ApiErrorPayload | null)?.error;
@@ -66,6 +116,7 @@ async function requestApi(
       response.status,
       typeof apiError?.code === "string" ? apiError.code : "request_failed",
       typeof apiError?.request_id === "string" ? apiError.request_id : undefined,
+      response.status === 429 ? parseRetryAfter(response, payload) : undefined,
     );
   }
 
@@ -77,6 +128,10 @@ async function requestApi(
 }
 
 export function formatAuthError(error: unknown, fallback: string): string {
+  if (error instanceof AuthNetworkError) {
+    return mapAuthError(error).message;
+  }
+
   if (error instanceof AuthApiError) {
     const safeMessages: Record<string, string> = {
       invalid_credentials: "Your staff ID or password is incorrect.",
@@ -91,11 +146,7 @@ export function formatAuthError(error: unknown, fallback: string): string {
       internal_error: "The request could not be completed. Try again later.",
     };
     const message = safeMessages[error.code] ?? fallback;
-    return error.requestId ? `${message} Reference: ${error.requestId}` : message;
-  }
-
-  if (error instanceof Error && error.message === NETWORK_ERROR_MESSAGE) {
-    return error.message;
+    return error.status >= 500 && error.requestId ? `${message} Reference: ${error.requestId}` : message;
   }
 
   return fallback;

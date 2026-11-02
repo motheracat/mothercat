@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
+import { PasswordInput } from "@/components/auth/password-input";
 import { formatAuthError, resetPassword } from "@/lib/auth/client";
 import { validateNewPassword } from "@/lib/auth/password";
 
@@ -11,6 +12,8 @@ function ResetPasswordPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [token] = useState(() => searchParams.get("token") ?? "");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -58,12 +61,25 @@ function ResetPasswordPageContent() {
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-5">
         <div>
-          <label htmlFor="password" className="mb-2 block text-sm font-medium text-[#0f1b33]">New password</label>
-          <input id="password" name="password" type="password" autoComplete="new-password" required className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500" placeholder="Create a password" />
+          <PasswordInput
+            id="password"
+            name="password"
+            label="New password"
+            value={password}
+            onChange={setPassword}
+            autoComplete="new-password"
+            showStrength
+          />
         </div>
         <div>
-          <label htmlFor="confirmPassword" className="mb-2 block text-sm font-medium text-[#0f1b33]">Confirm password</label>
-          <input id="confirmPassword" name="confirmPassword" type="password" autoComplete="new-password" required className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500" placeholder="Confirm password" />
+          <PasswordInput
+            id="confirmPassword"
+            name="confirmPassword"
+            label="Confirm password"
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            autoComplete="new-password"
+          />
         </div>
 
         {error ? <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}

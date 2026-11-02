@@ -1,8 +1,20 @@
+import { DataTable, EmptyState, PageHeader } from "@/components/workspace/ui";
+
 export default function DepartmentsPage() {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="font-serif text-4xl text-[#0f1b33]">Departments</h2>
-      <p className="mt-3 text-sm text-slate-600">No departments are available yet.</p>
-    </div>
+    <>
+      <PageHeader
+        title="Departments"
+        description="Organize teams and department ownership."
+        actions={<button type="button" className="button-primary">Add department</button>}
+      />
+
+      <section className="surface-card">
+        <DataTable
+          columns={["Name", "Head", "Staff count", "Created", ""]}
+          empty={<EmptyState>No departments yet. Add your first department to organize staff.</EmptyState>}
+        />
+      </section>
+    </>
   );
 }
