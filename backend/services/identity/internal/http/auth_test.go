@@ -17,12 +17,16 @@ import (
 )
 
 type authServiceStub struct {
-	loginFn      func(context.Context, string, string) (identitydomain.Account, string, error)
-	sessionFn    func(context.Context, string) (identitydomain.Account, error)
-	logoutFn     func(context.Context, string) error
-	forgotFn     func(context.Context, string) error
-	activationFn func(context.Context, string) error
-	bootstrapFn  func(context.Context, string, string, string, string) (string, error)
+	loginFn              func(context.Context, string, string) (identitydomain.Account, string, error)
+	sessionFn            func(context.Context, string) (identitydomain.Account, error)
+	logoutFn             func(context.Context, string) error
+	forgotFn             func(context.Context, string) error
+	activationFn         func(context.Context, string) error
+	bootstrapFn          func(context.Context, string, string, string, string) (string, error)
+	suspendFn            func(context.Context, string, string) error
+	reactivateFn         func(context.Context, string, string) error
+	resetFn              func(context.Context, string, string) error
+	completeActivationFn func(context.Context, string, string) error
 }
 
 func (s *authServiceStub) Login(ctx context.Context, staffID, password string) (identitydomain.Account, string, error) {
@@ -52,10 +56,16 @@ func (s *authServiceStub) RequestPasswordReset(ctx context.Context, staffID stri
 	}
 	return nil
 }
-func (s *authServiceStub) CompletePasswordReset(context.Context, string, string) error {
+func (s *authServiceStub) CompletePasswordReset(ctx context.Context, token, password string) error {
+	if s.resetFn != nil {
+		return s.resetFn(ctx, token, password)
+	}
 	return nil
 }
-func (s *authServiceStub) CompleteActivation(context.Context, string, string) error {
+func (s *authServiceStub) CompleteActivation(ctx context.Context, token, password string) error {
+	if s.completeActivationFn != nil {
+		return s.completeActivationFn(ctx, token, password)
+	}
 	return nil
 }
 func (s *authServiceStub) ChangePassword(context.Context, string, string, string) error {
@@ -75,6 +85,18 @@ func (s *authServiceStub) BootstrapSuperAdmin(ctx context.Context, staffID, emai
 		return s.bootstrapFn(ctx, staffID, email, displayName, password)
 	}
 	return "1c9491b8-21ce-4c66-a025-006bb346b810", nil
+}
+func (s *authServiceStub) SuspendAccount(ctx context.Context, staffID, actorID string) error {
+	if s.suspendFn != nil {
+		return s.suspendFn(ctx, staffID, actorID)
+	}
+	return nil
+}
+func (s *authServiceStub) ReactivateAccount(ctx context.Context, staffID, actorID string) error {
+	if s.reactivateFn != nil {
+		return s.reactivateFn(ctx, staffID, actorID)
+	}
+	return nil
 }
 
 func TestAdministratorBootstrapRequiresSecretAndClosesAfterSuccess(t *testing.T) {
@@ -174,6 +196,12 @@ func TestLoginSetsHttpOnlySessionCookieAndReturnsUser(t *testing.T) {
 	if !cookies[0].Secure {
 		t.Fatal("expected session cookie to always use the Secure flag")
 	}
+	if cookies[0].SameSite != http.SameSiteLaxMode ||
+		cookies[0].MaxAge != int(application.SessionTTL/time.Second) ||
+		time.Until(cookies[0].Expires) <= 0 {
+		t.Fatalf("session cookie settings = SameSite %v, MaxAge %d, Expires %v",
+			cookies[0].SameSite, cookies[0].MaxAge, cookies[0].Expires)
+	}
 	if !strings.HasPrefix(cookies[0].Value, "sess_") {
 		t.Fatalf("cookie value = %q, want prefix sess_", cookies[0].Value)
 	}
@@ -267,6 +295,186 @@ func TestLoginRateLimiterReservesConcurrentAttempts(t *testing.T) {
 	limiter.recordFailure("ip:192.0.2.2", "account:STAFF-2")
 	if limiter.allowKeys("ip:192.0.2.2", "account:STAFF-2") {
 		t.Fatal("attempt was allowed after failure limit was reached")
+	}
+}
+
+func TestLoginRateLimiterResetsAfterWindow(t *testing.T) {
+	limiter := newLoginRateLimiter(1, time.Minute)
+	if !limiter.allowKeys("ip:192.0.2.3") {
+		t.Fatal("initial attempt should be allowed")
+	}
+	limiter.recordFailure("ip:192.0.2.3")
+	if limiter.allowKeys("ip:192.0.2.3") {
+		t.Fatal("attempt should be blocked after failure limit")
+	}
+	limiter.mu.Lock()
+	entry := limiter.buckets["ip:192.0.2.3"]
+	entry.resetAt = time.Now().Add(-time.Second)
+	limiter.buckets["ip:192.0.2.3"] = entry
+	limiter.mu.Unlock()
+	if !limiter.allowKeys("ip:192.0.2.3") {
+		t.Fatal("attempt should be allowed after rate-limit window expires")
+	}
+}
+
+func TestLoginEndpointEnforcesFailedAttemptLimitPerIP(t *testing.T) {
+	service := &authServiceStub{loginFn: func(context.Context, string, string) (identitydomain.Account, string, error) {
+		return identitydomain.Account{}, "", identitydomain.ErrInvalidCredentials
+	}}
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	for attempt := 1; attempt <= maxLoginAttemptsPerIP+1; attempt++ {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+			strings.NewReader(`{"staff_id":"STAFF-1","password":"wrong"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.RemoteAddr = "192.0.2.55:12345"
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		want := http.StatusUnauthorized
+		if attempt > maxLoginAttemptsPerIP {
+			want = http.StatusTooManyRequests
+		}
+		if response.Code != want {
+			t.Fatalf("attempt %d status=%d body=%s, want %d", attempt, response.Code, response.Body.String(), want)
+		}
+	}
+}
+
+func TestRecoveryEndpointRateLimitsRequestsWithoutAccountEnumeration(t *testing.T) {
+	var calls int
+	service := &authServiceStub{forgotFn: func(context.Context, string) error {
+		calls++
+		return nil
+	}}
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	for attempt := 1; attempt <= maxRecoveryAttemptsPerIP+1; attempt++ {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/forgot",
+			strings.NewReader(`{"staff_id":"STAFF-1"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.RemoteAddr = "192.0.2.56:12345"
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		want := http.StatusAccepted
+		if attempt > maxRecoveryAttemptsPerIP {
+			want = http.StatusTooManyRequests
+		}
+		if response.Code != want {
+			t.Fatalf("attempt %d status=%d body=%s, want %d", attempt, response.Code, response.Body.String(), want)
+		}
+	}
+	if calls != maxRecoveryAttemptsPerIP {
+		t.Fatalf("recovery service calls=%d, want %d", calls, maxRecoveryAttemptsPerIP)
+	}
+}
+
+func TestPasswordRecoveryRejectsInvalidExpiredOrReusedTokenClearly(t *testing.T) {
+	service := &authServiceStub{
+		resetFn: func(context.Context, string, string) error {
+			return application.ErrInvalidRecoveryToken
+		},
+		completeActivationFn: func(context.Context, string, string) error {
+			return application.ErrInvalidRecoveryToken
+		},
+	}
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	for _, path := range []string{
+		"/api/v1/auth/password/reset",
+		"/api/v1/auth/activation/complete",
+	} {
+		request := httptest.NewRequest(http.MethodPost, path,
+			strings.NewReader(`{"token":"expired-or-used","password":"ValidPassword123!","confirm_password":"ValidPassword123!"}`))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest ||
+			!strings.Contains(response.Body.String(), "invalid_token") ||
+			!strings.Contains(response.Body.String(), "token is invalid, expired, or already used") {
+			t.Fatalf("path=%s status=%d body=%s, want clear invalid-token response", path, response.Code, response.Body.String())
+		}
+		if strings.Contains(response.Body.String(), "expired-or-used") {
+			t.Fatalf("response leaked submitted token: %s", response.Body.String())
+		}
+	}
+}
+
+func TestAccountSuspensionRequiresAuthorizedSameOriginSession(t *testing.T) {
+	called := false
+	service := &authServiceStub{
+		sessionFn: func(context.Context, string) (identitydomain.Account, error) {
+			return identitydomain.Account{ID: "admin-id", Permissions: []string{"settings.manage"}}, nil
+		},
+		suspendFn: func(_ context.Context, staffID, actorID string) error {
+			called = true
+			if staffID != "STAFF-2" || actorID != "admin-id" {
+				t.Fatalf("suspend target=%q actor=%q", staffID, actorID)
+			}
+			return nil
+		},
+	}
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/accounts/STAFF-2/suspend", nil)
+	request.Header.Set("Origin", "https://example.com")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"suspended"`) || !called {
+		t.Fatalf("status=%d called=%v body=%s", response.Code, called, response.Body.String())
+	}
+
+	called = false
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/accounts/STAFF-2/suspend", nil)
+	request.Header.Set("Origin", "https://attacker.example")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session"})
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || called {
+		t.Fatalf("cross-origin status=%d called=%v, want 403 without operation", response.Code, called)
+	}
+}
+
+func TestAccountSuspensionRequiresSettingsPermission(t *testing.T) {
+	called := false
+	service := &authServiceStub{
+		sessionFn: func(context.Context, string) (identitydomain.Account, error) {
+			return identitydomain.Account{ID: "staff-id", Permissions: []string{"staff.read"}}, nil
+		},
+		suspendFn: func(context.Context, string, string) error {
+			called = true
+			return nil
+		},
+	}
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/accounts/STAFF-2/suspend", nil)
+	request.Header.Set("Origin", "https://example.com")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || called {
+		t.Fatalf("status=%d called=%v, want 403 without operation", response.Code, called)
+	}
+}
+
+func TestAccountReactivationRequiresPermissionAndReportsSuccess(t *testing.T) {
+	called := false
+	service := &authServiceStub{
+		sessionFn: func(context.Context, string) (identitydomain.Account, error) {
+			return identitydomain.Account{ID: "admin-id", Permissions: []string{"settings.manage"}}, nil
+		},
+		reactivateFn: func(_ context.Context, staffID, actorID string) error {
+			called = true
+			if staffID != "STAFF-2" || actorID != "admin-id" {
+				t.Fatalf("reactivation target=%q actor=%q", staffID, actorID)
+			}
+			return nil
+		},
+	}
+	handler := NewAuthHandler(service, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/accounts/STAFF-2/reactivate", nil)
+	request.Header.Set("Origin", "https://example.com")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"reactivated"`) || !called {
+		t.Fatalf("status=%d called=%v body=%s", response.Code, called, response.Body.String())
 	}
 }
 

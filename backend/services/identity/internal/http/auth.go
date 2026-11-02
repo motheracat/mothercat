@@ -11,6 +11,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 const sessionCookieName = "mothercat_session"
 
 var accountIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+var staffIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,80}$`)
 
 const (
 	maxLoginBodyBytes        = 8 << 10
@@ -188,6 +190,8 @@ type AuthService interface {
 	CreateActivationToken(context.Context, string) error
 	ProvisionInactiveAccount(context.Context, string, string, string) (string, error)
 	BootstrapSuperAdmin(context.Context, string, string, string, string) (string, error)
+	SuspendAccount(context.Context, string, string) error
+	ReactivateAccount(context.Context, string, string) error
 }
 
 type AuthHandlerOptions struct {
@@ -214,6 +218,12 @@ func NewAuthHandler(service AuthService, logger *slog.Logger, configs ...AuthHan
 			logger.WarnContext(r.Context(), "administrator bootstrap request failed",
 				"request_id", requestIDFromContext(r.Context()), "error", err)
 		}
+	})
+	mux.HandleFunc("POST /api/v1/auth/accounts/{staffID}/suspend", func(w http.ResponseWriter, r *http.Request) {
+		handleAccountState(w, r, service, logger, true)
+	})
+	mux.HandleFunc("POST /api/v1/auth/accounts/{staffID}/reactivate", func(w http.ResponseWriter, r *http.Request) {
+		handleAccountState(w, r, service, logger, false)
 	})
 	mux.HandleFunc("POST /api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if err := handleLogin(w, r, service, logger, limiter); err != nil {
@@ -324,6 +334,92 @@ func NewAuthHandler(service AuthService, logger *slog.Logger, configs ...AuthHan
 	})
 
 	return requestIDMiddleware(logger, requestLoggingMiddleware(logger, recoveryMiddleware(logger, mux)))
+}
+
+func handleAccountState(w http.ResponseWriter, r *http.Request, service AuthService, logger *slog.Logger, suspend bool) {
+	requestID := requestIDFromContext(r.Context())
+	if !sameRequestOrigin(r) {
+		writeError(w, http.StatusForbidden, "invalid_origin", "request origin is not allowed", requestID)
+		return
+	}
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required", requestID)
+		return
+	}
+	if service == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "identity service unavailable", requestID)
+		return
+	}
+	actor, err := service.ResolveSession(r.Context(), cookie.Value)
+	if err != nil {
+		if errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			writeError(w, http.StatusUnauthorized, "invalid_session", "session expired or invalid", requestID)
+			return
+		}
+		logger.ErrorContext(r.Context(), "resolve account administrator session",
+			"request_id", requestID, "error", err)
+		writeError(w, http.StatusServiceUnavailable, "identity_unavailable", "identity service unavailable", requestID)
+		return
+	}
+	if !hasIdentityPermission(actor.Permissions, "settings.manage") {
+		writeError(w, http.StatusForbidden, "permission_denied", "account management permission is required", requestID)
+		return
+	}
+	staffID := r.PathValue("staffID")
+	if !staffIDPattern.MatchString(staffID) {
+		writeError(w, http.StatusBadRequest, "invalid_staff_id", "staff ID is invalid", requestID)
+		return
+	}
+	action := "reactivated"
+	if suspend {
+		action = "suspended"
+	}
+	var operationErr error
+	if suspend {
+		operationErr = service.SuspendAccount(r.Context(), staffID, actor.ID)
+	} else {
+		operationErr = service.ReactivateAccount(r.Context(), staffID, actor.ID)
+	}
+	switch {
+	case errors.Is(operationErr, application.ErrAccountNotFound):
+		writeError(w, http.StatusNotFound, "account_not_found", "account was not found", requestID)
+		return
+	case errors.Is(operationErr, application.ErrLastActiveSuperAdmin):
+		writeError(w, http.StatusConflict, "last_active_super_admin", "cannot suspend the last active SuperAdmin", requestID)
+		return
+	case errors.Is(operationErr, application.ErrAccountStatusConflict):
+		writeError(w, http.StatusConflict, "account_state_conflict", "account is not in a state that permits this operation", requestID)
+		return
+	case operationErr != nil:
+		logger.ErrorContext(r.Context(), "account "+action+" failed",
+			"request_id", requestID, "actor_id", actor.ID, "error", operationErr)
+		writeError(w, http.StatusServiceUnavailable, "account_operation_unavailable", "account operation could not be completed", requestID)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": action, "staff_id": staffID})
+}
+
+func sameRequestOrigin(r *http.Request) bool {
+	rawOrigin := strings.TrimSpace(r.Header.Get("Origin"))
+	origin, err := url.Parse(rawOrigin)
+	if err != nil || origin.Host == "" || origin.User != nil || origin.Path != "" ||
+		origin.RawQuery != "" || origin.Fragment != "" {
+		return false
+	}
+	if origin.Scheme != "https" && !(origin.Scheme == "http" && r.TLS == nil) {
+		return false
+	}
+	return strings.EqualFold(origin.Host, r.Host)
+}
+
+func hasIdentityPermission(permissions []string, required string) bool {
+	for _, permission := range permissions {
+		if permission == required {
+			return true
+		}
+	}
+	return false
 }
 
 func handleBootstrap(

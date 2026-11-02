@@ -44,6 +44,42 @@ if the environment variable is accidentally retained. The migration must have
 run first. Never send the token or password over HTTP or store them in source
 control.
 
+## Account suspension and authentication safeguards
+
+Before deploying account suspension code, apply pending migrations to the
+intended Supabase database from `backend/` with the privileged migration URL
+provided through a secure environment mechanism:
+
+```sh
+make db-migrate
+```
+
+Migration `002_account_suspension` adds the separate suspension state. It does
+not change account activation state or staff employment status. Apply this
+migration before deploying the API version that reads the new columns.
+
+An authenticated administrator with the `settings.manage` permission can
+temporarily suspend or reactivate a login account:
+
+- `POST /api/v1/auth/accounts/{staffID}/suspend`
+- `POST /api/v1/auth/accounts/{staffID}/reactivate`
+
+These requests require the current session cookie and a matching `Origin`
+header. Suspension revokes all current sessions and invalidates outstanding
+recovery/activation tokens in the same transaction as the audit event. It
+blocks login and session resolution without changing the account's activation
+or staff employment state. Reactivation only clears the suspension; the user
+must log in again. The API prevents suspending the last active SuperAdmin.
+Expected outcomes are `200`, `401`, `403`, `404`, `409`, or `503`; errors
+include a machine-readable code and request ID.
+
+Login limits are five failed attempts per IP and account per ten-minute
+process-local window. Recovery and activation workflows are limited to ten
+requests per IP per ten minutes and return a generic accepted response to avoid
+account enumeration. These in-memory limits reset on process restart and are
+not shared between replicas; deployments with multiple API instances should
+also enforce shared edge-level rate limits.
+
 ## Scope and status
 
 The frontend is intentionally unchanged. The PostgreSQL migration is not

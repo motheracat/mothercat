@@ -65,6 +65,8 @@ func (r *repositoryStub) BootstrapSuperAdmin(_ context.Context, account AccountR
 	r.bootstrapAccount = account
 	return r.bootstrapErr
 }
+func (*repositoryStub) SuspendAccount(context.Context, string, string) error    { return nil }
+func (*repositoryStub) ReactivateAccount(context.Context, string, string) error { return nil }
 
 type authorizationStub struct {
 	authorization Authorization

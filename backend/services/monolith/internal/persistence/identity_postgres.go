@@ -29,7 +29,7 @@ func (r *PostgresRepository) FindByStaffID(ctx context.Context, staffID string) 
 	}
 	record, err := scanAccount(r.db.QueryRowContext(ctx, `
 		SELECT id, staff_id, email, display_name, password_hash, is_active, must_change_password
-		FROM identity.user_accounts WHERE staff_id = $1
+		FROM identity.user_accounts WHERE staff_id = $1 AND suspended_at IS NULL
 	`, staffID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return app.AccountRecord{}, app.ErrAccountNotFound
@@ -49,7 +49,7 @@ func (r *PostgresRepository) FindBySessionToken(ctx context.Context, token strin
 		FROM identity.sessions s
 		JOIN identity.user_accounts a ON a.id = s.account_id
 		WHERE s.token_hash = $1 AND s.revoked_at IS NULL
-		  AND s.expires_at > now() AND a.is_active
+		  AND s.expires_at > now() AND a.is_active AND a.suspended_at IS NULL
 	`, hashToken(token)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return app.AccountRecord{}, app.ErrSessionNotFound
@@ -66,7 +66,7 @@ func (r *PostgresRepository) FindByAccountID(ctx context.Context, accountID stri
 	}
 	record, err := scanAccount(r.db.QueryRowContext(ctx, `
 		SELECT id, staff_id, email, display_name, password_hash, is_active, must_change_password
-		FROM identity.user_accounts WHERE id = $1::uuid
+		FROM identity.user_accounts WHERE id = $1::uuid AND suspended_at IS NULL
 	`, accountID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return app.AccountRecord{}, app.ErrAccountNotFound
@@ -175,6 +175,142 @@ func (r *PostgresRepository) BootstrapSuperAdmin(ctx context.Context, account ap
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit administrator bootstrap: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) SuspendAccount(ctx context.Context, staffID, actorID string) error {
+	if err := r.available(); err != nil {
+		return err
+	}
+	eventID, err := newUUID()
+	if err != nil {
+		return err
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin account suspension: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(761039123)`); err != nil {
+		return fmt.Errorf("lock account suspension state: %w", err)
+	}
+	var accountID string
+	var active, suspended, superAdmin bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT a.id, a.is_active, a.suspended_at IS NOT NULL,
+		       EXISTS (
+		           SELECT 1 FROM access.user_roles ur
+		           WHERE ur.user_id = a.id AND ur.role_key = 'super_admin'
+		       )
+		FROM identity.user_accounts a
+		WHERE a.staff_id = $1
+		FOR UPDATE
+	`, staffID).Scan(&accountID, &active, &suspended, &superAdmin)
+	if errors.Is(err, sql.ErrNoRows) {
+		return app.ErrAccountNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load account for suspension: %w", err)
+	}
+	if !active || suspended {
+		return app.ErrAccountStatusConflict
+	}
+	if superAdmin {
+		var remaining int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT count(*)
+			FROM identity.user_accounts a
+			JOIN access.user_roles ur ON ur.user_id = a.id AND ur.role_key = 'super_admin'
+			WHERE a.id <> $1::uuid AND a.is_active AND a.suspended_at IS NULL
+		`, accountID).Scan(&remaining); err != nil {
+			return fmt.Errorf("check remaining active SuperAdmins: %w", err)
+		}
+		if remaining == 0 {
+			return app.ErrLastActiveSuperAdmin
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE identity.user_accounts
+		SET suspended_at = now(), suspended_by = $2::uuid, updated_at = now()
+		WHERE id = $1::uuid AND is_active AND suspended_at IS NULL
+	`, accountID, actorID); err != nil {
+		return fmt.Errorf("mark account suspended: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE identity.sessions SET revoked_at = now()
+		WHERE account_id = $1::uuid AND revoked_at IS NULL
+	`, accountID); err != nil {
+		return fmt.Errorf("revoke sessions for suspended account: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE identity.recovery_tokens SET used_at = now()
+		WHERE account_id = $1::uuid AND used_at IS NULL
+	`, accountID); err != nil {
+		return fmt.Errorf("invalidate recovery tokens for suspended account: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO audit.audit_events (
+			id, event_key, actor_type, actor_id, action, resource_type, resource_id
+		) VALUES ($1::uuid, $2, 'user', $3, 'identity.account.suspended', 'identity_account', $4)
+	`, eventID, "identity:suspend:"+eventID, actorID, accountID); err != nil {
+		return fmt.Errorf("audit account suspension: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit account suspension: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) ReactivateAccount(ctx context.Context, staffID, actorID string) error {
+	if err := r.available(); err != nil {
+		return err
+	}
+	eventID, err := newUUID()
+	if err != nil {
+		return err
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin account reactivation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(761039123)`); err != nil {
+		return fmt.Errorf("lock account suspension state: %w", err)
+	}
+	var accountID string
+	var active, suspended bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, is_active, suspended_at IS NOT NULL
+		FROM identity.user_accounts
+		WHERE staff_id = $1
+		FOR UPDATE
+	`, staffID).Scan(&accountID, &active, &suspended)
+	if errors.Is(err, sql.ErrNoRows) {
+		return app.ErrAccountNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load account for reactivation: %w", err)
+	}
+	if !active || !suspended {
+		return app.ErrAccountStatusConflict
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE identity.user_accounts
+		SET suspended_at = NULL, suspended_by = NULL, updated_at = now()
+		WHERE id = $1::uuid AND is_active AND suspended_at IS NOT NULL
+	`, accountID); err != nil {
+		return fmt.Errorf("clear account suspension: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO audit.audit_events (
+			id, event_key, actor_type, actor_id, action, resource_type, resource_id
+		) VALUES ($1::uuid, $2, 'user', $3, 'identity.account.reactivated', 'identity_account', $4)
+	`, eventID, "identity:reactivate:"+eventID, actorID, accountID); err != nil {
+		return fmt.Errorf("audit account reactivation: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit account reactivation: %w", err)
 	}
 	return nil
 }
@@ -333,8 +469,10 @@ func (r *PostgresRepository) CompleteRecovery(ctx context.Context, tokenHash, pu
 		query = `
 			UPDATE identity.user_accounts
 			SET password_hash = $2, must_change_password = false, is_active = true, updated_at = now()
-			WHERE id = $1::uuid AND is_active = false
+			WHERE id = $1::uuid AND is_active = false AND suspended_at IS NULL
 		`
+	} else {
+		query += ` AND suspended_at IS NULL`
 	}
 	result, err := tx.ExecContext(ctx, query, accountID, passwordHash)
 	if err != nil {

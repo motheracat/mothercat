@@ -24,6 +24,8 @@ import (
 var ErrInactiveAccount = errors.New("inactive_account")
 var ErrAccountNotFound = errors.New("account_not_found")
 var ErrAccountConflict = errors.New("account_conflict")
+var ErrAccountStatusConflict = errors.New("account_status_conflict")
+var ErrLastActiveSuperAdmin = errors.New("last_active_super_admin")
 var ErrInvalidProvisioningDetails = errors.New("invalid_account_provisioning_details")
 var ErrSessionNotFound = errors.New("session_not_found")
 
@@ -38,7 +40,6 @@ var ErrInvalidCurrentPassword = errors.New("invalid_current_password")
 var ErrEmailDeliveryUnavailable = errors.New("email_delivery_unavailable")
 var ErrBootstrapClosed = errors.New("administrator_bootstrap_closed")
 
-// Repository defines the data access contract required for Identity auth flows.
 type Repository interface {
 	FindByStaffID(ctx context.Context, staffID string) (AccountRecord, error)
 	FindBySessionToken(ctx context.Context, token string) (AccountRecord, error)
@@ -51,6 +52,8 @@ type Repository interface {
 	ChangePassword(ctx context.Context, sessionToken, passwordHash string) error
 	CreateInactiveAccount(ctx context.Context, staffID, email, passwordHash, displayName string) (string, error)
 	BootstrapSuperAdmin(ctx context.Context, account AccountRecord) error
+	SuspendAccount(ctx context.Context, staffID, actorID string) error
+	ReactivateAccount(ctx context.Context, staffID, actorID string) error
 }
 
 type Authorization struct {
@@ -67,8 +70,6 @@ type Mailer interface {
 	SendRecovery(context.Context, string, string, string) error
 }
 
-// AccountRecord is the persistence representation of a user account. It keeps the
-// password hash server-side and converts to the public domain account shape.
 type AccountRecord struct {
 	ID                 string
 	StaffID            string
@@ -317,6 +318,34 @@ func (s *Service) BootstrapSuperAdmin(ctx context.Context, staffID, email, displ
 		return "", fmt.Errorf("bootstrap initial administrator: %w", err)
 	}
 	return accountID, nil
+}
+
+func (s *Service) SuspendAccount(ctx context.Context, staffID, actorID string) error {
+	if s == nil || s.repository == nil {
+		return errors.New("identity repository is unavailable")
+	}
+	staffID = strings.TrimSpace(staffID)
+	if staffID == "" || len(staffID) > 80 || strings.TrimSpace(actorID) == "" {
+		return ErrInvalidProvisioningDetails
+	}
+	if err := s.repository.SuspendAccount(ctx, staffID, actorID); err != nil {
+		return fmt.Errorf("suspend account: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) ReactivateAccount(ctx context.Context, staffID, actorID string) error {
+	if s == nil || s.repository == nil {
+		return errors.New("identity repository is unavailable")
+	}
+	staffID = strings.TrimSpace(staffID)
+	if staffID == "" || len(staffID) > 80 || strings.TrimSpace(actorID) == "" {
+		return ErrInvalidProvisioningDetails
+	}
+	if err := s.repository.ReactivateAccount(ctx, staffID, actorID); err != nil {
+		return fmt.Errorf("reactivate account: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) CompletePasswordReset(ctx context.Context, token, password string) error {

@@ -18,6 +18,7 @@ type migration struct {
 
 var allMigrations = []migration{
 	{version: "001_initial", path: "migrations/001_initial.sql"},
+	{version: "002_account_suspension", path: "migrations/002_account_suspension.sql"},
 }
 
 func Migrate(ctx context.Context, db *sql.DB) error {
