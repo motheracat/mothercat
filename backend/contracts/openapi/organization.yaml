@@ -2,38 +2,110 @@ openapi: 3.1.0
 info:
   title: Mothercat Organization API
   version: 1.0.0
+  description: |
+    Staff directory, staff import, and department operations. Mutations require
+    the session cookie, a same-origin Origin header, and the documented
+    permission. Staff imports accept CSV files up to 5 MiB and 5,000 data rows;
+    a batch is committed atomically or not at all.
 servers:
   - url: /api/v1
+    description: Current API host
+tags:
+  - name: Staff
+    description: Search, view, create, update, and deactivate staff records
+  - name: Staff imports
+    description: Bounded, atomic CSV staff-directory imports and results
+  - name: Departments
+    description: Department directory and administration
+  - name: Onboarding
+    description: Existing account provisioning workflow, beyond the 10 blueprint operations
 paths:
   /staff:
-    post:
-      operationId: createStaff
-      summary: Create an approved staff record
-      description: >
-        Creates a pending Organization staff profile. Requires a valid
-        Identity session cookie, a same-origin request, and the staff.create
-        permission. This endpoint does not create login credentials or assign
-        roles. Until the official staff directory is supplied, authorized
-        administrators may enter approved records manually.
+    get:
+      tags: [Staff]
+      operationId: listStaff
+      summary: Search and paginate staff
+      description: Requires `staff.read`. Search matches staff ID, name, or work email.
       security:
         - sessionCookie: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1000000
+            default: 0
+        - name: search
+          in: query
+          description: Case-insensitive substring search across staff ID, full name, and work email.
+          schema:
+            type: string
+            maxLength: 100
+        - name: department_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: employment_status
+          in: query
+          schema:
+            type: string
+            enum: [pending, active, inactive, deactivated]
+      responses:
+        "200":
+          description: Staff page and total count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Staff]
+      operationId: createStaff
+      summary: Create a pending staff record
+      description: >
+        Requires `staff.create` and a matching Origin. Creates an Organization
+        profile only; it does not create login credentials or assign a role.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/CreateStaffRequest"
+            example:
+              staff_id: ENG-104
+              full_name: Ada Okafor
+              work_email: ada@example.org
+              job_title: Site Engineer
+              department_id: 7da27cda-3496-4d02-9d99-fb0e956297e5
       responses:
         "201":
-          description: Staff profile created in pending status
+          description: Pending staff record created
           content:
             application/json:
               schema:
-                type: object
-                required: [staff]
-                properties:
-                  staff:
-                    $ref: "#/components/schemas/Staff"
+                $ref: "#/components/schemas/StaffResponse"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -41,25 +113,438 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
         "409":
-          description: Staff ID is already in use
+          description: Staff ID already exists
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
         "415":
           $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
         "503":
-          description: Identity, Audit, or Organization dependency unavailable
+          $ref: "#/components/responses/Error"
+
+  /staff/{staffId}:
+    parameters:
+      - $ref: "#/components/parameters/StaffUUID"
+    get:
+      tags: [Staff]
+      operationId: getStaff
+      summary: Get a staff profile
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Staff profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Staff]
+      operationId: updateStaff
+      summary: Update permitted staff profile fields
+      description: >
+        Requires `staff.update` and a matching Origin. `staff_id`, account
+        association, and employment status are not editable here. Send `null`
+        for nullable fields to clear them; omit fields that should stay unchanged.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateStaffRequest"
+            example:
+              full_name: Ada Okafor
+              job_title: Senior Site Engineer
+              work_email: null
+      responses:
+        "200":
+          description: Updated staff profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "415":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /staff/{staffId}/deactivate:
+    parameters:
+      - $ref: "#/components/parameters/StaffUUID"
+      - $ref: "#/components/parameters/Origin"
+    post:
+      tags: [Staff]
+      operationId: deactivateStaff
+      summary: Deactivate a staff employment record
+      description: >
+        Requires `staff.deactivate`, a valid session, and a matching Origin.
+        For a staff member with a login account, Identity suspension is
+        completed first to revoke its sessions; the employment record is marked
+        inactive only if that succeeds. The existing Identity policy prevents
+        suspension of the last active SuperAdmin. This endpoint does not
+        reactivate employment.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Staff employment record is inactive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          description: Audit, Identity suspension, or Organization dependency unavailable
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+
+  /staff/imports:
+    post:
+      tags: [Staff imports]
+      operationId: importStaff
+      summary: Import staff records from a CSV file
+      description: >
+        Requires `staff.import` and a matching Origin. Upload one CSV file as
+        multipart form field `file`. File size is limited to 5 MiB and the
+        import to 5,000 nonblank data rows. Required columns are `staff_id`
+        and `full_name`; optional columns are `work_email`, `job_title`, and
+        `department_id`. Header order is unrestricted. Unknown/duplicate
+        headers, invalid records, duplicate staff IDs, and missing departments
+        fail the entire batch. No staff rows are committed on failure.
+        Valid rows are created in pending status; this import does not create
+        login accounts or assign roles. Processing is synchronous.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: UTF-8 CSV file, maximum 5 MiB.
+      responses:
+        "201":
+          description: All records imported atomically
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffImportResponse"
+        "400":
+          description: Invalid multipart request or missing file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "413":
+          description: Upload exceeds the 5 MiB request limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "415":
+          description: Content-Type must be multipart/form-data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          description: CSV validation failed; no staff rows were committed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffImportFailureResponse"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /staff/imports/{importId}:
+    parameters:
+      - name: importId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Staff imports]
+      operationId: getStaffImport
+      summary: Get import validation and processing results
+      description: Requires `staff.import`.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Import batch status and row results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffImportResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /departments:
+    get:
+      tags: [Departments]
+      operationId: listDepartments
+      summary: List departments
+      description: Requires `staff.read`.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Department directory
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [departments]
+                properties:
+                  departments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Department"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Departments]
+      operationId: createDepartment
+      summary: Create a department
+      description: Requires `departments.manage` and a matching Origin.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDepartmentRequest"
+            example:
+              name: Engineering
+              description: Engineering and site operations
+      responses:
+        "201":
+          description: Department created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          description: Department name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "415":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /departments/{departmentId}:
+    parameters:
+      - name: departmentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [Departments]
+      operationId: updateDepartment
+      summary: Update a department
+      description: >
+        Requires `departments.manage` and a matching Origin. Omit unchanged
+        fields; send `description: null` to clear the description. Department
+        name cannot be cleared.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDepartmentRequest"
+            example:
+              description: Regional engineering team
+      responses:
+        "200":
+          description: Updated department
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          description: Department name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "415":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /staff/{staffID}/provision:
+    parameters:
+      - name: staffID
+        in: path
+        required: true
+        description: Internal UUID of the Organization staff record
+        schema:
+          type: string
+          format: uuid
+      - $ref: "#/components/parameters/Origin"
+    post:
+      tags: [Onboarding]
+      operationId: provisionStaffAccount
+      summary: Provision a login account and send activation instructions
+      description: >
+        Existing supplementary workflow; not one of the ten Organization
+        operations listed in the project blueprint. Requires
+        `user_roles.assign`, a matching Origin, and an eligible pending staff
+        record with a work email.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Staff account provisioned and invitation sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [staff, invitation_sent]
+                properties:
+                  staff:
+                    $ref: "#/components/schemas/Staff"
+                  invitation_sent:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
 components:
   securitySchemes:
     sessionCookie:
       type: apiKey
       in: cookie
       name: mothercat_session
+      description: Secure, HttpOnly Identity session cookie.
+  parameters:
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      description: Must match the API request's scheme and host.
+      schema:
+        type: string
+        format: uri
+    StaffUUID:
+      name: staffId
+      in: path
+      required: true
+      description: Internal UUID of the staff record, not the official staff ID.
+      schema:
+        type: string
+        format: uuid
   schemas:
     CreateStaffRequest:
       type: object
@@ -76,25 +561,43 @@ components:
           minLength: 1
           maxLength: 200
         work_email:
-          type: string
+          type: [string, "null"]
           format: email
           maxLength: 254
         job_title:
-          type: string
+          type: [string, "null"]
           maxLength: 150
         department_id:
+          type: [string, "null"]
+          format: uuid
+    UpdateStaffRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        full_name:
           type: string
+          minLength: 1
+          maxLength: 200
+        work_email:
+          type: [string, "null"]
+          format: email
+          maxLength: 254
+        job_title:
+          type: [string, "null"]
+          maxLength: 150
+        department_id:
+          type: [string, "null"]
           format: uuid
     Staff:
       type: object
-      required:
-        - id
-        - staff_id
-        - full_name
-        - employment_status
+      required: [id, staff_id, full_name, employment_status]
       properties:
         id:
           type: string
+          format: uuid
+        account_id:
+          type: [string, "null"]
           format: uuid
         staff_id:
           type: string
@@ -110,7 +613,139 @@ components:
           type: [string, "null"]
         employment_status:
           type: string
-          enum: [pending, active, inactive]
+          enum: [pending, active, inactive, deactivated]
+    StaffResponse:
+      type: object
+      required: [staff]
+      properties:
+        staff:
+          $ref: "#/components/schemas/Staff"
+    StaffListResponse:
+      type: object
+      required: [staff, pagination]
+      properties:
+        staff:
+          type: array
+          items:
+            $ref: "#/components/schemas/Staff"
+        pagination:
+          type: object
+          required: [limit, offset, total]
+          properties:
+            limit:
+              type: integer
+            offset:
+              type: integer
+            total:
+              type: integer
+    CreateDepartmentRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+    UpdateDepartmentRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+    Department:
+      type: object
+      required: [id, name, description]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: [string, "null"]
+    DepartmentResponse:
+      type: object
+      required: [department]
+      properties:
+        department:
+          $ref: "#/components/schemas/Department"
+    StaffImportResponse:
+      type: object
+      required: [import]
+      properties:
+        import:
+          $ref: "#/components/schemas/StaffImportBatch"
+    StaffImportFailureResponse:
+      type: object
+      required: [error, import]
+      properties:
+        error:
+          type: object
+          required: [code, request_id]
+          properties:
+            code:
+              type: string
+              const: staff_import_validation_failed
+            request_id:
+              type: string
+        import:
+          $ref: "#/components/schemas/StaffImportBatch"
+    StaffImportBatch:
+      type: object
+      required: [id, status, created_at, result]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [completed, failed]
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: [string, "null"]
+          format: date-time
+        result:
+          $ref: "#/components/schemas/StaffImportResult"
+    StaffImportResult:
+      type: object
+      required: [total_rows, imported_rows, error_count]
+      properties:
+        total_rows:
+          type: integer
+        imported_rows:
+          type: integer
+        error_count:
+          type: integer
+        errors_truncated:
+          type: boolean
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/StaffImportIssue"
+    StaffImportIssue:
+      type: object
+      required: [row, code, message]
+      properties:
+        row:
+          type: integer
+        staff_id:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
     ErrorBody:
       type: object
       required: [error]
@@ -124,18 +759,10 @@ components:
             request_id:
               type: string
     Error:
-      type: object
-      properties:
-        error:
-          type: object
-          properties:
-            code:
-              type: string
-            request_id:
-              type: string
+      $ref: "#/components/schemas/ErrorBody"
   responses:
     Error:
-      description: Request failed
+      description: Request failed; use error.code for client behavior and request_id for support.
       content:
         application/json:
           schema:

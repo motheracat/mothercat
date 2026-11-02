@@ -147,6 +147,36 @@ application flows on staging before considering production.
    period. Securely dispose of private export files according to the data
    retention policy.
 
+## Organization API migration
+
+The Organization API adds staff and department management, including synchronous
+CSV directory import. Apply pending PostgreSQL migrations from `backend/` before
+deploying this API version:
+
+```sh
+make db-migrate
+```
+
+Provide `MIGRATIONS_DATABASE_URL` through a secure environment or secret
+mechanism, require TLS, and never paste the URL into chat or source control.
+On a database that has already applied migrations 001 and 002, this applies
+`003_organization_api`, which adds indexes used by staff listing, import-batch
+lookup, and department ordering.
+
+The staff import endpoint accepts one multipart `file` containing a CSV with
+required `staff_id` and `full_name` headers. Optional headers are `work_email`,
+`job_title`, and `department_id`; unknown or duplicate headers fail validation.
+Uploads are limited to 5 MiB and 5,000 data rows. Each import is all-or-nothing:
+successful rows create pending staff records only and do not create login
+accounts or assign roles. Failed batches retain a bounded set of row issues and
+can be retrieved using the import-status endpoint.
+
+Staff deactivation also suspends a linked Identity account and invalidates its
+sessions and outstanding recovery/activation tokens. If Identity suspension
+succeeds but the Organization update fails, the account remains suspended; an
+administrator must resolve the failure before considering deactivation
+complete.
+
 ## Runtime settings
 
 | Variable | Purpose |

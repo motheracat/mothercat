@@ -50,11 +50,16 @@ type AccountProvisioner interface {
 	SendActivation(context.Context, string) error
 }
 
+type AccountSuspender interface {
+	SuspendAccount(context.Context, string, string) error
+}
+
 type StaffRoleAssigner interface {
 	AssignDefaultStaffRole(context.Context, string) error
 }
 
 type OnboardingServices struct {
-	Identity AccountProvisioner
-	Access   StaffRoleAssigner
+	Identity      AccountProvisioner
+	IdentityState AccountSuspender
+	Access        StaffRoleAssigner
 }

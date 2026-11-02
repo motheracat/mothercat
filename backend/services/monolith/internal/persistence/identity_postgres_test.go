@@ -157,6 +157,44 @@ func TestSuspendAccountRevokesSessionsAndAuditsAtomically(t *testing.T) {
 	}
 }
 
+func TestSuspendInactiveAccountInvalidatesActivationTokens(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	const accountID = "00000000-0000-0000-0000-000000000001"
+	const actorID = "00000000-0000-0000-0000-000000000002"
+	mock.ExpectBegin()
+	mock.ExpectExec(`pg_advisory_xact_lock\(761039123\)`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)SELECT a\.id.*FOR UPDATE`).
+		WithArgs("STAFF-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "is_active", "suspended", "super_admin"}).
+			AddRow(accountID, false, false, false))
+	mock.ExpectExec(`UPDATE identity\.user_accounts`).
+		WithArgs(accountID, actorID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE identity\.sessions`).
+		WithArgs(accountID).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`UPDATE identity\.recovery_tokens`).
+		WithArgs(accountID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO audit\.audit_events`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), actorID, accountID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := NewIdentityRepository(db).SuspendAccount(context.Background(), "STAFF-1", actorID); err != nil {
+		t.Fatalf("SuspendAccount() for inactive account = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReactivateAccountAuditsStateChangeAtomically(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -172,7 +210,7 @@ func TestReactivateAccountAuditsStateChangeAtomically(t *testing.T) {
 	mock.ExpectQuery(`(?s)SELECT id, is_active, suspended_at IS NOT NULL.*FOR UPDATE`).
 		WithArgs("STAFF-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "is_active", "suspended"}).
-			AddRow(accountID, true, true))
+			AddRow(accountID, false, true))
 	mock.ExpectExec(`UPDATE identity\.user_accounts`).
 		WithArgs(accountID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
