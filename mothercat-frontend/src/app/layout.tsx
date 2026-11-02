@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Barlow_Condensed, Cormorant_Garamond, Inter } from "next/font/google";
 import "./globals.css";
 
@@ -32,7 +33,9 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  await connection();
+
   return (
     <html lang="en" className={`${inter.variable} ${cormorant.variable} ${barlowCondensed.variable} antialiased`}>
       <body className="min-h-full bg-white text-slate-900">{children}</body>
