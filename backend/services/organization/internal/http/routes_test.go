@@ -301,7 +301,7 @@ func TestCreateStaffPersistsPendingRecordAndAudits(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := NewHandler(store, auth, audit, logger)
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, staffRequest(`{"staff_id":"ENG-104","full_name":"Ada Okafor","work_email":"ada@example.test","job_title":"Site Engineer"}`))
+	handler.ServeHTTP(response, staffRequest(`{"staff_id":"23847","full_name":"Ada Okafor","work_email":"ada@example.test","job_title":"Site Engineer"}`))
 
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusCreated, response.Body.String())
@@ -309,7 +309,7 @@ func TestCreateStaffPersistsPendingRecordAndAudits(t *testing.T) {
 	if !store.created || !audit.called || auth.cookie != "opaque-session" {
 		t.Fatalf("created=%v audited=%v authenticated cookie=%q", store.created, audit.called, auth.cookie)
 	}
-	if store.request.StaffID != "ENG-104" || store.request.FullName != "Ada Okafor" {
+	if store.request.StaffID != "23847" || store.request.FullName != "Ada Okafor" {
 		t.Fatalf("persisted request = %+v", store.request)
 	}
 	if audit.event.ActorID != authorizedPrincipal().ID ||
@@ -328,7 +328,7 @@ func TestCreateStaffRequiresStaffCreatePermission(t *testing.T) {
 	auth := &authenticatorStub{principal: application.Principal{ID: authorizedPrincipal().ID, Permissions: []string{"staff.read"}}}
 	handler := NewHandler(store, auth, audit, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, staffRequest(`{"staff_id":"ENG-104","full_name":"Ada Okafor"}`))
+	handler.ServeHTTP(response, staffRequest(`{"staff_id":"23847","full_name":"Ada Okafor"}`))
 
 	if response.Code != http.StatusForbidden || store.created || audit.called {
 		t.Fatalf("status=%d created=%v audit=%v; want 403 with no writes", response.Code, store.created, audit.called)
@@ -347,7 +347,7 @@ func TestCreateStaffRequiresSameOriginAndSession(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			request := staffRequest(`{"staff_id":"ENG-104","full_name":"Ada Okafor"}`)
+			request := staffRequest(`{"staff_id":"23847","full_name":"Ada Okafor"}`)
 			if test.removeOrigin {
 				request.Header.Del("Origin")
 			}
@@ -370,7 +370,7 @@ func TestCreateStaffDoesNotWriteIfAuditUnavailable(t *testing.T) {
 	handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, audit,
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, staffRequest(`{"staff_id":"ENG-104","full_name":"Ada Okafor"}`))
+	handler.ServeHTTP(response, staffRequest(`{"staff_id":"23847","full_name":"Ada Okafor"}`))
 
 	if response.Code != http.StatusServiceUnavailable || store.created {
 		t.Fatalf("status=%d created=%v; wanted 503 and no staff write", response.Code, store.created)
@@ -382,7 +382,7 @@ func TestCreateStaffMapsDuplicateStaffID(t *testing.T) {
 	handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, &auditStub{},
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, staffRequest(`{"staff_id":"ENG-104","full_name":"Ada Okafor"}`))
+	handler.ServeHTTP(response, staffRequest(`{"staff_id":"23847","full_name":"Ada Okafor"}`))
 
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "duplicate_staff_id") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
@@ -394,10 +394,26 @@ func TestCreateStaffRejectsUnknownJSONFields(t *testing.T) {
 	handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, &auditStub{},
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, staffRequest(`{"staff_id":"ENG-104","full_name":"Ada Okafor","is_admin":true}`))
+	handler.ServeHTTP(response, staffRequest(`{"staff_id":"23847","full_name":"Ada Okafor","is_admin":true}`))
 
 	if response.Code != http.StatusBadRequest || store.created {
 		t.Fatalf("status=%d created=%v; want 400 with no write", response.Code, store.created)
+	}
+}
+
+func TestCreateStaffRejectsInvalidStaffNumber(t *testing.T) {
+	for _, staffID := range []string{"ID:23847", "123", "123456", "23A47"} {
+		store := &staffStoreStub{}
+		audit := &auditStub{}
+		handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, audit,
+			slog.New(slog.NewJSONHandler(io.Discard, nil)))
+		response := httptest.NewRecorder()
+		body := `{"staff_id":"` + staffID + `","full_name":"Ada Okafor"}`
+		handler.ServeHTTP(response, staffRequest(body))
+		if response.Code != http.StatusBadRequest || store.created || audit.called {
+			t.Errorf("staff_id %q: status=%d created=%v audit=%v; want 400 with no writes",
+				staffID, response.Code, store.created, audit.called)
+		}
 	}
 }
 
@@ -406,7 +422,7 @@ func TestProvisionStaffCreatesInactiveAccountAssignsStaffRoleAndSendsInvitation(
 	const accountID = "1c9491b8-21ce-4c66-a025-006bb346b810"
 	email := "staff@example.test"
 	store := &staffStoreStub{staff: domain.Staff{
-		ID: staffID, StaffID: "ENG-104", FullName: "Ada Okafor",
+		ID: staffID, StaffID: "23847", FullName: "Ada Okafor",
 		WorkEmail: &email, EmploymentStatus: "pending",
 	}}
 	identity := &onboardingIdentityStub{accountID: accountID}
@@ -478,7 +494,7 @@ func TestProvisionStaffLeavesRecordPendingWhenEmailIsUnavailable(t *testing.T) {
 	const accountID = "1c9491b8-21ce-4c66-a025-006bb346b810"
 	email := "staff@example.test"
 	store := &staffStoreStub{staff: domain.Staff{
-		ID: staffID, StaffID: "ENG-104", FullName: "Ada Okafor",
+		ID: staffID, StaffID: "23847", FullName: "Ada Okafor",
 		WorkEmail: &email, EmploymentStatus: "pending",
 	}}
 	identity := &onboardingIdentityStub{accountID: accountID, activationErr: application.ErrEmailDeliveryUnavailable}
@@ -499,7 +515,7 @@ func TestProvisionStaffLeavesRecordPendingWhenEmailIsUnavailable(t *testing.T) {
 
 func TestListStaffUsesBoundedPaginationAndPermission(t *testing.T) {
 	staffID := "7da27cda-3496-4d02-9d99-fb0e956297e5"
-	store := &staffStoreStub{list: []domain.Staff{{ID: staffID, StaffID: "ENG-104"}}}
+	store := &staffStoreStub{list: []domain.Staff{{ID: staffID, StaffID: "23847"}}}
 	auth := &authenticatorStub{principal: authorizedPrincipal()}
 	handler := NewHandler(store, auth, &auditStub{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	request := authorizedRequest(http.MethodGet, "/api/v1/staff?limit=25&offset=10&search=ada&employment_status=pending", "")
@@ -538,12 +554,12 @@ func TestListStaffRejectsInvalidQuery(t *testing.T) {
 
 func TestGetStaffRequiresUUIDAndReturnsRecord(t *testing.T) {
 	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
-	store := &staffStoreStub{staff: domain.Staff{ID: staffID, StaffID: "ENG-104"}}
+	store := &staffStoreStub{staff: domain.Staff{ID: staffID, StaffID: "23847"}}
 	handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, &auditStub{},
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, authorizedRequest(http.MethodGet, "/api/v1/staff/"+staffID, ""))
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"staff_id":"ENG-104"`) {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"staff_id":"23847"`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	response = httptest.NewRecorder()
@@ -555,7 +571,7 @@ func TestGetStaffRequiresUUIDAndReturnsRecord(t *testing.T) {
 
 func TestUpdateStaffSupportsExplicitNullAndAuditsFieldNamesOnly(t *testing.T) {
 	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
-	store := &staffStoreStub{staff: domain.Staff{StaffID: "ENG-104"}}
+	store := &staffStoreStub{staff: domain.Staff{StaffID: "23847"}}
 	audit := &auditStub{}
 	handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()}, audit,
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
@@ -606,7 +622,7 @@ func TestDeactivateStaffSuspendsLoginBeforeMarkingEmploymentInactive(t *testing.
 	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
 	accountID := "1c9491b8-21ce-4c66-a025-006bb346b810"
 	store := &staffStoreStub{staff: domain.Staff{
-		ID: staffID, StaffID: "ENG-104", AccountID: &accountID, EmploymentStatus: "active",
+		ID: staffID, StaffID: "23847", AccountID: &accountID, EmploymentStatus: "active",
 	}}
 	identity := &onboardingIdentityStub{}
 	audit := &auditStub{}
@@ -625,7 +641,7 @@ func TestDeactivateStaffDoesNotChangeEmploymentIfAccountSuspensionFails(t *testi
 	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
 	accountID := "1c9491b8-21ce-4c66-a025-006bb346b810"
 	store := &staffStoreStub{staff: domain.Staff{
-		ID: staffID, StaffID: "ENG-104", AccountID: &accountID, EmploymentStatus: "active",
+		ID: staffID, StaffID: "23847", AccountID: &accountID, EmploymentStatus: "active",
 	}}
 	identity := &onboardingIdentityStub{suspendErr: errors.New("identity database unavailable")}
 	services := application.OnboardingServices{IdentityState: identity}
@@ -646,9 +662,9 @@ func TestStaffImportIsBoundedAuditedAndReturnsBatch(t *testing.T) {
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, staffImportRequest(t,
-		"staff_id,full_name,work_email,job_title\nENG-104,Ada Okafor,ada@example.test,Engineer\n"))
+		"staff_id,full_name,work_email,job_title\n23847,Ada Okafor,ada@example.test,Engineer\n"))
 	if response.Code != http.StatusCreated || !store.imported || !audit.called ||
-		len(store.importRows) != 1 || store.importRows[0].Staff.StaffID != "ENG-104" {
+		len(store.importRows) != 1 || store.importRows[0].Staff.StaffID != "23847" {
 		t.Fatalf("status=%d imported=%v audited=%v rows=%+v body=%s",
 			response.Code, store.imported, audit.called, store.importRows, response.Body.String())
 	}
@@ -661,7 +677,7 @@ func TestStaffImportReportsValidationIssuesWithoutImportingAnyRows(t *testing.T)
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, staffImportRequest(t,
-		"staff_id,full_name\nENG-104,Ada Okafor\nENG-104,Duplicate Person\n"))
+		"staff_id,full_name\n23847,Ada Okafor\n23847,Duplicate Person\n"))
 	if response.Code != http.StatusUnprocessableEntity || store.imported ||
 		store.failedImport.ErrorCount != 1 || !audit.called ||
 		!strings.Contains(response.Body.String(), "duplicate_staff_id_in_file") {
@@ -675,7 +691,7 @@ func TestStaffImportRequiresPermissionAndMultipartFile(t *testing.T) {
 	store := &staffStoreStub{}
 	handler := NewHandler(store, auth, &auditStub{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, staffImportRequest(t, "staff_id,full_name\nENG-104,Ada\n"))
+	handler.ServeHTTP(response, staffImportRequest(t, "staff_id,full_name\n23847,Ada\n"))
 	if response.Code != http.StatusForbidden || store.imported {
 		t.Fatalf("permission status=%d imported=%v", response.Code, store.imported)
 	}

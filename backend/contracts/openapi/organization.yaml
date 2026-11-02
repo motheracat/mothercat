@@ -6,7 +6,9 @@ info:
     Staff directory, staff import, and department operations. Mutations require
     the session cookie, a same-origin Origin header, and the documented
     permission. Staff imports accept CSV files up to 5 MiB and 5,000 data rows;
-    a batch is committed atomically or not at all.
+    a batch is committed atomically or not at all. Official staff numbers are
+    exactly four or five digits; `ID:` is a frontend display label and is not
+    part of the `staff_id` value sent to or returned by the API.
 servers:
   - url: /api/v1
     description: Current API host
@@ -94,7 +96,7 @@ paths:
             schema:
               $ref: "#/components/schemas/CreateStaffRequest"
             example:
-              staff_id: ENG-104
+              staff_id: "23847"
               full_name: Ada Okafor
               work_email: ada@example.org
               job_title: Site Engineer
@@ -247,6 +249,7 @@ paths:
         Requires `staff.import` and a matching Origin. Upload one CSV file as
         multipart form field `file`. File size is limited to 5 MiB and the
         import to 5,000 nonblank data rows. Required columns are `staff_id`
+        (exactly four or five digits)
         and `full_name`; optional columns are `work_email`, `job_title`, and
         `department_id`. Header order is unrestricted. Unknown/duplicate
         headers, invalid records, duplicate staff IDs, and missing departments
@@ -553,9 +556,9 @@ components:
       properties:
         staff_id:
           type: string
-          minLength: 1
-          maxLength: 80
-          pattern: "^[A-Za-z0-9._-]+$"
+          minLength: 4
+          maxLength: 5
+          pattern: "^[0-9]{4,5}$"
         full_name:
           type: string
           minLength: 1
@@ -601,6 +604,9 @@ components:
           format: uuid
         staff_id:
           type: string
+          minLength: 4
+          maxLength: 5
+          pattern: "^[0-9]{4,5}$"
         department_id:
           type: [string, "null"]
           format: uuid

@@ -197,15 +197,9 @@ type StaffImportBatch struct {
 func (request *CreateStaffRequest) NormalizeAndValidate() error {
 	request.StaffID = strings.TrimSpace(request.StaffID)
 	request.FullName = strings.TrimSpace(request.FullName)
-	if request.StaffID == "" || len(request.StaffID) > 80 || request.FullName == "" ||
+	if !isStaffNumber(request.StaffID) || request.FullName == "" ||
 		utf8.RuneCountInString(request.FullName) > 200 || hasControlCharacters(request.FullName) {
 		return ErrInvalidStaff
-	}
-	for _, char := range request.StaffID {
-		if !(char >= 'a' && char <= 'z') && !(char >= 'A' && char <= 'Z') &&
-			!(char >= '0' && char <= '9') && char != '-' && char != '_' && char != '.' {
-			return ErrInvalidStaff
-		}
 	}
 	if request.WorkEmail != nil {
 		value := strings.TrimSpace(*request.WorkEmail)
@@ -238,6 +232,18 @@ func (request *CreateStaffRequest) NormalizeAndValidate() error {
 		}
 	}
 	return nil
+}
+
+func isStaffNumber(value string) bool {
+	if len(value) != 4 && len(value) != 5 {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func hasControlCharacters(value string) bool {

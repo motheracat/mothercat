@@ -26,7 +26,7 @@ func TestCompleteProvisioningActivatesStaffWithPostgresColumns(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "account_id", "staff_id", "department_id", "full_name", "work_email", "job_title", "employment_status",
 	}).AddRow(
-		"staff-uuid", "account-uuid", "STAFF-001", nil, "Test Staff", "test@example.test", nil, "active",
+		"staff-uuid", "account-uuid", "12345", nil, "Test Staff", "test@example.test", nil, "active",
 	)
 	mock.ExpectQuery(regexp.QuoteMeta(update)).
 		WithArgs("staff-uuid", "account-uuid").
@@ -59,13 +59,13 @@ func TestListStaffUsesParameterizedFiltersAndPagination(t *testing.T) {
 		WithArgs("pending", 25, 5).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "staff_id", "department_id", "full_name", "work_email", "job_title", "employment_status",
-		}).AddRow("staff-uuid", nil, "STAFF-001", nil, "Test Staff", nil, nil, "pending"))
+		}).AddRow("staff-uuid", nil, "12345", nil, "Test Staff", nil, nil, "pending"))
 
 	staff, total, err := (&staffStore{db: db}).ListStaff(context.Background(), filter)
 	if err != nil {
 		t.Fatalf("ListStaff() error = %v", err)
 	}
-	if total != 1 || len(staff) != 1 || staff[0].StaffID != "STAFF-001" {
+	if total != 1 || len(staff) != 1 || staff[0].StaffID != "12345" {
 		t.Fatalf("ListStaff() = %+v, total %d", staff, total)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -85,7 +85,7 @@ func TestImportStaffBatchCommitsAllRowsAndCompletionTogether(t *testing.T) {
 	completedAt := createdAt.Add(time.Second)
 	records := []domain.ImportStaffRow{{
 		RowNumber: 2,
-		Staff:     domain.CreateStaffRequest{StaffID: "ENG-104", FullName: "Ada Okafor"},
+		Staff:     domain.CreateStaffRequest{StaffID: "23847", FullName: "Ada Okafor"},
 	}}
 	resultJSON, err := json.Marshal(domain.StaffImportResult{TotalRows: 1, ImportedRows: 1})
 	if err != nil {
@@ -98,7 +98,7 @@ func TestImportStaffBatchCommitsAllRowsAndCompletionTogether(t *testing.T) {
 		WithArgs(batchID, actorID).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("INSERT INTO organization.staff_members").
 		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"staff_id"}).AddRow("ENG-104"))
+		WillReturnRows(sqlmock.NewRows([]string{"staff_id"}).AddRow("23847"))
 	mock.ExpectExec("UPDATE organization.staff_import_batches").
 		WithArgs(batchID, string(resultJSON)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -132,7 +132,7 @@ func TestImportStaffBatchRecordsDuplicateFailureWithoutCommittingStaff(t *testin
 	createdAt := time.Now().UTC()
 	resultJSON, err := json.Marshal(domain.StaffImportResult{
 		TotalRows: 1, ErrorCount: 1,
-		Errors: []domain.StaffImportIssue{{Row: 2, StaffID: "ENG-104", Code: "duplicate_staff_id", Message: "staff ID already exists"}},
+		Errors: []domain.StaffImportIssue{{Row: 2, StaffID: "23847", Code: "duplicate_staff_id", Message: "staff ID already exists"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestImportStaffBatchRecordsDuplicateFailureWithoutCommittingStaff(t *testin
 	mock.ExpectBegin()
 	mock.ExpectQuery("WITH issues AS").WithArgs(sqlmock.AnyArg()).WillReturnRows(
 		sqlmock.NewRows([]string{"row_number", "staff_id", "code", "message", "count"}).
-			AddRow(2, "ENG-104", "duplicate_staff_id", "staff ID already exists", 1),
+			AddRow(2, "23847", "duplicate_staff_id", "staff ID already exists", 1),
 	)
 	mock.ExpectQuery("INSERT INTO organization.staff_import_batches").
 		WithArgs(batchID, "failed", actorID, sqlmock.AnyArg()).
@@ -151,7 +151,7 @@ func TestImportStaffBatchRecordsDuplicateFailureWithoutCommittingStaff(t *testin
 
 	batch, err := (&staffStore{db: db}).ImportStaffBatch(context.Background(), batchID, actorID, []domain.ImportStaffRow{{
 		RowNumber: 2,
-		Staff:     domain.CreateStaffRequest{StaffID: "ENG-104", FullName: "Ada Okafor"},
+		Staff:     domain.CreateStaffRequest{StaffID: "23847", FullName: "Ada Okafor"},
 	}})
 	if err != nil {
 		t.Fatalf("ImportStaffBatch() error = %v", err)
