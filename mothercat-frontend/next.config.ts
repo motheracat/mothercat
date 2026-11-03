@@ -1,7 +1,5 @@
 import type { NextConfig } from "next";
 
-const apiBaseUrl = (process.env.API_BASE_URL ?? "https://mothercat-api.onrender.com").replace(/\/+$/, "");
-
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -19,14 +17,6 @@ const nextConfig: NextConfig = {
           { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
           { key: "X-Frame-Options", value: "DENY" },
         ],
-      },
-    ];
-  },
-  async rewrites() {
-    return [
-      {
-        source: "/api/v1/:path*",
-        destination: `${apiBaseUrl}/api/v1/:path*`,
       },
     ];
   },

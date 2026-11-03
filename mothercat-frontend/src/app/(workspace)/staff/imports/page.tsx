@@ -1,16 +1,5 @@
-import Link from "next/link";
-
-import { EmptyState, PageHeader, Panel } from "@/components/workspace/ui";
+import { StaffImportForm } from "@/components/workspace/staff-import";
 
 export default function StaffImportsPage() {
-  return (
-    <>
-      <PageHeader title="Staff imports" description="Import staff records from a CSV file." />
-      <Panel title="CSV import">
-        <EmptyState action={<Link href="/staff" className="button-secondary">Back to staff directory</Link>}>
-          CSV import is not available yet.
-        </EmptyState>
-      </Panel>
-    </>
-  );
+  return <StaffImportForm />;
 }

@@ -40,8 +40,10 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 Copy `.env.example` to `.env.local` for local work, and set `API_BASE_URL` to
 the backend origin in each deployment environment. The default is
 `https://mothercat-api.onrender.com`.
-The `/api/v1` Next.js rewrite keeps browser requests on the frontend origin,
-avoiding cross-site cookie and CORS issues.
+The Next.js `/api/v1` route handler proxies browser requests to the backend,
+keeping cookies same-origin and avoiding browser CORS issues. Mutations pass
+through a same-origin Origin check before the proxy supplies the API origin
+expected by the backend.
 
 The backend owns the `mothercat_session` Secure, HttpOnly cookie. The frontend
 does not read or store its value; protected server-rendered pages validate it
@@ -54,7 +56,5 @@ Password reset and activation links must include their single-use token in the
 least three of uppercase letters, lowercase letters, digits, and other
 characters.
 
-Account suspend/reactivate controls are intentionally not exposed yet: the
-backend currently requires an `Origin` matching the API host, which a
-frontend hosted on a different origin cannot satisfy. Coordinate an explicit
-backend origin-policy change before adding those controls.
+Account suspend/reactivate controls are intentionally not exposed yet; add
+them only after confirming the corresponding API permissions and workflows.
