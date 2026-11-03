@@ -142,6 +142,7 @@ export function ProfilePictureUpload({
       setImageUrl(updatedStaff.profile_image_url);
       setImageFailed(false);
       onStaffUpdated?.(updatedStaff);
+      window.dispatchEvent(new CustomEvent("mothercat:staff-profile-updated", { detail: updatedStaff }));
       setAnnouncement("Profile picture updated.");
     } catch (error) {
       setUploadError(uploadErrorMessage(error));

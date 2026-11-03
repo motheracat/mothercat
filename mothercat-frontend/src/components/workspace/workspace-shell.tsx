@@ -1,15 +1,19 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, ChevronDown, Search } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { formatAuthError, logout } from "@/lib/auth/client";
 import type { AuthSession } from "@/lib/auth/types";
+import { listStaff, type StaffMember } from "@/lib/organization/api";
 import { WorkspaceModalMenu } from "@/components/workspace/modal-menu";
 import { WorkspaceSidebar } from "@/components/workspace/sidebar";
 import { WorkspaceContextProvider } from "@/components/workspace/workspace-context";
+
+const profileUpdatedEvent = "mothercat:staff-profile-updated";
 
 const breadcrumbLabels: Record<string, string> = {
   dashboard: "Dashboard",
@@ -33,6 +37,37 @@ function getInitials(name: string) {
     .join("") || "U";
 }
 
+function UserAvatar({
+  name,
+  imageUrl,
+  className,
+}: {
+  name: string;
+  imageUrl: string | null;
+  className: string;
+}) {
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+  const usableImageUrl = imageUrl && (imageUrl.startsWith("/") || /^https?:\/\//i.test(imageUrl));
+
+  return (
+    <span className={className} aria-hidden="true">
+      {usableImageUrl && failedImageUrl !== imageUrl ? (
+        <Image
+          src={imageUrl}
+          alt=""
+          width={40}
+          height={40}
+          unoptimized
+          className="workspace-user-avatar-image"
+          onError={() => setFailedImageUrl(imageUrl)}
+        />
+      ) : (
+        getInitials(name)
+      )}
+    </span>
+  );
+}
+
 export function WorkspaceShell({
   children,
   session,
@@ -47,8 +82,43 @@ export function WorkspaceShell({
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [profileImage, setProfileImage] = useState<{ staffId: string; url: string | null } | null>(null);
+  const staffNumber = session?.staffId;
+  const profileImageUrl = profileImage && profileImage.staffId === staffNumber ? profileImage.url : null;
   const userMenuButtonRef = useRef<HTMLButtonElement>(null);
   const closeUserMenu = useCallback(() => setUserMenuOpen(false), []);
+
+  useEffect(() => {
+    if (!staffNumber || devOpen) return;
+
+    let active = true;
+    void listStaff({ limit: 100, offset: 0, search: staffNumber })
+      .then(({ staff }) => {
+        if (!active) return;
+        const currentStaff = staff.find((member) => member.staff_id === staffNumber);
+        setProfileImage({ staffId: staffNumber, url: currentStaff?.profile_image_url ?? null });
+      })
+      .catch(() => {
+        if (active) setProfileImage({ staffId: staffNumber, url: null });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [staffNumber, devOpen]);
+
+  useEffect(() => {
+    if (!staffNumber) return;
+
+    function handleStaffProfileUpdated(event: Event) {
+      const staff = (event as CustomEvent<StaffMember>).detail;
+      if (staff?.staff_id !== staffNumber) return;
+      setProfileImage({ staffId: staffNumber, url: staff.profile_image_url });
+    }
+
+    window.addEventListener(profileUpdatedEvent, handleStaffProfileUpdated);
+    return () => window.removeEventListener(profileUpdatedEvent, handleStaffProfileUpdated);
+  }, [staffNumber]);
 
   async function handleSignOut() {
     setIsSigningOut(true);
@@ -134,7 +204,11 @@ export function WorkspaceShell({
                   aria-label={`User menu for ${session.displayName}`}
                   onClick={() => setUserMenuOpen((open) => !open)}
                 >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700">{getInitials(session.displayName)}</span>
+                  <UserAvatar
+                    name={session.displayName}
+                    imageUrl={profileImageUrl}
+                    className="workspace-user-avatar user-menu-avatar"
+                  />
                   <span className="hidden max-w-36 sm:block">
                     <span className="block truncate text-xs font-medium text-[var(--text)]">{session.displayName}</span>
                     <span className="block truncate text-[11px] text-[var(--muted)]">{session.role}</span>
@@ -158,7 +232,14 @@ export function WorkspaceShell({
           title="Account menu"
           placement="top"
         >
-          <p className="workspace-modal-user">{session.displayName}<span>{session.role}</span></p>
+          <div className="workspace-modal-user-row">
+            <UserAvatar
+              name={session.displayName}
+              imageUrl={profileImageUrl}
+              className="workspace-user-avatar workspace-modal-avatar"
+            />
+            <p className="workspace-modal-user">{session.displayName}<span>{session.role}</span></p>
+          </div>
           <Link
             href="/profile"
             className="workspace-modal-link"

@@ -2015,6 +2015,36 @@ body {
   position: relative;
 }
 
+.workspace-user-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.user-menu-avatar {
+  width: 32px;
+  height: 32px;
+}
+
+.workspace-modal-avatar {
+  width: 40px;
+  height: 40px;
+}
+
+.workspace-user-avatar-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 .user-menu-trigger {
   display: flex;
   align-items: center;
@@ -2134,10 +2164,19 @@ body {
 
 .workspace-modal-user {
   margin: 0;
-  padding: 8px 10px;
+  min-width: 0;
+  padding: 0;
   color: var(--text);
   font-size: 13px;
   font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.workspace-modal-user-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
 }
 
 .workspace-modal-user span {
