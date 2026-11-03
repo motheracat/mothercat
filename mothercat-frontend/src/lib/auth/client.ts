@@ -8,6 +8,7 @@ import {
   type PasswordResetRequest,
 } from "@/lib/auth/types";
 import { mapAuthError } from "@/lib/auth/map-auth-error";
+import { invalidateReadCache } from "@/lib/organization/read-cache";
 
 type ApiErrorPayload = {
   error?: {
@@ -168,7 +169,9 @@ export async function login(credentials: LoginCredentials) {
     staff_id: credentials.staffId,
     password: credentials.password,
   });
-  return parseAuthSession(payload);
+  const session = parseAuthSession(payload);
+  invalidateReadCache();
+  return session;
 }
 
 export async function forgotPassword(data: PasswordResetRequest): Promise<void> {
@@ -201,4 +204,5 @@ export async function changePassword(data: PasswordChangePayload): Promise<void>
 
 export async function logout(): Promise<void> {
   await requestApi(apiRoutes.auth.logout, "POST");
+  invalidateReadCache();
 }

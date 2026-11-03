@@ -1,5 +1,6 @@
 import { buildApiUrl } from "@/lib/api/config";
 import { apiRoutes } from "@/lib/api/routes";
+import { awaitReadWithSignal, cacheRead, invalidateReadCache } from "@/lib/organization/read-cache";
 
 export type EmploymentStatus = "pending" | "active" | "inactive" | "deactivated";
 
@@ -128,6 +129,7 @@ async function request(path: string, init: RequestInit = {}): Promise<unknown> {
 
   if (!response.ok) {
     const error = isRecord(payload) && isRecord(payload.error) ? payload.error : undefined;
+    if (response.status === 401 || response.status === 403) invalidateReadCache();
     throw new OrganizationApiError(
       typeof error?.message === "string" ? error.message : "The request could not be completed.",
       response.status,
@@ -137,6 +139,7 @@ async function request(path: string, init: RequestInit = {}): Promise<unknown> {
     );
   }
 
+  if (init.method && init.method.toUpperCase() !== "GET") invalidateReadCache();
   return payload;
 }
 
@@ -237,35 +240,52 @@ export async function listStaff(
   const employmentStatus = params.employment_status ?? params.employmentStatus;
   if (departmentId) query.set("department_id", departmentId);
   if (employmentStatus) query.set("employment_status", employmentStatus);
-  const payload = await request(`${apiRoutes.staff.list}?${query}`, { signal });
-  if (
-    !isRecord(payload) ||
-    !Array.isArray(payload.staff) ||
-    !isRecord(payload.pagination) ||
-    typeof payload.pagination.total !== "number"
-  ) {
-    throw new Error("The organization service returned an invalid staff list.");
-  }
-  const staff = payload.staff.map(parseStaff);
-  return {
-    staff,
-    total: payload.pagination.total,
-    pagination: { limit: params.limit, offset: params.offset, total: payload.pagination.total },
-  };
+  const path = `${apiRoutes.staff.list}?${query}`;
+  const result = awaitReadWithSignal(
+    cacheRead(`staff:list:${query}`, async () => {
+      const payload = await request(path);
+      if (
+        !isRecord(payload) ||
+        !Array.isArray(payload.staff) ||
+        !isRecord(payload.pagination) ||
+        typeof payload.pagination.total !== "number"
+      ) {
+        throw new Error("The organization service returned an invalid staff list.");
+      }
+      const staff = payload.staff.map(parseStaff);
+      return {
+        staff,
+        total: payload.pagination.total,
+        pagination: { limit: params.limit, offset: params.offset, total: payload.pagination.total },
+      };
+    }),
+    signal,
+  );
+  return result;
 }
 
 export async function getStaff(staffId: string, signal?: AbortSignal): Promise<StaffMember> {
-  const payload = await request(apiRoutes.staff.details(encodeURIComponent(staffId)), { signal });
-  if (!isRecord(payload) || !("staff" in payload)) throw new Error("The organization service returned an invalid staff record.");
-  return parseStaff(payload.staff);
+  return awaitReadWithSignal(
+    cacheRead(`staff:detail:${staffId}`, async () => {
+      const payload = await request(apiRoutes.staff.details(encodeURIComponent(staffId)));
+      if (!isRecord(payload) || !("staff" in payload)) throw new Error("The organization service returned an invalid staff record.");
+      return parseStaff(payload.staff);
+    }),
+    signal,
+  );
 }
 
 export async function listDepartments(signal?: AbortSignal): Promise<Department[]> {
-  const payload = await request(apiRoutes.departments.list, { signal });
-  if (!isRecord(payload) || !Array.isArray(payload.departments)) {
-    throw new Error("The organization service returned an invalid department list.");
-  }
-  return payload.departments.map(parseDepartment);
+  return awaitReadWithSignal(
+    cacheRead("departments:list", async () => {
+      const payload = await request(apiRoutes.departments.list);
+      if (!isRecord(payload) || !Array.isArray(payload.departments)) {
+        throw new Error("The organization service returned an invalid department list.");
+      }
+      return payload.departments.map(parseDepartment);
+    }),
+    signal,
+  );
 }
 
 export async function createStaff(input: {
@@ -347,10 +367,12 @@ export async function uploadStaffProfilePicture(staffId: string, file: File): Pr
 }
 
 export async function getStaffImport(importId: string): Promise<StaffImport> {
-  const payload = await request(apiRoutes.staff.importDetails(importId));
-  const result = parseStaffImport(payload);
-  if (!result) throw new Error("The organization service returned an invalid import result.");
-  return result;
+  return cacheRead(`staff-import:detail:${importId}`, async () => {
+    const payload = await request(apiRoutes.staff.importDetails(importId));
+    const result = parseStaffImport(payload);
+    if (!result) throw new Error("The organization service returned an invalid import result.");
+    return result;
+  });
 }
 
 export function formatOrganizationError(error: unknown, fallback: string): string {

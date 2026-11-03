@@ -154,32 +154,58 @@ export function DepartmentDirectory() {
             {loading ? (
               <LoadingTable columns={canManage ? 3 : 2} />
             ) : departments.length > 0 ? (
-              <div className="max-h-[min(60vh,640px)] overflow-auto">
-                <table className="data-table">
-                  <caption className="sr-only">Departments and descriptions</caption>
-                  <thead><tr>
-                    <th scope="col" className="h-10">Name</th>
-                    <th scope="col" className="h-10">Description</th>
-                    {canManage ? <th scope="col" className="h-10"><span className="sr-only">Actions</span></th> : null}
-                  </tr></thead>
-                  <tbody>
-                    {departments.map((department) => (
-                      <tr key={department.id}>
-                        <td className="font-medium">{department.name}</td>
-                        <td className="max-w-[640px] whitespace-normal">{department.description || "—"}</td>
-                        {canManage ? (
-                          <td>
-                            <button type="button" className="button-secondary" onClick={() => openEdit(department)}>
-                              <Pencil size={15} aria-hidden="true" />
-                              Edit
-                            </button>
-                          </td>
-                        ) : null}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                <div className="department-directory-table max-h-[min(60vh,640px)] overflow-auto">
+                  <table className="data-table">
+                    <caption className="sr-only">Departments and descriptions</caption>
+                    <thead><tr>
+                      <th scope="col" className="h-10">Name</th>
+                      <th scope="col" className="h-10">Description</th>
+                      {canManage ? <th scope="col" className="h-10"><span className="sr-only">Actions</span></th> : null}
+                    </tr></thead>
+                    <tbody>
+                      {departments.map((department) => (
+                        <tr key={department.id}>
+                          <td className="font-medium">{department.name}</td>
+                          <td className="max-w-[640px] whitespace-normal">{department.description || "—"}</td>
+                          {canManage ? (
+                            <td>
+                              <button
+                                type="button"
+                                className="department-edit-button"
+                                aria-label={`Edit ${department.name}`}
+                                onClick={() => openEdit(department)}
+                              >
+                                <Pencil size={17} aria-hidden="true" />
+                              </button>
+                            </td>
+                          ) : null}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <ul className="department-directory-mobile" aria-label="Department list">
+                  {departments.map((department) => (
+                    <li key={department.id} className="department-mobile-card">
+                      <div className="department-mobile-card-copy">
+                        <h2>{department.name}</h2>
+                        <p>{department.description || "No description provided."}</p>
+                      </div>
+                      {canManage ? (
+                        <button
+                          type="button"
+                          className="department-edit-button"
+                          aria-label={`Edit ${department.name}`}
+                          onClick={() => openEdit(department)}
+                        >
+                          <Pencil size={17} aria-hidden="true" />
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </>
             ) : (
               <EmptyState action={canManage ? <button type="button" className="button-primary" onClick={openCreate}>Add department</button> : null}>
                 No departments yet.

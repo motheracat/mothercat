@@ -6,9 +6,11 @@ import {
   listStaff,
   OrganizationApiError,
   provisionAdmin,
+  updateStaff,
   uploadStaffCsv,
   uploadStaffProfilePicture,
 } from "@/lib/organization/api";
+import { invalidateReadCache } from "@/lib/organization/read-cache";
 
 const staffRecord = {
   id: "staff-profile-uuid",
@@ -32,6 +34,7 @@ function jsonResponse(payload: unknown, status = 200) {
 }
 
 beforeEach(() => {
+  invalidateReadCache();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -77,6 +80,53 @@ describe("organization API client", () => {
       total: 1,
       pagination: { limit: 25, offset: 0, total: 1 },
     });
+  });
+
+  it("reuses a recent staff-list response when returning to the same view", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({
+      staff: [staffRecord],
+      pagination: { limit: 25, offset: 0, total: 1 },
+    }));
+
+    await listStaff({ limit: 25, offset: 0, search: "23847" });
+    await listStaff({ limit: 25, offset: 0, search: "23847" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("deduplicates concurrent requests for the same staff-list query", async () => {
+    let finishRequest!: (response: Response) => void;
+    fetchMock.mockReturnValue(new Promise((resolve) => { finishRequest = resolve; }));
+
+    const first = listStaff({ limit: 25, offset: 0, search: "23847" });
+    const second = listStaff({ limit: 25, offset: 0, search: "23847" });
+    finishRequest(jsonResponse({
+      staff: [staffRecord],
+      pagination: { limit: 25, offset: 0, total: 1 },
+    }));
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates cached reads after a successful update", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        staff: [staffRecord],
+        pagination: { limit: 25, offset: 0, total: 1 },
+      }))
+      .mockResolvedValueOnce(jsonResponse({ staff: { ...staffRecord, full_name: "Ada Updated" } }))
+      .mockResolvedValueOnce(jsonResponse({
+        staff: [{ ...staffRecord, full_name: "Ada Updated" }],
+        pagination: { limit: 25, offset: 0, total: 1 },
+      }));
+
+    await listStaff({ limit: 25, offset: 0, search: "23847" });
+    await updateStaff("staff-profile-uuid", { full_name: "Ada Updated" });
+    const refreshed = await listStaff({ limit: 25, offset: 0, search: "23847" });
+
+    expect(refreshed.staff[0].full_name).toBe("Ada Updated");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("sends staff creation fields as JSON without changing the displayed number", async () => {
