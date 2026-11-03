@@ -6,7 +6,6 @@ if (!configuredApiBaseUrl && isProduction) {
   throw new Error("API_BASE_URL must be configured with the organization API origin before deployment.");
 }
 
-let apiBaseUrl: string | undefined;
 if (configuredApiBaseUrl) {
   const parsedApiBaseUrl = new URL(configuredApiBaseUrl);
   if (
@@ -21,7 +20,6 @@ if (configuredApiBaseUrl) {
   if (isProduction && parsedApiBaseUrl.protocol !== "https:") {
     throw new Error("API_BASE_URL must use HTTPS outside local development.");
   }
-  apiBaseUrl = parsedApiBaseUrl.origin;
 }
 
 const nextConfig: NextConfig = {
@@ -43,16 +41,6 @@ const nextConfig: NextConfig = {
         ],
       },
     ];
-  },
-  async rewrites() {
-    return apiBaseUrl
-      ? [
-          {
-            source: "/api/v1/:path*",
-            destination: `${apiBaseUrl}/api/v1/:path*`,
-          },
-        ]
-      : [];
   },
   turbopack: {
     rules: {

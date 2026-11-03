@@ -12,9 +12,7 @@ export default function DashboardPage() {
   return (
     <div className="dashboard-page">
       <PageHeader title="Dashboard" description={today} />
-
       <DashboardOverview />
-
       <Panel title="Pending requests" className="dashboard-panel dashboard-pending">
         <EmptyState>No pending requests to review.</EmptyState>
       </Panel>

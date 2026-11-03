@@ -70,7 +70,11 @@ describe("organization API client", () => {
       "/api/v1/staff?limit=25&offset=0&search=23847&department_id=department-uuid&employment_status=pending",
       expect.objectContaining({ credentials: "include", cache: "no-store" }),
     );
-    expect(result).toEqual({ staff: [staffRecord], total: 1 });
+    expect(result).toEqual({
+      staff: [staffRecord],
+      total: 1,
+      pagination: { limit: 25, offset: 0, total: 1 },
+    });
   });
 
   it("sends staff creation fields as JSON without changing the displayed number", async () => {

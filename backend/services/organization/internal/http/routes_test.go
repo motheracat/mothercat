@@ -670,6 +670,36 @@ func TestStaffImportIsBoundedAuditedAndReturnsBatch(t *testing.T) {
 	}
 }
 
+func TestStaffImportAllowsMultipartEnvelopeAroundMaximumFileSize(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, err := writer.CreateFormFile("file", "staff.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := "staff_id,full_name\n23847," + strings.Repeat("A", maxImportFileSize-len("staff_id,full_name\n23847,"))
+	if _, err := io.WriteString(file, content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/staff/imports", &body)
+	request.Host = "example.test"
+	request.Header.Set("Origin", "http://example.test")
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "opaque-session"})
+	handler := NewHandler(&staffStoreStub{}, &authenticatorStub{principal: authorizedPrincipal()}, &auditStub{},
+		slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code == http.StatusRequestEntityTooLarge {
+		t.Fatalf("maximum-sized file plus multipart envelope was rejected: %s", response.Body.String())
+	}
+}
+
 func TestStaffImportReportsValidationIssuesWithoutImportingAnyRows(t *testing.T) {
 	store := &staffStoreStub{}
 	audit := &auditStub{}

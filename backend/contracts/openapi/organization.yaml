@@ -6,7 +6,8 @@ info:
     Staff directory, staff import, and department operations. Mutations require
     the session cookie, a same-origin Origin header, and the documented
     permission. Staff imports accept CSV files up to 5 MiB and 5,000 data rows;
-    a batch is committed atomically or not at all. Official staff numbers are
+    multipart envelope overhead is separately bounded. A batch is committed
+    atomically or not at all. Official staff numbers are
     exactly four or five digits; `ID:` is a frontend display label and is not
     part of the `staff_id` value sent to or returned by the API.
 servers:

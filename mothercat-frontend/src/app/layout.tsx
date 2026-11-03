@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { connection } from "next/server";
-import { Barlow_Condensed, Cormorant_Garamond, Inter } from "next/font/google";
+import { Cormorant_Garamond, Inter } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({
@@ -13,12 +13,6 @@ const cormorant = Cormorant_Garamond({
   variable: "--font-cormorant",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-});
-
-const barlowCondensed = Barlow_Condensed({
-  variable: "--font-barlow-condensed",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -38,8 +32,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   await connection();
 
   return (
-    <html lang="en" className={`${inter.variable} ${cormorant.variable} ${barlowCondensed.variable} antialiased`}>
-      <body className="min-h-full bg-white text-slate-900">{children}</body>
+    <html lang="en" data-scroll-behavior="smooth" className={`${inter.variable} ${cormorant.variable} antialiased`}>
+      <body className="min-h-full bg-white text-slate-900">
+        <a className="skip-link" href="#main-content">Skip to main content</a>
+        {children}
+      </body>
     </html>
   );
 }

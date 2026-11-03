@@ -45,6 +45,29 @@ export type StaffImport = {
     errors_truncated?: boolean;
   };
 };
+export type StaffStatus = EmploymentStatus;
+export type StaffRecord = StaffMember;
+export type DepartmentRecord = Department;
+export type StaffImportBatch = StaffImport;
+export type StaffListFilter = {
+  limit: number;
+  offset: number;
+  search?: string;
+  department_id?: string;
+  employment_status?: EmploymentStatus;
+  departmentId?: string;
+  employmentStatus?: EmploymentStatus | "";
+};
+export type StaffCreatePayload = {
+  staff_id: string;
+  full_name: string;
+  work_email: string | null;
+  job_title: string | null;
+  department_id: string | null;
+};
+export type StaffUpdatePayload = Partial<Omit<StaffCreatePayload, "staff_id">>;
+export type DepartmentPayload = { name: string; description: string | null };
+export type DepartmentUpdatePayload = Partial<DepartmentPayload>;
 
 export class OrganizationApiError extends Error {
   constructor(
@@ -200,18 +223,21 @@ export function parseStaffImport(value: unknown): StaffImport | null {
   };
 }
 
-export async function listStaff(params: {
-  limit: number;
-  offset: number;
-  search?: string;
-  departmentId?: string;
-  employmentStatus?: EmploymentStatus | "";
-}): Promise<{ staff: StaffMember[]; total: number }> {
+export async function listStaff(
+  params: StaffListFilter,
+  signal?: AbortSignal,
+): Promise<{
+  staff: StaffMember[];
+  total: number;
+  pagination: { limit: number; offset: number; total: number };
+}> {
   const query = new URLSearchParams({ limit: String(params.limit), offset: String(params.offset) });
   if (params.search) query.set("search", params.search);
-  if (params.departmentId) query.set("department_id", params.departmentId);
-  if (params.employmentStatus) query.set("employment_status", params.employmentStatus);
-  const payload = await request(`${apiRoutes.staff.list}?${query}`);
+  const departmentId = params.department_id ?? params.departmentId;
+  const employmentStatus = params.employment_status ?? params.employmentStatus;
+  if (departmentId) query.set("department_id", departmentId);
+  if (employmentStatus) query.set("employment_status", employmentStatus);
+  const payload = await request(`${apiRoutes.staff.list}?${query}`, { signal });
   if (
     !isRecord(payload) ||
     !Array.isArray(payload.staff) ||
@@ -220,17 +246,22 @@ export async function listStaff(params: {
   ) {
     throw new Error("The organization service returned an invalid staff list.");
   }
-  return { staff: payload.staff.map(parseStaff), total: payload.pagination.total };
+  const staff = payload.staff.map(parseStaff);
+  return {
+    staff,
+    total: payload.pagination.total,
+    pagination: { limit: params.limit, offset: params.offset, total: payload.pagination.total },
+  };
 }
 
-export async function getStaff(staffId: string): Promise<StaffMember> {
-  const payload = await request(apiRoutes.staff.details(staffId));
+export async function getStaff(staffId: string, signal?: AbortSignal): Promise<StaffMember> {
+  const payload = await request(apiRoutes.staff.details(encodeURIComponent(staffId)), { signal });
   if (!isRecord(payload) || !("staff" in payload)) throw new Error("The organization service returned an invalid staff record.");
   return parseStaff(payload.staff);
 }
 
-export async function listDepartments(): Promise<Department[]> {
-  const payload = await request(apiRoutes.departments);
+export async function listDepartments(signal?: AbortSignal): Promise<Department[]> {
+  const payload = await request(apiRoutes.departments.list, { signal });
   if (!isRecord(payload) || !Array.isArray(payload.departments)) {
     throw new Error("The organization service returned an invalid department list.");
   }
@@ -244,7 +275,7 @@ export async function createStaff(input: {
   job_title: string | null;
   department_id: string | null;
 }): Promise<StaffMember> {
-  const payload = await request(apiRoutes.staff.list, { method: "POST", body: JSON.stringify(input) });
+  const payload = await request(apiRoutes.staff.create, { method: "POST", body: JSON.stringify(input) });
   if (!isRecord(payload) || !("staff" in payload)) throw new Error("The organization service returned an invalid staff record.");
   return parseStaff(payload.staff);
 }
@@ -253,7 +284,7 @@ export async function updateStaff(
   staffId: string,
   input: Partial<Pick<StaffMember, "full_name" | "work_email" | "job_title" | "department_id">>,
 ): Promise<StaffMember> {
-  const payload = await request(apiRoutes.staff.details(staffId), { method: "PATCH", body: JSON.stringify(input) });
+  const payload = await request(apiRoutes.staff.update(encodeURIComponent(staffId)), { method: "PATCH", body: JSON.stringify(input) });
   if (!isRecord(payload) || !("staff" in payload)) throw new Error("The organization service returned an invalid staff record.");
   return parseStaff(payload.staff);
 }
@@ -272,7 +303,7 @@ export async function provisionStaff(staffId: string): Promise<void> {
 }
 
 export async function createDepartment(input: { name: string; description: string | null }): Promise<Department> {
-  const payload = await request(apiRoutes.departments, { method: "POST", body: JSON.stringify(input) });
+  const payload = await request(apiRoutes.departments.create, { method: "POST", body: JSON.stringify(input) });
   if (!isRecord(payload) || !("department" in payload)) throw new Error("The organization service returned an invalid department.");
   return parseDepartment(payload.department);
 }
@@ -281,7 +312,7 @@ export async function updateDepartment(
   departmentId: string,
   input: Partial<Pick<Department, "name" | "description">>,
 ): Promise<Department> {
-  const payload = await request(apiRoutes.departmentDetails(departmentId), { method: "PATCH", body: JSON.stringify(input) });
+  const payload = await request(apiRoutes.departments.update(encodeURIComponent(departmentId)), { method: "PATCH", body: JSON.stringify(input) });
   if (!isRecord(payload) || !("department" in payload)) throw new Error("The organization service returned an invalid department.");
   return parseDepartment(payload.department);
 }

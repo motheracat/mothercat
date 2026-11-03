@@ -1,13 +1,5 @@
-import { DepartmentManagement } from "@/components/workspace/department-management";
-import { getCurrentSession } from "@/lib/auth/session";
-import { hasPermission } from "@/lib/auth/permissions";
+import { DepartmentDirectory } from "@/components/workspace/department-directory";
 
-export default async function DepartmentsPage() {
-  const session = await getCurrentSession();
-  return (
-    <DepartmentManagement
-      canRead={hasPermission(session, "staff.read")}
-      canManage={hasPermission(session, "departments.manage")}
-    />
-  );
+export default function DepartmentsPage() {
+  return <DepartmentDirectory />;
 }

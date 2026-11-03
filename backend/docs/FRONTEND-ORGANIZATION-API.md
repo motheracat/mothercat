@@ -82,8 +82,11 @@ frontend configuration.
 - All mutation operations require an `Origin` matching the API request's
   scheme and host. Browsers supply this header; frontend JavaScript cannot set
   it manually. A cross-origin frontend cannot call mutations successfully
-  merely because CORS allows the frontend origin. Coordinate hosting/origin
-  policy with the backend owner.
+  merely because CORS allows the frontend origin. The Mothercat Next.js
+  frontend uses a same-origin `/api/v1` server proxy that validates the browser
+  Origin, then sends the API origin upstream. Other frontend deployments must
+  use a similarly protected server-side proxy or coordinate an origin-policy
+  change with the backend owner.
 - For credentialed cross-origin requests, the API would need to allow the
   exact frontend origin and credentials; wildcard `Access-Control-Allow-Origin`
   is not valid with credentials. The current mutation Origin check is stricter
@@ -92,19 +95,18 @@ frontend configuration.
   relationship. Confirm that the frontend and API hosting domains work with
   the current Secure, HttpOnly, SameSite cookie settings before integration.
 
-Common browser request setup:
+For direct same-origin browser requests, the request setup is:
 
 ```ts
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-
-const response = await fetch(`${API_BASE_URL}/api/v1/staff`, {
+const response = await fetch("/api/v1/staff", {
   credentials: "include",
   headers: { Accept: "application/json" },
 });
 ```
 
-For JSON mutations, add `Content-Type: application/json` and `Origin` is
-handled by the browser. Do not manually set `Origin`.
+For JSON mutations, add `Content-Type: application/json`; the browser supplies
+`Origin`. Do not manually set `Origin`. The Next.js proxy requires a configured
+`API_BASE_URL` and enforces the browser's same-origin request before forwarding.
 
 ## Common request and error conventions
 
@@ -316,7 +318,8 @@ CSV requirements:
 - The official staff number in `staff_id` must be exactly four or five digits,
   without the display-only `ID:` prefix.
 - Header order is unrestricted. Unknown or duplicate headers fail validation.
-- Maximum request/file size: 5 MiB. Maximum data rows: 5,000.
+- Maximum CSV file size: 5 MiB, plus a bounded multipart envelope.
+  Maximum data rows: 5,000.
 - Blank rows are ignored. Duplicate staff numbers in the file, existing
   numbers, invalid fields, or nonexistent departments cause the whole batch to
   fail.

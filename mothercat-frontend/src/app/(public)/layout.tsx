@@ -33,12 +33,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
     <div className="relative min-h-screen bg-white text-slate-900">
       <header className={`fixed inset-x-0 top-3 z-40 px-3 ${isHome ? "sm:px-6" : "sm:px-4"}`}>
         <div
-          className="mx-auto max-w-7xl rounded-[28px] border border-white/25 px-2 py-2 shadow-[0_8px_32px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.4),inset_0_-1px_1px_rgba(0,0,0,0.03)] backdrop-blur-[28px] backdrop-saturate-150 sm:rounded-[32px] sm:px-4"
-          style={{
-            background: "linear-gradient(145deg, rgba(255,255,255,0.2), rgba(255,255,255,0.06))",
-            backdropFilter: "blur(28px) saturate(180%)",
-            WebkitBackdropFilter: "blur(28px) saturate(180%)",
-          }}
+          className={`public-header-surface mx-auto max-w-7xl rounded-[28px] border px-2 py-2 sm:rounded-[32px] sm:px-4 ${isHome ? "public-header-surface-home" : ""}`}
         >
           <div className="flex h-14 items-center justify-between gap-2 sm:h-16">
             <Link href="/" className="flex shrink-0 items-center gap-2 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a4a8a] focus-visible:ring-offset-2" aria-label="Mothercat home">
@@ -95,13 +90,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
 
       <nav
         aria-label="Mobile navigation"
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-white/25 px-1 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur-[28px] backdrop-saturate-150 md:hidden"
-        style={{
-          background: "linear-gradient(145deg, rgba(255,255,255,0.2), rgba(255,255,255,0.06))",
-          backdropFilter: "blur(28px) saturate(180%)",
-          WebkitBackdropFilter: "blur(28px) saturate(180%)",
-          boxShadow: "0 -8px 24px rgba(0,0,0,0.12), inset 0 1px 1px rgba(255,255,255,0.4), inset 0 -1px 1px rgba(0,0,0,0.03)",
-        }}
+        className="public-mobile-navigation fixed inset-x-0 bottom-0 z-50 border-t px-1 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] md:hidden"
       >
         <ul className="mx-auto grid max-w-lg grid-cols-5">
           {mobileNavItems.map(({ href, label, icon: Icon }) => {
@@ -125,7 +114,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
         </ul>
       </nav>
 
-      <div className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">{children}</div>
+      <div id="main-content" tabIndex={-1} className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">{children}</div>
 
       <footer className="bg-[#071535] pb-[calc(4.5rem+env(safe-area-inset-bottom))] text-slate-300 md:pb-0">
         <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-6 sm:grid-cols-2 lg:grid-cols-[1.2fr_0.8fr_0.8fr_1fr] lg:px-8">

@@ -26,7 +26,8 @@ import (
 const (
 	sessionCookieName = "mothercat_session"
 	maxRequestBody    = 16 << 10
-	maxImportBody     = 5 << 20
+	maxImportFileSize = 5 << 20
+	maxImportBody     = maxImportFileSize + 64<<10
 	maxImportRows     = 5000
 	maxImportIssues   = 100
 	defaultPageSize   = 50
@@ -583,7 +584,12 @@ func importStaff(w http.ResponseWriter, r *http.Request, database store, authent
 		writeError(w, http.StatusBadRequest, "file_field_required", requestID(ctx))
 		return
 	}
-	file, err := r.MultipartForm.File["file"][0].Open()
+	fileHeader := r.MultipartForm.File["file"][0]
+	if fileHeader.Size > maxImportFileSize {
+		writeError(w, http.StatusRequestEntityTooLarge, "import_file_too_large", requestID(ctx))
+		return
+	}
+	file, err := fileHeader.Open()
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_import_upload", requestID(ctx))
 		return

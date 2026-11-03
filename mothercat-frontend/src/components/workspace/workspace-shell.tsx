@@ -9,6 +9,7 @@ import { formatAuthError, logout } from "@/lib/auth/client";
 import type { AuthSession } from "@/lib/auth/types";
 import { WorkspaceModalMenu } from "@/components/workspace/modal-menu";
 import { WorkspaceSidebar } from "@/components/workspace/sidebar";
+import { WorkspaceContextProvider } from "@/components/workspace/workspace-context";
 
 const breadcrumbLabels: Record<string, string> = {
   dashboard: "Dashboard",
@@ -78,6 +79,7 @@ export function WorkspaceShell({
   );
 
   return (
+    <WorkspaceContextProvider session={session} devOpen={devOpen}>
     <div className="workspace-shell">
       {devOpen ? (
         <div className="border-b border-amber-200 bg-amber-100 px-4 py-2 text-center text-xs font-medium text-amber-900">
@@ -144,7 +146,7 @@ export function WorkspaceShell({
           </div>
         </header>
 
-        <main className="workspace-content">
+        <main id="main-content" tabIndex={-1} className="workspace-content">
           <div className="workspace-content-inner">{children}</div>
         </main>
       </div>
@@ -187,5 +189,6 @@ export function WorkspaceShell({
         </WorkspaceModalMenu>
       ) : null}
     </div>
+    </WorkspaceContextProvider>
   );
 }
