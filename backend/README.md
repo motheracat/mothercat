@@ -46,13 +46,19 @@ control.
 
 ## Administrator roles
 
-The database seeds two administrator levels:
+The database seeds two administrator roles:
 
-- `Admin` can read, create, update, deactivate, and import staff records, manage
-  departments, and read audit events.
-- `SuperAdmin` has all defined permissions, including role management,
-  user-role assignment, and system settings management. The initial bootstrap
-  account is assigned this role.
+- `Admin` is granted all 11 permissions currently in the backend catalogue:
+  staff read/create/update/deactivate/import, department management, role
+  read/management, user-role assignment, audit read, and system settings
+  management.
+- `SuperAdmin` retains the same current permissions. The initial bootstrap
+  account is assigned this role; Admin and SuperAdmin remain distinct system
+  roles even though their current permission sets match.
+
+Migration `006_admin_full_permissions` grants the current permission set to
+Admin on both existing and fresh databases. It does not automatically grant
+permissions introduced by future migrations.
 
 An authenticated `SuperAdmin` can provision an eligible pending staff profile
 directly as an `Admin` through `POST /api/v1/staff/{staffID}/provision-admin`.
@@ -76,7 +82,7 @@ not change account activation state or staff employment status. Apply this
 migration before deploying the API version that reads the new columns.
 
 An authenticated administrator with the `settings.manage` permission (currently
-the `SuperAdmin` role) can
+Admin and SuperAdmin) can
 temporarily suspend or reactivate a login account:
 
 - `POST /api/v1/auth/accounts/{staffID}/suspend`
