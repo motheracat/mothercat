@@ -17,6 +17,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	accesshttp "github.com/mothercat-enterprise/mothercat/backend/services/access/http"
 	accessstore "github.com/mothercat-enterprise/mothercat/backend/services/access/monolith"
 	auditstore "github.com/mothercat-enterprise/mothercat/backend/services/audit/monolith"
 	identityapp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/application"
@@ -113,7 +114,8 @@ func run(logger *slog.Logger) error {
 		db, authenticator, localAuditRecorder{recorder: audit},
 		localAccountProvisioner{service: authService}, access, logger, profileUploaders...,
 	)
-	handler := newRouter(db, identityHandler, organizationHandler)
+	accessHandler := accesshttp.NewHandler(access, accessAuthenticator{service: authService}, logger)
+	handler := newRouter(db, identityHandler, organizationHandler, accessHandler)
 	server := &http.Server{
 		Addr: address, Handler: handler, ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
@@ -208,7 +210,7 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func newRouter(db *sql.DB, identity, organization http.Handler) http.Handler {
+func newRouter(db *sql.DB, identity, organization http.Handler, access ...http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -228,9 +230,30 @@ func newRouter(db *sql.DB, identity, organization http.Handler) http.Handler {
 	mux.Handle("/api/v1/staff/", organization)
 	mux.Handle("/api/v1/departments", organization)
 	mux.Handle("/api/v1/departments/", organization)
+	if len(access) > 0 && access[0] != nil {
+		mux.Handle("/api/v1/roles", access[0])
+		mux.Handle("/api/v1/roles/", access[0])
+		mux.Handle("/api/v1/permissions", access[0])
+		mux.Handle("/api/v1/users/", access[0])
+	}
 	mux.Handle("/api/v1/", identity)
 	mux.Handle("/internal/v1/", identity)
 	return mux
+}
+
+type accessAuthenticator struct {
+	service *identityapp.Service
+}
+
+func (a accessAuthenticator) Authenticate(ctx context.Context, token string) (accesshttp.Principal, error) {
+	account, err := a.service.ResolveSession(ctx, token)
+	if err != nil {
+		if errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			return accesshttp.Principal{}, accesshttp.ErrUnauthenticated
+		}
+		return accesshttp.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
+	}
+	return accesshttp.Principal{ID: account.ID, Permissions: account.Permissions}, nil
 }
 
 type localAuthorizationProvider struct {

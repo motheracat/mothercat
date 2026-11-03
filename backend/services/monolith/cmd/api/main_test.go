@@ -13,7 +13,10 @@ func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
 	organization := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	handler := newRouter(nil, identity, organization)
+	access := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
+	handler := newRouter(nil, identity, organization, access)
 
 	for _, path := range []string{
 		"/api/v1/staff",
@@ -32,6 +35,24 @@ func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil))
 	if response.Code != http.StatusTeapot {
 		t.Errorf("identity endpoint reached status %d; want identity handler status %d", response.Code, http.StatusTeapot)
+	}
+
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/api/v1/roles"},
+		{method: http.MethodPatch, path: "/api/v1/roles/auditor"},
+		{method: http.MethodPut, path: "/api/v1/roles/auditor/permissions"},
+		{method: http.MethodGet, path: "/api/v1/permissions"},
+		{method: http.MethodGet, path: "/api/v1/users/00000000-0000-4000-8000-000000000001/roles"},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(route.method, route.path, nil))
+		if response.Code != http.StatusAccepted {
+			t.Errorf("%s %s reached status %d; want access handler status %d",
+				route.method, route.path, response.Code, http.StatusAccepted)
+		}
 	}
 }
 

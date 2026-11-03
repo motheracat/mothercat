@@ -1,0 +1,428 @@
+openapi: 3.1.0
+info:
+  title: Mothercat Access Control API
+  version: 1.0.0
+  description: |
+    Role and permission management for the authenticated staff workspace.
+    Mutations require the session cookie and a same-origin Origin header.
+    Administrators may only delegate permissions they currently hold.
+    System roles are immutable. Users cannot assign roles to themselves, and
+    the last active SuperAdmin cannot be removed.
+servers:
+  - url: /
+    description: Current API host
+tags:
+  - name: Roles
+  - name: Permissions
+  - name: User role assignments
+paths:
+  /api/v1/roles:
+    get:
+      tags: [Roles]
+      operationId: listRoles
+      summary: List roles and their permissions
+      security:
+        - sessionCookie: []
+      x-required-permission: roles.read
+      responses:
+        "200":
+          description: Roles ordered by display name
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [roles]
+                properties:
+                  roles:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Role"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      tags: [Roles]
+      operationId: createRole
+      summary: Create a configurable role
+      description: Requires roles.manage. New roles start with no permissions.
+      security:
+        - sessionCookie: []
+      x-required-permission: roles.manage
+      x-csrf-protection: Same-origin Origin header required
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoleRequest"
+      responses:
+        "201":
+          description: Role created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [role]
+                properties:
+                  role:
+                    $ref: "#/components/schemas/Role"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/v1/roles/{roleId}:
+    parameters:
+      - $ref: "#/components/parameters/RoleId"
+    patch:
+      tags: [Roles]
+      operationId: updateRole
+      summary: Update a role's display name or description
+      description: System roles cannot be modified.
+      security:
+        - sessionCookie: []
+      x-required-permission: roles.manage
+      x-csrf-protection: Same-origin Origin header required
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoleRequest"
+      responses:
+        "200":
+          description: Updated role, including its current permission keys
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [role]
+                properties:
+                  role:
+                    $ref: "#/components/schemas/Role"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/v1/permissions:
+    get:
+      tags: [Permissions]
+      operationId: listPermissions
+      summary: List defined permissions
+      security:
+        - sessionCookie: []
+      x-required-permission: roles.read
+      responses:
+        "200":
+          description: Permission catalogue ordered by key
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [permissions]
+                properties:
+                  permissions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Permission"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/v1/roles/{roleId}/permissions:
+    parameters:
+      - $ref: "#/components/parameters/RoleId"
+    put:
+      tags: [Roles]
+      operationId: replaceRolePermissions
+      summary: Replace the complete permission set for a role
+      description: |
+        This is a replacement, not an additive update. The caller must
+        currently hold every permission being delegated. System roles are
+        immutable. An empty array removes all permissions from a configurable
+        role.
+      security:
+        - sessionCookie: []
+      x-required-permission: roles.manage
+      x-csrf-protection: Same-origin Origin header required
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceRolePermissionsRequest"
+      responses:
+        "200":
+          description: The complete permission set now assigned to the role
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [role_id, permission_keys]
+                properties:
+                  role_id:
+                    type: string
+                  permission_keys:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/v1/users/{userId}/roles:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: Internal account UUID, not the official staff ID.
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [User role assignments]
+      operationId: getUserRoles
+      summary: Get the role assignments for an account
+      security:
+        - sessionCookie: []
+      x-required-permission: roles.read
+      responses:
+        "200":
+          description: Current role assignments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRolesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    put:
+      tags: [User role assignments]
+      operationId: replaceUserRoles
+      summary: Replace an account's role assignments
+      description: |
+        Requires user_roles.assign. The caller may only assign roles whose
+        permissions are a subset of the caller's current permissions. Assigning
+        roles to the caller's own account is prohibited. Removing the last
+        active SuperAdmin returns 409. An empty role_ids array removes all
+        assignments unless doing so would remove the last active SuperAdmin.
+      security:
+        - sessionCookie: []
+      x-required-permission: user_roles.assign
+      x-csrf-protection: Same-origin Origin header required
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceUserRolesRequest"
+      responses:
+        "200":
+          description: The complete role assignment set now applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRolesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: mothercat_session
+      description: Secure, HttpOnly session cookie established by Identity login.
+  parameters:
+    RoleId:
+      name: roleId
+      in: path
+      required: true
+      description: Stable lowercase role key, for example "staff" or "auditor".
+      schema:
+        type: string
+        pattern: "^[a-z][a-z0-9_]{0,63}$"
+  schemas:
+    Role:
+      type: object
+      required: [role_id, name, description, is_system_role, permissions]
+      properties:
+        role_id:
+          type: string
+          description: Stable role key (not a UUID).
+        name:
+          type: string
+        description:
+          type: string
+        is_system_role:
+          type: boolean
+        permissions:
+          type: array
+          items:
+            type: string
+    Permission:
+      type: object
+      required: [permission_key, description]
+      properties:
+        permission_key:
+          type: string
+        description:
+          type: string
+    CreateRoleRequest:
+      type: object
+      additionalProperties: false
+      required: [role_id, name, description]
+      properties:
+        role_id:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 2000
+    UpdateRoleRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 2000
+    ReplaceRolePermissionsRequest:
+      type: object
+      additionalProperties: false
+      required: [permission_keys]
+      properties:
+        permission_keys:
+          type: array
+          maxItems: 200
+          uniqueItems: true
+          items:
+            type: string
+            pattern: "^[a-z][a-z0-9_.-]{0,149}$"
+    ReplaceUserRolesRequest:
+      type: object
+      additionalProperties: false
+      required: [role_ids]
+      properties:
+        role_ids:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            pattern: "^[a-z][a-z0-9_]{0,63}$"
+    UserRolesResponse:
+      type: object
+      required: [user_id, role_ids]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role_ids:
+          type: array
+          items:
+            type: string
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, request_id]
+          properties:
+            code:
+              type: string
+            request_id:
+              type: string
+  responses:
+    BadRequest:
+      description: Invalid request body or identifier
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Missing, expired, or invalid session
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: Missing permission, invalid Origin, or forbidden delegation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Role or account does not exist
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Conflict:
+      description: Duplicate role, immutable system role, or last SuperAdmin protection
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unavailable:
+      description: Identity or database service unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
