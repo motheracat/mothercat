@@ -66,6 +66,37 @@ describe("proxyApiRequest", () => {
     expect(init.cache).toBe("no-store");
   });
 
+  it("allows same-origin PUT requests required by Access role and assignment APIs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        role_id: "auditor",
+        permission_keys: ["audit.read"],
+      }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await proxyApiRequest(
+      new Request("https://frontend.example/api/v1/roles/auditor/permissions", {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          cookie: "mothercat_session=session-value",
+          host: "frontend.example",
+          origin: "https://frontend.example",
+        },
+        body: JSON.stringify({ permission_keys: ["audit.read"] }),
+      }),
+      ["roles", "auditor", "permissions"],
+      "https://api.example",
+    );
+
+    expect(response.status).toBe(200);
+    const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(init.method).toBe("PUT");
+    expect(url.toString()).toBe("https://api.example/api/v1/roles/auditor/permissions");
+    expect(new Headers(init.headers).get("origin")).toBe("https://api.example");
+  });
+
   it("rejects cross-origin mutations without contacting the backend", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

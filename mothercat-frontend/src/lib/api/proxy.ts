@@ -91,7 +91,7 @@ export async function proxyApiRequest(
   apiBaseUrl: string,
 ): Promise<Response> {
   const method = request.method.toUpperCase();
-  if (!["GET", "POST", "PATCH"].includes(method)) {
+  if (!["GET", "POST", "PATCH", "PUT"].includes(method)) {
     return errorResponse(405, "method_not_allowed");
   }
   if (pathSegments.length === 0 || pathSegments.some((segment) => segment === "")) {

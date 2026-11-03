@@ -1,15 +1,18 @@
-import { DataTable, EmptyState, PageHeader } from "@/components/workspace/ui";
+import { AccessManagement } from "@/components/workspace/access-management";
+import { getCurrentSession } from "@/lib/auth/session";
+import { isDevOpen } from "@/lib/auth/mode";
+import { hasPermission } from "@/lib/auth/permissions";
 
-export default function RolesPage() {
+export default async function RolesPage() {
+  const session = await getCurrentSession();
+  const devOpen = isDevOpen();
   return (
-    <>
-      <PageHeader title="Roles & permissions" description="Review roles and their assigned access." />
-      <section className="surface-card">
-        <DataTable
-          columns={["Role", "Description", "Members", "Permissions", ""]}
-          empty={<EmptyState>No role data is available yet.</EmptyState>}
-        />
-      </section>
-    </>
+    <AccessManagement
+      canRead={!devOpen && hasPermission(session, "roles.read")}
+      canManage={!devOpen && hasPermission(session, "roles.manage")}
+      canAssign={!devOpen && hasPermission(session, "user_roles.assign")}
+      permissions={devOpen ? [] : session?.permissions ?? []}
+      currentUserId={devOpen ? "" : session?.userId ?? ""}
+    />
   );
 }
