@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -28,6 +31,7 @@ type staffStoreStub struct {
 	filter            domain.StaffListFilter
 	updated           bool
 	update            domain.UpdateStaffRequest
+	profileImage      string
 	deactivated       bool
 	departments       []domain.Department
 	departmentRequest domain.DepartmentRequest
@@ -68,6 +72,16 @@ func (store *staffStoreStub) FindByID(_ context.Context, id string) (domain.Staf
 		return domain.Staff{}, domain.ErrStaffNotFound
 	}
 	return staff, nil
+}
+
+func (store *staffStoreStub) UpdateProfileImage(_ context.Context, staffID, imageURL string) (domain.Staff, error) {
+	if store.err != nil {
+		return domain.Staff{}, store.err
+	}
+	store.profileImage = imageURL
+	store.staff.ID = staffID
+	store.staff.ProfileImageURL = &imageURL
+	return store.staff, nil
 }
 
 func (store *staffStoreStub) CompleteProvisioning(_ context.Context, staffID, accountID string) (domain.Staff, error) {
@@ -276,6 +290,41 @@ func staffImportRequest(t *testing.T, csvText string) *http.Request {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/staff/imports", &body)
+	request.Host = "example.test"
+	request.Header.Set("Origin", "http://example.test")
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "opaque-session"})
+	return request
+}
+
+type profileImageUploaderStub struct {
+	contentType string
+	image       []byte
+	imageURL    string
+	err         error
+}
+
+func (uploader *profileImageUploaderStub) Upload(_ context.Context, contentType string, image []byte) (string, error) {
+	uploader.contentType, uploader.image = contentType, image
+	return uploader.imageURL, uploader.err
+}
+
+func profileImageRequest(t *testing.T, pngBytes []byte) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, err := writer.CreateFormFile("file", "profile.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(pngBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost,
+		"/api/v1/staff/1c9491b8-21ce-4c66-a025-006bb346b810/profile-picture", &body)
 	request.Host = "example.test"
 	request.Header.Set("Origin", "http://example.test")
 	request.Header.Set("Content-Type", writer.FormDataContentType())
@@ -566,6 +615,48 @@ func TestGetStaffRequiresUUIDAndReturnsRecord(t *testing.T) {
 	handler.ServeHTTP(response, authorizedRequest(http.MethodGet, "/api/v1/staff/not-a-uuid", ""))
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("invalid identifier status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestUploadProfilePictureValidatesAndPersistsCloudinaryURL(t *testing.T) {
+	var encoded bytes.Buffer
+	picture := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	picture.Set(0, 0, color.White)
+	if err := png.Encode(&encoded, picture); err != nil {
+		t.Fatal(err)
+	}
+	accountID := authorizedPrincipal().ID
+	store := &staffStoreStub{staff: domain.Staff{AccountID: &accountID}}
+	audit := &auditStub{}
+	uploader := &profileImageUploaderStub{imageURL: "https://res.cloudinary.com/demo/image/upload/profile.png"}
+	auth := &authenticatorStub{principal: application.Principal{ID: accountID, Permissions: []string{"staff.read"}}}
+	handler := NewHandler(store, auth, audit,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		application.OnboardingServices{ProfileImageUploader: uploader})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, profileImageRequest(t, encoded.Bytes()))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if uploader.contentType != "image/png" || len(uploader.image) == 0 ||
+		store.profileImage != uploader.imageURL || !audit.called {
+		t.Fatalf("upload=%+v saved_url=%q audited=%v", uploader, store.profileImage, audit.called)
+	}
+	if !strings.Contains(response.Body.String(), `"profile_image_url":"https://res.cloudinary.com/demo/image/upload/profile.png"`) {
+		t.Fatalf("response does not return the saved Cloudinary URL: %s", response.Body.String())
+	}
+
+	otherStaffAccountID := "9c9491b8-21ce-4c66-a025-006bb346b810"
+	otherStore := &staffStoreStub{staff: domain.Staff{AccountID: &otherStaffAccountID}}
+	otherUploader := &profileImageUploaderStub{imageURL: uploader.imageURL}
+	otherHandler := NewHandler(otherStore, auth, &auditStub{},
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		application.OnboardingServices{ProfileImageUploader: otherUploader})
+	response = httptest.NewRecorder()
+	otherHandler.ServeHTTP(response, profileImageRequest(t, encoded.Bytes()))
+	if response.Code != http.StatusForbidden || len(otherUploader.image) != 0 {
+		t.Fatalf("another user's profile upload status=%d uploaded=%v", response.Code, len(otherUploader.image) > 0)
 	}
 }
 

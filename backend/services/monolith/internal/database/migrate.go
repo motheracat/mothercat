@@ -20,6 +20,8 @@ var allMigrations = []migration{
 	{version: "001_initial", path: "migrations/001_initial.sql"},
 	{version: "002_account_suspension", path: "migrations/002_account_suspension.sql"},
 	{version: "003_organization_api", path: "migrations/003_organization_api.sql"},
+	{version: "004_staff_profile_image", path: "migrations/004_staff_profile_image.sql"},
+	{version: "005_admin_role", path: "migrations/005_admin_role.sql"},
 }
 
 func Migrate(ctx context.Context, db *sql.DB) error {

@@ -54,12 +54,17 @@ type AccountSuspender interface {
 	SuspendAccount(context.Context, string, string) error
 }
 
+type ProfileImageUploader interface {
+	Upload(context.Context, string, []byte) (string, error)
+}
+
 type StaffRoleAssigner interface {
 	AssignDefaultStaffRole(context.Context, string) error
 }
 
 type OnboardingServices struct {
-	Identity      AccountProvisioner
-	IdentityState AccountSuspender
-	Access        StaffRoleAssigner
+	Identity             AccountProvisioner
+	IdentityState        AccountSuspender
+	Access               StaffRoleAssigner
+	ProfileImageUploader ProfileImageUploader
 }

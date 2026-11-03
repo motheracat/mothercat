@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/csv"
@@ -8,6 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"mime"
@@ -24,20 +29,23 @@ import (
 )
 
 const (
-	sessionCookieName = "mothercat_session"
-	maxRequestBody    = 16 << 10
-	maxImportFileSize = 5 << 20
-	maxImportBody     = maxImportFileSize + 64<<10
-	maxImportRows     = 5000
-	maxImportIssues   = 100
-	defaultPageSize   = 50
-	maxPageSize       = 100
+	sessionCookieName   = "mothercat_session"
+	maxRequestBody      = 16 << 10
+	maxImportFileSize   = 5 << 20
+	maxImportBody       = maxImportFileSize + 64<<10
+	maxProfileImageSize = 5 << 20
+	maxProfileImageBody = maxProfileImageSize + 64<<10
+	maxImportRows       = 5000
+	maxImportIssues     = 100
+	defaultPageSize     = 50
+	maxPageSize         = 100
 )
 
 type store interface {
 	Ping(context.Context) error
 	Create(context.Context, string, domain.CreateStaffRequest) (domain.Staff, error)
 	FindByID(context.Context, string) (domain.Staff, error)
+	UpdateProfileImage(context.Context, string, string) (domain.Staff, error)
 	CompleteProvisioning(context.Context, string, string) (domain.Staff, error)
 	ListStaff(context.Context, domain.StaffListFilter) ([]domain.Staff, int, error)
 	UpdateStaff(context.Context, string, domain.UpdateStaffRequest) (domain.Staff, error)
@@ -82,6 +90,13 @@ func NewHandler(database store, authenticator application.Authenticator, audit a
 	})
 	mux.HandleFunc("GET /api/v1/staff/{staffId}", func(w http.ResponseWriter, r *http.Request) {
 		getStaff(w, r, database, authenticator, logger)
+	})
+	mux.HandleFunc("POST /api/v1/staff/{staffId}/profile-picture", func(w http.ResponseWriter, r *http.Request) {
+		var uploader application.ProfileImageUploader
+		if len(onboarding) > 0 {
+			uploader = onboarding[0].ProfileImageUploader
+		}
+		uploadProfilePicture(w, r, database, authenticator, audit, uploader, logger)
 	})
 	mux.HandleFunc("PATCH /api/v1/staff/{staffId}", func(w http.ResponseWriter, r *http.Request) {
 		updateStaff(w, r, database, authenticator, audit, logger)
@@ -260,6 +275,134 @@ func getStaff(w http.ResponseWriter, r *http.Request, database store, authentica
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"staff": staff})
+}
+
+func uploadProfilePicture(
+	w http.ResponseWriter,
+	r *http.Request,
+	database store,
+	authenticator application.Authenticator,
+	audit application.AuditRecorder,
+	uploader application.ProfileImageUploader,
+	logger *slog.Logger,
+) {
+	ctx, cancel, principal, ok := authorizeRequest(w, r, authenticator, logger, "staff.read", true)
+	if !ok {
+		return
+	}
+	defer cancel()
+	staffID := strings.TrimSpace(r.PathValue("staffId"))
+	if !domain.IsUUID(staffID) {
+		writeError(w, http.StatusBadRequest, "invalid_staff_id", requestID(ctx))
+		return
+	}
+	if database == nil || audit == nil || uploader == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", requestID(ctx))
+		return
+	}
+	staffRecord, err := database.FindByID(ctx, staffID)
+	if errors.Is(err, domain.ErrStaffNotFound) {
+		writeError(w, http.StatusNotFound, "staff_not_found", requestID(ctx))
+		return
+	}
+	if err != nil {
+		logger.ErrorContext(ctx, "load staff before profile picture upload", "request_id", requestID(ctx), "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", requestID(ctx))
+		return
+	}
+	if (staffRecord.AccountID == nil || *staffRecord.AccountID != principal.ID) &&
+		!hasPermission(principal.Permissions, "staff.update") {
+		writeError(w, http.StatusForbidden, "permission_denied", requestID(ctx))
+		return
+	}
+	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data;") {
+		writeError(w, http.StatusBadRequest, "invalid_image", requestID(ctx))
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxProfileImageBody)
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			writeError(w, http.StatusRequestEntityTooLarge, "image_too_large", requestID(ctx))
+			return
+		}
+		writeError(w, http.StatusBadRequest, "invalid_image", requestID(ctx))
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	files := r.MultipartForm.File["file"]
+	if len(files) != 1 {
+		writeError(w, http.StatusBadRequest, "invalid_image", requestID(ctx))
+		return
+	}
+	file, err := files[0].Open()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_image", requestID(ctx))
+		return
+	}
+	defer file.Close()
+	imageBytes, err := io.ReadAll(io.LimitReader(file, maxProfileImageSize+1))
+	if err != nil {
+		logger.ErrorContext(ctx, "read profile picture", "request_id", requestID(ctx), "error", err)
+		writeError(w, http.StatusBadRequest, "invalid_image", requestID(ctx))
+		return
+	}
+	if len(imageBytes) == 0 {
+		writeError(w, http.StatusBadRequest, "invalid_image", requestID(ctx))
+		return
+	}
+	if len(imageBytes) > maxProfileImageSize {
+		writeError(w, http.StatusRequestEntityTooLarge, "image_too_large", requestID(ctx))
+		return
+	}
+	contentType := http.DetectContentType(imageBytes)
+	expectedFormat := map[string]string{
+		"image/jpeg": "jpeg",
+		"image/png":  "png",
+		"image/gif":  "gif",
+	}[contentType]
+	if expectedFormat == "" {
+		writeError(w, http.StatusBadRequest, "unsupported_image_type", requestID(ctx))
+		return
+	}
+	config, format, err := image.DecodeConfig(bytes.NewReader(imageBytes))
+	if err != nil || format != expectedFormat || config.Width < 1 || config.Height < 1 ||
+		config.Width > 10000 || config.Height > 10000 || config.Width > 40000000/config.Height {
+		writeError(w, http.StatusBadRequest, "invalid_image", requestID(ctx))
+		return
+	}
+	eventID, err := newUUID()
+	if err != nil {
+		logger.ErrorContext(ctx, "generate profile picture audit identifier", "request_id", requestID(ctx), "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", requestID(ctx))
+		return
+	}
+	if err := recordOrganizationAudit(ctx, audit, logger, application.AuditEvent{
+		EventKey: "organization:staff.profile_picture.upload:" + eventID,
+		ActorID:  principal.ID, Action: "staff.profile_picture.upload.requested", ResourceID: staffID,
+		Details: map[string]any{"content_type": contentType, "size_bytes": len(imageBytes)},
+	}); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "audit_unavailable", requestID(ctx))
+		return
+	}
+	imageURL, err := uploader.Upload(ctx, contentType, imageBytes)
+	if err != nil {
+		logger.ErrorContext(ctx, "upload profile picture to Cloudinary", "request_id", requestID(ctx), "error", err)
+		writeError(w, http.StatusBadGateway, "image_upload_failed", requestID(ctx))
+		return
+	}
+	staff, err := database.UpdateProfileImage(ctx, staffID, imageURL)
+	switch {
+	case errors.Is(err, domain.ErrStaffNotFound):
+		writeError(w, http.StatusNotFound, "staff_not_found", requestID(ctx))
+	case err != nil:
+		logger.ErrorContext(ctx, "save profile picture URL", "request_id", requestID(ctx), "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", requestID(ctx))
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"staff": staff})
+	}
 }
 
 func updateStaff(w http.ResponseWriter, r *http.Request, database store, authenticator application.Authenticator, audit application.AuditRecorder, logger *slog.Logger) {

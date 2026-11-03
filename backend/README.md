@@ -44,6 +44,19 @@ if the environment variable is accidentally retained. The migration must have
 run first. Never send the token or password over HTTP or store them in source
 control.
 
+## Administrator roles
+
+The database seeds two administrator levels:
+
+- `Admin` can read, create, update, deactivate, and import staff records, manage
+  departments, and read audit events.
+- `SuperAdmin` has all defined permissions, including role management,
+  user-role assignment, and system settings management. The initial bootstrap
+  account is assigned this role.
+
+The API currently has no role-management or user-role assignment endpoints, so
+the seeded `Admin` role cannot yet be assigned through the application UI/API.
+
 ## Account suspension and authentication safeguards
 
 Before deploying account suspension code, apply pending migrations to the
@@ -58,7 +71,8 @@ Migration `002_account_suspension` adds the separate suspension state. It does
 not change account activation state or staff employment status. Apply this
 migration before deploying the API version that reads the new columns.
 
-An authenticated administrator with the `settings.manage` permission can
+An authenticated administrator with the `settings.manage` permission (currently
+the `SuperAdmin` role) can
 temporarily suspend or reactivate a login account:
 
 - `POST /api/v1/auth/accounts/{staffID}/suspend`

@@ -48,6 +48,16 @@ func run(logger *slog.Logger) error {
 	if err := validateDatabaseSettings(databaseURL, appEnv); err != nil {
 		return err
 	}
+	var profileUploader organizationmonolith.ProfileImageUploader
+	cloudName, apiKey, apiSecret := strings.TrimSpace(os.Getenv("CLOUDINARY_CLOUD_NAME")),
+		strings.TrimSpace(os.Getenv("CLOUDINARY_API_KEY")), strings.TrimSpace(os.Getenv("CLOUDINARY_API_SECRET"))
+	if cloudName != "" || apiKey != "" || apiSecret != "" {
+		configuredUploader, err := organizationmonolith.NewCloudinaryUploader(cloudName, apiKey, apiSecret)
+		if err != nil {
+			return fmt.Errorf("configure Cloudinary: %w", err)
+		}
+		profileUploader = configuredUploader
+	}
 
 	connectCtx, cancelConnect := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelConnect()
@@ -95,9 +105,13 @@ func run(logger *slog.Logger) error {
 		},
 	)
 	authenticator := localAuthenticator{service: authService}
+	var profileUploaders []organizationmonolith.ProfileImageUploader
+	if profileUploader != nil {
+		profileUploaders = append(profileUploaders, profileUploader)
+	}
 	organizationHandler := organizationmonolith.NewHandler(
 		db, authenticator, localAuditRecorder{recorder: audit},
-		localAccountProvisioner{service: authService}, access, logger,
+		localAccountProvisioner{service: authService}, access, logger, profileUploaders...,
 	)
 	handler := newRouter(db, identityHandler, organizationHandler)
 	server := &http.Server{

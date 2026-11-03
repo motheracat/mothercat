@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	app "github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/application"
+	"github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/cloudinary"
 	"github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/domain"
 	organizationhttp "github.com/mothercat-enterprise/mothercat/backend/services/organization/internal/http"
 )
@@ -52,6 +53,14 @@ type staffStore struct {
 	db *sql.DB
 }
 
+type ProfileImageUploader interface {
+	Upload(context.Context, string, []byte) (string, error)
+}
+
+func NewCloudinaryUploader(cloudName, apiKey, apiSecret string) (ProfileImageUploader, error) {
+	return cloudinary.New(cloudName, apiKey, apiSecret)
+}
+
 func NewHandler(
 	db *sql.DB,
 	authenticator Authenticator,
@@ -59,6 +68,7 @@ func NewHandler(
 	identity AccountProvisioner,
 	access StaffRoleAssigner,
 	logger *slog.Logger,
+	uploaders ...ProfileImageUploader,
 ) http.Handler {
 	store := &staffStore{db: db}
 	onboarding := app.OnboardingServices{
@@ -66,6 +76,9 @@ func NewHandler(
 	}
 	if stateService, ok := identity.(app.AccountSuspender); ok {
 		onboarding.IdentityState = stateService
+	}
+	if len(uploaders) > 0 {
+		onboarding.ProfileImageUploader = uploaders[0]
 	}
 	return organizationhttp.NewHandler(store, authBridge{authenticator}, auditBridge{audit}, logger, onboarding)
 }
@@ -123,8 +136,8 @@ func (s *staffStore) FindByID(ctx context.Context, id string) (domain.Staff, err
 	if s == nil || s.db == nil {
 		return domain.Staff{}, errors.New("PostgreSQL database is unavailable")
 	}
-	staff, err := scanStaff(s.db.QueryRowContext(ctx, `
-		SELECT id, account_id, staff_id, department_id, full_name, work_email, job_title, employment_status
+	staff, err := scanStaffWithImage(s.db.QueryRowContext(ctx, `
+		SELECT id, account_id, staff_id, department_id, full_name, work_email, job_title, employment_status, profile_image_url
 		FROM organization.staff_members WHERE id = $1::uuid
 	`, id))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -140,12 +153,13 @@ func (s *staffStore) CompleteProvisioning(ctx context.Context, staffID, accountI
 	if s == nil || s.db == nil {
 		return domain.Staff{}, errors.New("PostgreSQL database is unavailable")
 	}
-	staff, err := scanStaff(s.db.QueryRowContext(ctx, `
+	staff, err := scanStaffWithImage(s.db.QueryRowContext(ctx, `
 		UPDATE organization.staff_members
 		SET account_id = $2::uuid, employment_status = 'active', updated_at = now()
 		WHERE id = $1::uuid AND employment_status = 'pending'
 		  AND (account_id IS NULL OR account_id = $2::uuid)
-		RETURNING id, account_id, staff_id, department_id, full_name, work_email, job_title, employment_status
+		RETURNING id, account_id, staff_id, department_id, full_name, work_email,
+		          job_title, employment_status, profile_image_url
 	`, staffID, accountID))
 	if errors.Is(err, sql.ErrNoRows) {
 		existing, findErr := s.FindByID(ctx, staffID)
@@ -196,7 +210,7 @@ func (s *staffStore) ListStaff(ctx context.Context, filter domain.StaffListFilte
 	pageArgs := append(append([]any(nil), args...), filter.Limit, filter.Offset)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, account_id, staff_id, department_id, full_name, work_email,
-		       job_title, employment_status
+		       job_title, employment_status, profile_image_url
 		FROM organization.staff_members`+where+
 		fmt.Sprintf(" ORDER BY created_at DESC, id LIMIT $%d OFFSET $%d", len(pageArgs)-1, len(pageArgs)),
 		pageArgs...,
@@ -207,7 +221,7 @@ func (s *staffStore) ListStaff(ctx context.Context, filter domain.StaffListFilte
 	defer rows.Close()
 	staff := make([]domain.Staff, 0)
 	for rows.Next() {
-		record, err := scanStaff(rows)
+		record, err := scanStaffWithImage(rows)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan staff record: %w", err)
 		}
@@ -219,11 +233,31 @@ func (s *staffStore) ListStaff(ctx context.Context, filter domain.StaffListFilte
 	return staff, total, nil
 }
 
+func (s *staffStore) UpdateProfileImage(ctx context.Context, id, imageURL string) (domain.Staff, error) {
+	if s == nil || s.db == nil {
+		return domain.Staff{}, errors.New("PostgreSQL database is unavailable")
+	}
+	staff, err := scanStaffWithImage(s.db.QueryRowContext(ctx, `
+		UPDATE organization.staff_members
+		SET profile_image_url = $2, updated_at = now()
+		WHERE id = $1::uuid
+		RETURNING id, account_id, staff_id, department_id, full_name, work_email,
+		          job_title, employment_status, profile_image_url
+	`, id, imageURL))
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Staff{}, domain.ErrStaffNotFound
+	}
+	if err != nil {
+		return domain.Staff{}, fmt.Errorf("save staff profile image URL: %w", err)
+	}
+	return staff, nil
+}
+
 func (s *staffStore) UpdateStaff(ctx context.Context, id string, request domain.UpdateStaffRequest) (domain.Staff, error) {
 	if s == nil || s.db == nil {
 		return domain.Staff{}, errors.New("PostgreSQL database is unavailable")
 	}
-	staff, err := scanStaff(s.db.QueryRowContext(ctx, `
+	staff, err := scanStaffWithImage(s.db.QueryRowContext(ctx, `
 		UPDATE organization.staff_members SET
 			full_name = CASE WHEN $2 THEN $3 ELSE full_name END,
 			work_email = CASE WHEN $4 THEN $5 ELSE work_email END,
@@ -232,7 +266,7 @@ func (s *staffStore) UpdateStaff(ctx context.Context, id string, request domain.
 			updated_at = now()
 		WHERE id = $1::uuid
 		RETURNING id, account_id, staff_id, department_id, full_name, work_email,
-		          job_title, employment_status
+		          job_title, employment_status, profile_image_url
 	`, id,
 		request.FullName.Set, nullableString(request.FullName.Value),
 		request.WorkEmail.Set, nullableString(request.WorkEmail.Value),
@@ -254,12 +288,12 @@ func (s *staffStore) DeactivateStaff(ctx context.Context, id string) (domain.Sta
 	if s == nil || s.db == nil {
 		return domain.Staff{}, errors.New("PostgreSQL database is unavailable")
 	}
-	staff, err := scanStaff(s.db.QueryRowContext(ctx, `
+	staff, err := scanStaffWithImage(s.db.QueryRowContext(ctx, `
 		UPDATE organization.staff_members
 		SET employment_status = 'inactive', updated_at = now()
 		WHERE id = $1::uuid AND employment_status NOT IN ('inactive', 'deactivated')
 		RETURNING id, account_id, staff_id, department_id, full_name, work_email,
-		          job_title, employment_status
+		          job_title, employment_status, profile_image_url
 	`, id))
 	if err == nil {
 		return staff, nil
@@ -595,6 +629,24 @@ func scanStaff(row rowScanner) (domain.Staff, error) {
 	staff.DepartmentID = nullableStringPointer(departmentID)
 	staff.WorkEmail = nullableStringPointer(workEmail)
 	staff.JobTitle = nullableStringPointer(jobTitle)
+	return staff, nil
+}
+
+func scanStaffWithImage(row rowScanner) (domain.Staff, error) {
+	var staff domain.Staff
+	var accountID, departmentID, workEmail, jobTitle, profileImageURL sql.NullString
+	err := row.Scan(
+		&staff.ID, &accountID, &staff.StaffID, &departmentID,
+		&staff.FullName, &workEmail, &jobTitle, &staff.EmploymentStatus, &profileImageURL,
+	)
+	if err != nil {
+		return domain.Staff{}, err
+	}
+	staff.AccountID = nullableStringPointer(accountID)
+	staff.DepartmentID = nullableStringPointer(departmentID)
+	staff.WorkEmail = nullableStringPointer(workEmail)
+	staff.JobTitle = nullableStringPointer(jobTitle)
+	staff.ProfileImageURL = nullableStringPointer(profileImageURL)
 	return staff, nil
 }
 

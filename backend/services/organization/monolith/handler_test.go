@@ -22,11 +22,12 @@ func TestCompleteProvisioningActivatesStaffWithPostgresColumns(t *testing.T) {
 		SET account_id = $2::uuid, employment_status = 'active', updated_at = now()
 		WHERE id = $1::uuid AND employment_status = 'pending'
 		  AND (account_id IS NULL OR account_id = $2::uuid)
-		RETURNING id, account_id, staff_id, department_id, full_name, work_email, job_title, employment_status`
+		RETURNING id, account_id, staff_id, department_id, full_name, work_email,
+		          job_title, employment_status, profile_image_url`
 	rows := sqlmock.NewRows([]string{
-		"id", "account_id", "staff_id", "department_id", "full_name", "work_email", "job_title", "employment_status",
+		"id", "account_id", "staff_id", "department_id", "full_name", "work_email", "job_title", "employment_status", "profile_image_url",
 	}).AddRow(
-		"staff-uuid", "account-uuid", "12345", nil, "Test Staff", "test@example.test", nil, "active",
+		"staff-uuid", "account-uuid", "12345", nil, "Test Staff", "test@example.test", nil, "active", nil,
 	)
 	mock.ExpectQuery(regexp.QuoteMeta(update)).
 		WithArgs("staff-uuid", "account-uuid").
@@ -55,17 +56,18 @@ func TestListStaffUsesParameterizedFiltersAndPagination(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT count(*) FROM organization.staff_members WHERE employment_status = $1",
 	)).WithArgs("pending").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery(`SELECT id, account_id, staff_id, department_id, full_name, work_email,\s+job_title, employment_status\s+FROM organization\.staff_members WHERE employment_status = \$1 ORDER BY created_at DESC, id LIMIT \$2 OFFSET \$3`).
+	mock.ExpectQuery(`SELECT id, account_id, staff_id, department_id, full_name, work_email,\s+job_title, employment_status, profile_image_url\s+FROM organization\.staff_members WHERE employment_status = \$1 ORDER BY created_at DESC, id LIMIT \$2 OFFSET \$3`).
 		WithArgs("pending", 25, 5).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "staff_id", "department_id", "full_name", "work_email", "job_title", "employment_status",
-		}).AddRow("staff-uuid", nil, "12345", nil, "Test Staff", nil, nil, "pending"))
+			"id", "account_id", "staff_id", "department_id", "full_name", "work_email", "job_title", "employment_status", "profile_image_url",
+		}).AddRow("staff-uuid", nil, "12345", nil, "Test Staff", nil, nil, "pending", "https://res.cloudinary.com/demo/image/upload/test.png"))
 
 	staff, total, err := (&staffStore{db: db}).ListStaff(context.Background(), filter)
 	if err != nil {
 		t.Fatalf("ListStaff() error = %v", err)
 	}
-	if total != 1 || len(staff) != 1 || staff[0].StaffID != "12345" {
+	if total != 1 || len(staff) != 1 || staff[0].StaffID != "12345" ||
+		staff[0].ProfileImageURL == nil || *staff[0].ProfileImageURL != "https://res.cloudinary.com/demo/image/upload/test.png" {
 		t.Fatalf("ListStaff() = %+v, total %d", staff, total)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

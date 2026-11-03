@@ -34,6 +34,7 @@ type Staff struct {
 	StaffID          string  `json:"staff_id"`
 	DepartmentID     *string `json:"department_id"`
 	FullName         string  `json:"full_name"`
+	ProfileImageURL  *string `json:"profile_image_url"`
 	WorkEmail        *string `json:"work_email"`
 	JobTitle         *string `json:"job_title"`
 	EmploymentStatus string  `json:"employment_status"`
