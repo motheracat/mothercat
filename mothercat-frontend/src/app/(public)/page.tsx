@@ -9,6 +9,8 @@ const serviceIcons: LucideIcon[] = [Landmark, Building2, Trees];
 const expertiseIcons: LucideIcon[] = [Cog, Compass, Leaf, Layers];
 
 const serviceImages = [
+
+  
   "/images/Infrastructure-Development.jpeg",
   "/images/Commercial%20Buildings.webp",
   "/images/Urban%20Solutions.jpeg",
