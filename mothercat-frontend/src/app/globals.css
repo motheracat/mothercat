@@ -387,23 +387,56 @@ body {
 .dashboard-department-list {
   display: grid;
   margin: 0;
-  padding: 4px 18px;
+  gap: 10px;
+  padding: 8px 18px 16px;
   list-style: none;
 }
 
 .dashboard-department-row {
+  position: relative;
   display: flex;
   min-width: 0;
-  min-height: 68px;
+  min-height: 82px;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1px solid var(--border);
-  padding: 10px 0;
+  isolation: isolate;
 }
 
-.dashboard-department-row:last-child {
-  border-bottom: 0;
+.dashboard-department-card-link {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border: 1px solid rgb(255 255 255 / 82%);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgb(255 255 255 / 78%), rgb(239 246 255 / 58%));
+  box-shadow: 0 6px 20px rgb(15 23 42 / 6%), inset 0 1px 1px rgb(255 255 255 / 90%);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.dashboard-department-card-link:hover {
+  transform: translateY(-1px);
+  border-color: rgb(255 255 255 / 100%);
+  background: linear-gradient(145deg, rgb(255 255 255 / 92%), rgb(239 246 255 / 76%));
+  box-shadow: 0 10px 24px rgb(15 23 42 / 10%), inset 0 1px 1px rgb(255 255 255 / 100%);
+}
+
+.dashboard-department-card-link:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.dashboard-department-card-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  padding: 14px 0 14px 16px;
+  pointer-events: none;
 }
 
 .dashboard-department-info {
@@ -422,21 +455,20 @@ body {
   white-space: nowrap;
 }
 
-.dashboard-department-name:hover {
-  color: var(--accent);
-}
-
 .dashboard-department-count {
   color: var(--muted);
   font-size: 11px;
 }
 
 .dashboard-team-stack {
+  position: relative;
+  z-index: 2;
   display: flex;
   min-width: 0;
   flex: 0 0 auto;
   align-items: center;
-  padding-left: 6px;
+  padding: 14px 16px 14px 0;
+  pointer-events: none;
 }
 
 .dashboard-team-avatar,
@@ -457,6 +489,7 @@ body {
   font-weight: 700;
   text-decoration: none;
   transition: transform 160ms ease, box-shadow 160ms ease;
+  pointer-events: auto;
 }
 
 .dashboard-team-photo {

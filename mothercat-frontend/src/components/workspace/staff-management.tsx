@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { EllipsisVertical, Search, UserPlus, X } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { createPortal } from "react-dom";
 
 import {
@@ -33,6 +34,31 @@ type Permissions = {
 
 function getInitials(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "S";
+}
+
+function StaffAvatar({ staff }: { staff: StaffMember }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageUrl = staff.profile_image_url;
+  const canShowImage = imageUrl && (imageUrl.startsWith("/") || /^https?:\/\//i.test(imageUrl));
+
+  return (
+    <span className="staff-avatar-wrap" aria-hidden="true">
+      {canShowImage && !imageFailed ? (
+        <Image
+          src={imageUrl}
+          alt=""
+          fill
+          sizes="48px"
+          unoptimized
+          className="dashboard-team-photo"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <span className="staff-avatar">{getInitials(staff.full_name)}</span>
+      )}
+      <span className={`staff-avatar-status ${staff.employment_status === "active" ? "is-active" : "is-inactive"}`} />
+    </span>
+  );
 }
 
 function StaffForm({
@@ -443,10 +469,7 @@ export function StaffManagement({ permissions }: { permissions: Permissions }) {
             {staff.map((member) => (
               <li key={member.id} className="staff-directory-item">
                 <Link href={`/staff/${encodeURIComponent(member.id)}`} className="staff-directory-profile">
-                  <span className="staff-avatar-wrap" aria-hidden="true">
-                    <span className="staff-avatar">{getInitials(member.full_name)}</span>
-                    <span className={`staff-avatar-status ${member.employment_status === "active" ? "is-active" : "is-inactive"}`} />
-                  </span>
+                  <StaffAvatar staff={member} />
                   <span className="staff-directory-identity">
                     <span className="staff-directory-name">{member.full_name}</span>
                     <span className="staff-directory-meta">

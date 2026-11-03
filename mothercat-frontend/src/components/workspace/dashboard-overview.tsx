@@ -175,9 +175,18 @@ export function DashboardOverview() {
             <ul className="dashboard-department-list">
               {departmentRows.map(({ department, staff, total }) => (
                 <li key={department.id} className="dashboard-department-row">
-                  <div className="dashboard-department-info">
-                    <Link href="/departments" className="dashboard-department-name">{department.name}</Link>
-                    <span className="dashboard-department-count">{total} {total === 1 ? "staff member" : "staff members"}</span>
+                  <Link
+                    href="/departments"
+                    className="dashboard-department-card-link"
+                    aria-label={`View ${department.name} department`}
+                  />
+                  <div className="dashboard-department-card-content">
+                    <div className="dashboard-department-info">
+                      <span className="dashboard-department-name">{department.name}</span>
+                      <span className="dashboard-department-count">
+                        {total} {total === 1 ? "staff member" : "staff members"}
+                      </span>
+                    </div>
                   </div>
                   <div className="dashboard-team-stack" aria-label={`${department.name} team`}>
                     {staff.map((member) => <DashboardTeamAvatar key={member.id} member={member} />)}

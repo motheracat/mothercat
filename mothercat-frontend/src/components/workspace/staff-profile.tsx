@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ArrowLeft, BriefcaseBusiness, Building2, Mail, UserRound } from "lucide-react";
 import Link from "next/link";
 
-import { PageHeader, WorkspacePageSkeleton } from "@/components/workspace/ui";
+import { PageHeader } from "@/components/workspace/ui";
 import { useWorkspace } from "@/components/workspace/workspace-context";
 import {
   deactivateStaff,
@@ -195,7 +195,14 @@ export function StaffProfile({ staffId, permissions }: { staffId: string; permis
   }
 
   if (loading) {
-    return <WorkspacePageSkeleton />;
+    return (
+      <>
+        <PageHeader title="Staff profile" description="Loading staff record…" />
+        <div className="surface-card p-8 text-center text-sm text-[var(--muted)]" role="status">
+          Loading staff profile…
+        </div>
+      </>
+    );
   }
 
   if (currentLoadError || !staff) {
