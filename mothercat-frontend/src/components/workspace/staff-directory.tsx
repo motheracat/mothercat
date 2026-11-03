@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { Dialog } from "@/components/workspace/dialog";
-import { EmptyState, ErrorBanner, PageHeader, StatusPill } from "@/components/workspace/ui";
+import { EmptyState, ErrorBanner, LoadingTable, PageHeader, StatusPill } from "@/components/workspace/ui";
 import { useWorkspace } from "@/components/workspace/workspace-context";
 import { hasPermission } from "@/lib/auth/permissions";
 import {
@@ -384,13 +384,15 @@ export function StaffDirectory() {
                 <option value="deactivated">Deactivated</option>
               </select>
             </label>
-            <span className="ml-auto self-center text-sm text-[var(--muted)]">{loading ? "Loading…" : `${total} ${total === 1 ? "record" : "records"}`}</span>
+            <span className="ml-auto self-center text-sm text-[var(--muted)]">
+              {loading ? <span className="skeleton inline-block w-20 align-middle" aria-hidden="true" /> : `${total} ${total === 1 ? "record" : "records"}`}
+            </span>
           </div>
 
           {listError ? <div className="mb-4"><ErrorBanner message={listError} onRetry={refresh} /></div> : null}
           <section className="surface-card" aria-label="Staff records">
             {loading ? (
-              <div className="p-5 text-sm text-[var(--muted)]" role="status" aria-live="polite">Loading staff records…</div>
+              <LoadingTable columns={6} />
             ) : staff.length > 0 ? (
               <div className="max-h-[min(60vh,640px)] overflow-auto">
                 <table className="data-table staff-directory-table">
@@ -474,7 +476,13 @@ export function StaffDirectory() {
           />
         ) : null}
         {dialogMode === "detail" ? (
-          detailLoading ? <p role="status" className="text-sm text-[var(--muted)]">Loading profile…</p> : null
+          detailLoading ? (
+            <div role="status" aria-label="Loading profile" aria-busy="true" className="space-y-4 py-2">
+              <div className="skeleton h-6 w-1/2" />
+              <div className="skeleton w-4/5" />
+              <div className="skeleton w-2/3" />
+            </div>
+          ) : null
         ) : null}
         {dialogMode === "detail" && detailError ? <p role="alert" className="field-error">{detailError}</p> : null}
         {dialogMode === "detail" && selectedStaff ? (

@@ -60,7 +60,7 @@ export function EmptyState({
 
 export function LoadingState({ rows = 4 }: { rows?: number }) {
   return (
-    <div aria-label="Loading" aria-busy="true" className="space-y-4 p-5">
+    <div role="status" aria-label="Loading" aria-busy="true" className="space-y-4 p-5">
       {Array.from({ length: rows }, (_, index) => (
         <div key={index} className="flex items-center gap-4">
           <div className="skeleton h-8 w-8 shrink-0 rounded-full" />
@@ -71,6 +71,43 @@ export function LoadingState({ rows = 4 }: { rows?: number }) {
           <div className="skeleton hidden w-1/5 sm:block" />
         </div>
       ))}
+    </div>
+  );
+}
+
+export function LoadingTable({ columns, rows = 5 }: { columns: number; rows?: number }) {
+  return (
+    <div role="status" aria-label="Loading records" aria-busy="true" className="p-5">
+      <div className="space-y-4">
+        {Array.from({ length: rows }, (_, row) => (
+          <div key={row} className="grid items-center gap-4" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+            {Array.from({ length: columns }, (_, column) => (
+              <div key={column} className={`skeleton ${column === 0 ? "w-3/4" : "w-full"}`} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function WorkspacePageSkeleton() {
+  return (
+    <div aria-label="Loading page" aria-busy="true" className="workspace-page-skeleton">
+      <div className="page-header">
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="skeleton h-7 w-48 max-w-full" />
+          <div className="skeleton w-72 max-w-full" />
+        </div>
+        <div className="skeleton h-10 w-32 shrink-0" />
+      </div>
+      <section className="surface-card">
+        <div className="surface-card-header">
+          <div className="skeleton w-36" />
+          <div className="skeleton w-24" />
+        </div>
+        <LoadingTable columns={4} rows={6} />
+      </section>
     </div>
   );
 }

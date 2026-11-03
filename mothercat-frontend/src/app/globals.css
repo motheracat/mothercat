@@ -1819,7 +1819,18 @@ body {
 .skeleton {
   height: 14px;
   border-radius: 4px;
-  background: var(--neutral-bg);
+  background: linear-gradient(90deg, var(--neutral-bg) 25%, #e8edf5 50%, var(--neutral-bg) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
 }
 
 .error-banner {
@@ -1935,6 +1946,13 @@ body {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.workspace-modal-heading > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workspace-modal-close {
@@ -2197,6 +2215,11 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--neutral-bg);
+  }
+
   .workspace-bottom-nav-link,
   .workspace-bottom-more-button,
   .workspace-bottom-more-button svg,

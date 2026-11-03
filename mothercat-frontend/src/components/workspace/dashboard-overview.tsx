@@ -108,7 +108,6 @@ export function DashboardOverview() {
     };
   }, [reloadKey]);
 
-  const unavailableValue = loading ? "…" : "Unavailable";
   const departmentRows = data?.departments ?? [];
 
   return (
@@ -123,11 +122,27 @@ export function DashboardOverview() {
           }}
         />
       ) : null}
-      <section aria-label="Key metrics" className="dashboard-kpis">
-        <StatCard label="Total staff" value={data ? String(data.totalStaff) : unavailableValue} href="/staff" />
-        <StatCard label="Departments" value={data ? String(data.departmentCount) : unavailableValue} href="/departments" />
-        <StatCard label="Active staff" value={data ? String(data.activeStaff) : unavailableValue} href="/staff" />
-        <StatCard label="Pending staff" value={data ? String(data.pendingStaff) : unavailableValue} href="/staff" />
+      <section
+        aria-label={loading && !data ? "Loading key metrics" : "Key metrics"}
+        aria-busy={loading && !data}
+        className="dashboard-kpis"
+        role={loading && !data ? "status" : undefined}
+      >
+        {loading && !data ? (
+          Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="surface-card dashboard-stat-card space-y-4" aria-hidden="true">
+              <div className="skeleton w-2/3" />
+              <div className="skeleton h-9 w-1/3" />
+            </div>
+          ))
+        ) : (
+          <>
+            <StatCard label="Total staff" value={data ? String(data.totalStaff) : "Unavailable"} href="/staff" />
+            <StatCard label="Departments" value={data ? String(data.departmentCount) : "Unavailable"} href="/departments" />
+            <StatCard label="Active staff" value={data ? String(data.activeStaff) : "Unavailable"} href="/staff" />
+            <StatCard label="Pending staff" value={data ? String(data.pendingStaff) : "Unavailable"} href="/staff" />
+          </>
+        )}
       </section>
 
       <div className="dashboard-overview-grid">
@@ -137,7 +152,21 @@ export function DashboardOverview() {
           action={<Link href="/departments" className="text-sm font-medium text-[var(--accent)] hover:underline">View all</Link>}
         >
           {loading && !data ? (
-            <p className="dashboard-loading" role="status">Loading your teams…</p>
+            <ul role="status" aria-label="Loading departments" aria-busy="true" className="dashboard-department-list">
+              {Array.from({ length: 4 }, (_, index) => (
+                <li key={index} className="dashboard-department-row">
+                  <div className="dashboard-department-info flex-1">
+                    <div className="skeleton w-2/3" />
+                    <div className="skeleton w-1/3" />
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="skeleton h-9 w-9 rounded-full" />
+                    <div className="skeleton h-9 w-9 rounded-full" />
+                    <div className="skeleton h-9 w-9 rounded-full" />
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : error && !data ? (
             <p className="dashboard-loading">Department and team information is unavailable.</p>
           ) : departmentRows.length === 0 ? (

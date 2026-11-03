@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import { Dialog } from "@/components/workspace/dialog";
-import { EmptyState, ErrorBanner, PageHeader } from "@/components/workspace/ui";
+import { EmptyState, ErrorBanner, LoadingTable, PageHeader } from "@/components/workspace/ui";
 import { useWorkspace } from "@/components/workspace/workspace-context";
 import { hasPermission } from "@/lib/auth/permissions";
 import {
@@ -152,7 +152,7 @@ export function DepartmentDirectory() {
           {listError ? <div className="mb-4"><ErrorBanner message={listError} onRetry={refresh} /></div> : null}
           <section className="surface-card" aria-label="Departments">
             {loading ? (
-              <div className="p-5 text-sm text-[var(--muted)]" role="status" aria-live="polite">Loading departments…</div>
+              <LoadingTable columns={canManage ? 3 : 2} />
             ) : departments.length > 0 ? (
               <div className="max-h-[min(60vh,640px)] overflow-auto">
                 <table className="data-table">
@@ -186,7 +186,11 @@ export function DepartmentDirectory() {
               </EmptyState>
             )}
           </section>
-          <p className="mt-3 text-sm text-[var(--muted)]">{loading ? " " : `${departments.length} ${departments.length === 1 ? "department" : "departments"}`}</p>
+          <p className="mt-3 text-sm text-[var(--muted)]">
+            {loading ? (
+              <span className="skeleton inline-block w-24 align-middle" aria-hidden="true" />
+            ) : `${departments.length} ${departments.length === 1 ? "department" : "departments"}`}
+          </p>
         </>
       ) : null}
 

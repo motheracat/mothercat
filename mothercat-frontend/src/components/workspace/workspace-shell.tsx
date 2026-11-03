@@ -155,7 +155,7 @@ export function WorkspaceShell({
           open={userMenuOpen}
           onClose={closeUserMenu}
           triggerRef={userMenuButtonRef}
-          title={`Account menu for ${session.displayName}`}
+          title="Account menu"
           placement="top"
         >
           <p className="workspace-modal-user">{session.displayName}<span>{session.role}</span></p>
