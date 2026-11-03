@@ -1,6 +1,39 @@
 package main
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
+	identity := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+	organization := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := newRouter(nil, identity, organization)
+
+	for _, path := range []string{
+		"/api/v1/staff",
+		"/api/v1/staff/123",
+		"/api/v1/departments",
+		"/api/v1/departments/123",
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusNoContent {
+			t.Errorf("%s reached status %d; want organization handler status %d", path, response.Code, http.StatusNoContent)
+		}
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil))
+	if response.Code != http.StatusTeapot {
+		t.Errorf("identity endpoint reached status %d; want identity handler status %d", response.Code, http.StatusTeapot)
+	}
+}
 
 func TestValidateDatabaseSettings(t *testing.T) {
 	t.Setenv("IDENTITY_ONBOARDING_TOKEN", "a-long-enough-test-onboarding-token")

@@ -7,6 +7,32 @@ afterEach(() => {
 });
 
 describe("proxyApiRequest", () => {
+  it("removes stale compression headers from the decompressed upstream response", async () => {
+    const body = JSON.stringify({ staff: [] });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        headers: {
+          "content-encoding": "gzip",
+          "content-length": "999",
+          "content-type": "application/json",
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await proxyApiRequest(
+      new Request("https://frontend.example/api/v1/staff"),
+      ["staff"],
+      "https://api.example",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.has("content-encoding")).toBe(false);
+    expect(response.headers.has("content-length")).toBe(false);
+    expect(await response.text()).toBe(body);
+  });
+
   it("checks the browser origin and forwards mutations with the API origin", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ staff: [] }), {

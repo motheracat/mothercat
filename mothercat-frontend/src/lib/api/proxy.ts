@@ -2,6 +2,8 @@ const maxJsonBodyBytes = 16 * 1024;
 const maxImportBodyBytes = 5 * 1024 * 1024 + 64 * 1024;
 const hopByHopHeaders = new Set([
   "connection",
+  "content-encoding",
+  "content-length",
   "keep-alive",
   "proxy-authenticate",
   "proxy-authorization",

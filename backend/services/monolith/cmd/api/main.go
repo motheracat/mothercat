@@ -212,6 +212,8 @@ func newRouter(db *sql.DB, identity, organization http.Handler) http.Handler {
 	})
 	mux.Handle("/api/v1/staff", organization)
 	mux.Handle("/api/v1/staff/", organization)
+	mux.Handle("/api/v1/departments", organization)
+	mux.Handle("/api/v1/departments/", organization)
 	mux.Handle("/api/v1/", identity)
 	mux.Handle("/internal/v1/", identity)
 	return mux
