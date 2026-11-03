@@ -3,7 +3,7 @@ import Image from "next/image";
 import { ArrowRight, Building2, Cog, Compass, Landmark, Layers, Leaf, Trees, type LucideIcon } from "lucide-react";
 import { siteContent } from "@/content/site";
 
-const HERO_IMAGE = "/mothercat-welcome-hero.jpeg";
+const HERO_IMAGE = "/images/Blueprint%20Construction%20Skyline.png";
 
 const serviceIcons: LucideIcon[] = [Landmark, Building2, Trees];
 const expertiseIcons: LucideIcon[] = [Cog, Compass, Leaf, Layers];
