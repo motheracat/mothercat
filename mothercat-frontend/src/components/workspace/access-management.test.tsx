@@ -140,4 +140,22 @@ describe("AccessManagement", () => {
       expect(accessMocks.replaceUserRoles).toHaveBeenCalledWith("target-user", ["staff", "auditor"]);
     });
   });
+
+  it("shows the no-accounts message only after a search returns no results", async () => {
+    organizationMocks.listStaff.mockResolvedValueOnce({
+      staff: [],
+      total: 0,
+      pagination: { limit: 50, offset: 0, total: 0 },
+    });
+    renderAccessPage();
+
+    const searchInput = screen.getByPlaceholderText("Name, staff ID, or email");
+    fireEvent.change(searchInput, { target: { value: "Taylor" } });
+
+    expect(screen.queryByText(/No provisioned accounts found/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+
+    expect(await screen.findByText(/No provisioned accounts found/)).toBeInTheDocument();
+  });
 });

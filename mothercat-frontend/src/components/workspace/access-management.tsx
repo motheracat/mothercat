@@ -50,6 +50,7 @@ export function AccessManagement({
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleDescription, setNewRoleDescription] = useState("");
   const [staffSearch, setStaffSearch] = useState("");
+  const [searchedStaffQuery, setSearchedStaffQuery] = useState<string | null>(null);
   const [staffResults, setStaffResults] = useState<StaffMember[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
   const [userRoleDraft, setUserRoleDraft] = useState<string[]>([]);
@@ -199,7 +200,9 @@ export function AccessManagement({
 
   async function searchStaffAccounts(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const query = staffSearch.trim();
     setStaffLoading(true);
+    setSearchedStaffQuery(null);
     setError(null);
     setStaffResults([]);
     setSelectedStaff(null);
@@ -209,9 +212,10 @@ export function AccessManagement({
       const result = await listStaff({
         limit: 50,
         offset: 0,
-        ...(staffSearch.trim() ? { search: staffSearch.trim() } : {}),
+        ...(query ? { search: query } : {}),
       });
       setStaffResults(result.staff.filter((staff) => staff.account_id));
+      setSearchedStaffQuery(query);
     } catch (searchError: unknown) {
       setError(formatAccessError(searchError, "Unable to search staff accounts."));
     } finally {
@@ -310,7 +314,7 @@ export function AccessManagement({
                 </select>
               </label>
             ) : null}
-            {staffResults.length === 0 && !staffLoading && staffSearch ? (
+            {staffResults.length === 0 && !staffLoading && staffSearch.trim() && searchedStaffQuery === staffSearch.trim() ? (
               <p className="access-helper">No provisioned accounts found. Search results include staff profiles that have an account.</p>
             ) : null}
             {selectedStaff?.account_id ? (
