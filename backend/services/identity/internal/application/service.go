@@ -195,6 +195,7 @@ func (s *Service) Logout(ctx context.Context, sessionToken string) error {
 	return s.repository.RevokeSession(ctx, sessionToken)
 }
 
+// empty comment
 func (s *Service) RequestPasswordReset(ctx context.Context, staffID string) error {
 	if s == nil || s.repository == nil {
 		return errors.New("identity repository is unavailable")
