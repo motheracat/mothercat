@@ -7,6 +7,7 @@ export default async function StaffProfilePage({ params }: { params: Promise<{ s
   return (
     <StaffProfile
       staffId={staffId}
+      userId={session?.userId ?? null}
       permissions={{
         canRead: hasPermission(session, "staff.read"),
         canUpdate: hasPermission(session, "staff.update"),

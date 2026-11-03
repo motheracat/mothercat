@@ -14,6 +14,7 @@ export const apiRoutes = {
     details: (staffId: string) => `/staff/${staffId}`,
     update: (staffId: string) => `/staff/${staffId}`,
     deactivate: (staffId: string) => `/staff/${staffId}/deactivate`,
+    profilePicture: (staffId: string) => `/staff/${staffId}/profile-picture`,
     provision: (staffId: string) => `/staff/${staffId}/provision`,
     provisionAdmin: (staffId: string) => `/staff/${staffId}/provision-admin`,
     imports: "/staff/imports",

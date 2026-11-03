@@ -1,5 +1,6 @@
 const maxJsonBodyBytes = 16 * 1024;
 const maxImportBodyBytes = 5 * 1024 * 1024 + 64 * 1024;
+const maxProfilePictureBodyBytes = 5 * 1024 * 1024 + 64 * 1024;
 const hopByHopHeaders = new Set([
   "connection",
   "content-encoding",
@@ -143,9 +144,17 @@ export async function proxyApiRequest(
 
   let body: Uint8Array<ArrayBuffer> | undefined;
   if (method !== "GET") {
-    const bodyLimit = pathSegments[0] === "staff" && pathSegments[1] === "imports"
-      ? maxImportBodyBytes
-      : maxJsonBodyBytes;
+    const isProfilePictureUpload =
+      method === "POST" &&
+      pathSegments.length === 3 &&
+      pathSegments[0] === "staff" &&
+      /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(pathSegments[1]) &&
+      pathSegments[2] === "profile-picture";
+    const bodyLimit = isProfilePictureUpload
+      ? maxProfilePictureBodyBytes
+      : pathSegments[0] === "staff" && pathSegments[1] === "imports"
+        ? maxImportBodyBytes
+        : maxJsonBodyBytes;
     try {
       body = (await readBoundedBody(request, bodyLimit)) ?? undefined;
     } catch {

@@ -5,6 +5,7 @@ import { ArrowLeft, BriefcaseBusiness, Building2, Mail, UserRound } from "lucide
 import Link from "next/link";
 
 import { PageHeader } from "@/components/workspace/ui";
+import { ProfilePictureUpload } from "@/components/workspace/profile-picture-upload";
 import { useWorkspace } from "@/components/workspace/workspace-context";
 import {
   deactivateStaff,
@@ -26,13 +27,10 @@ type StaffProfilePermissions = {
   canProvisionAdmin: boolean;
 };
 
-function initials(name: string) {
-  return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "S";
-}
-
 function StaffProfileForm({
   staff,
   departments,
+  canManageFields,
   busy,
   error,
   onSave,
@@ -40,6 +38,7 @@ function StaffProfileForm({
 }: {
   staff: StaffMember;
   departments: Department[];
+  canManageFields: boolean;
   busy: boolean;
   error: string | null;
   onSave: (values: Pick<StaffMember, "full_name" | "work_email" | "job_title" | "department_id">) => Promise<void>;
@@ -75,17 +74,21 @@ function StaffProfileForm({
             Work email
             <input className="form-input mt-1" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
           </label>
-          <label className="block text-sm font-medium">
-            Job title
-            <input className="form-input mt-1" value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} />
-          </label>
-          <label className="block text-sm font-medium sm:col-span-2">
-            Department
-            <select className="form-select mt-1" value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>
-              <option value="">No department</option>
-              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-            </select>
-          </label>
+              {canManageFields ? (
+                <>
+                  <label className="block text-sm font-medium">
+                    Job title
+                    <input className="form-input mt-1" value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} />
+                  </label>
+                  <label className="block text-sm font-medium sm:col-span-2">
+                    Department
+                    <select className="form-select mt-1" value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>
+                      <option value="">No department</option>
+                      {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+                    </select>
+                  </label>
+                </>
+              ) : null}
           <div className="flex justify-end gap-2 sm:col-span-2">
             <button type="button" className="button-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
             <button type="submit" className="button-primary" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button>
@@ -96,7 +99,15 @@ function StaffProfileForm({
   );
 }
 
-export function StaffProfile({ staffId, permissions }: { staffId: string; permissions: StaffProfilePermissions }) {
+export function StaffProfile({
+  staffId,
+  userId,
+  permissions,
+}: {
+  staffId: string;
+  userId: string | null;
+  permissions: StaffProfilePermissions;
+}) {
   const { notify } = useWorkspace();
   const [staff, setStaff] = useState<StaffMember | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -182,6 +193,8 @@ export function StaffProfile({ staffId, permissions }: { staffId: string; permis
 
   const department = departments.find((item) => item.id === staff?.department_id);
   const isActive = staff?.employment_status === "active";
+  const isOwnProfile = Boolean(userId && staff?.account_id === userId);
+  const canEditProfile = permissions.canUpdate || isOwnProfile;
   const loading = loadedStaffId !== staffId;
   const currentLoadError = loadError?.id === staffId ? loadError.message : null;
 
@@ -222,16 +235,23 @@ export function StaffProfile({ staffId, permissions }: { staffId: string; permis
         actions={
           <>
             <Link href="/staff" className="button-secondary"><ArrowLeft size={16} aria-hidden="true" /> Staff directory</Link>
-            {permissions.canUpdate ? <button type="button" className="button-primary" onClick={() => { setFormError(null); setEditing(true); }}>Edit profile</button> : null}
+            {canEditProfile ? <button type="button" className="button-primary" onClick={() => { setFormError(null); setEditing(true); }}>Edit profile</button> : null}
           </>
         }
       />
       <section className="surface-card staff-profile-card">
         <div className="staff-profile-heading">
-          <span className="staff-avatar-wrap staff-avatar-wrap-large" aria-hidden="true">
-            <span className="staff-avatar staff-avatar-large">{initials(staff.full_name)}</span>
-            <span className={`staff-avatar-status ${isActive ? "is-active" : "is-inactive"}`} />
-          </span>
+          <ProfilePictureUpload
+            key={staff.id}
+            staffId={staff.id}
+            name={staff.full_name}
+            profileImageUrl={staff.profile_image_url}
+            avatarWrapClassName="staff-avatar-wrap staff-avatar-wrap-large"
+            avatarClassName="staff-avatar staff-avatar-large"
+            statusClassName={`staff-avatar-status ${isActive ? "is-active" : "is-inactive"}`}
+            canUpload={canEditProfile}
+            onStaffUpdated={setStaff}
+          />
           <div className="min-w-0 flex-1">
             <h2 className="staff-profile-name">{staff.full_name}</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">ID:{staff.staff_id}</p>
@@ -271,8 +291,10 @@ export function StaffProfile({ staffId, permissions }: { staffId: string; permis
 
       {editing ? (
         <StaffProfileForm
+          key={staff.id}
           staff={staff}
           departments={departments}
+          canManageFields={permissions.canUpdate}
           busy={saving}
           error={formError}
           onSave={saveProfile}

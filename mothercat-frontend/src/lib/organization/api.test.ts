@@ -7,6 +7,7 @@ import {
   OrganizationApiError,
   provisionAdmin,
   uploadStaffCsv,
+  uploadStaffProfilePicture,
 } from "@/lib/organization/api";
 
 const staffRecord = {
@@ -131,6 +132,22 @@ describe("organization API client", () => {
     expect(options?.credentials).toBe("include");
     expect(new Headers(options?.headers).has("Content-Type")).toBe(false);
     expect(options?.body).toBeInstanceOf(FormData);
+  });
+
+  it("uploads a staff profile picture by record UUID and lets the browser set the multipart boundary", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ staff: staffRecord }));
+    const file = new File(["image-bytes"], "profile.png", { type: "image/png" });
+
+    await uploadStaffProfilePicture("staff-profile-uuid", file);
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/v1/staff/staff-profile-uuid/profile-picture");
+    expect(options?.method).toBe("POST");
+    expect(options?.credentials).toBe("include");
+    expect(new Headers(options?.headers).get("Accept")).toBe("application/json");
+    expect(new Headers(options?.headers).has("Content-Type")).toBe(false);
+    expect(options?.body).toBeInstanceOf(FormData);
+    expect((options?.body as FormData).get("file")).toBe(file);
   });
 
   it("retains safe API error metadata and failed import details", async () => {

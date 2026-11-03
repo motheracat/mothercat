@@ -333,6 +333,19 @@ export async function uploadStaffCsv(file: File): Promise<StaffImport> {
   return result;
 }
 
+export async function uploadStaffProfilePicture(staffId: string, file: File): Promise<StaffMember> {
+  const form = new FormData();
+  form.append("file", file);
+  const payload = await request(
+    apiRoutes.staff.profilePicture(encodeURIComponent(staffId)),
+    { method: "POST", body: form },
+  );
+  if (!isRecord(payload) || !("staff" in payload)) {
+    throw new Error("The organization service returned an invalid staff record.");
+  }
+  return parseStaff(payload.staff);
+}
+
 export async function getStaffImport(importId: string): Promise<StaffImport> {
   const payload = await request(apiRoutes.staff.importDetails(importId));
   const result = parseStaffImport(payload);

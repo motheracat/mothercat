@@ -18,7 +18,7 @@ function LoginPageContent() {
       : searchParams.get("passwordReset") === "1"
         ? "Your password was reset. Sign in with your new password."
         : searchParams.get("activated") === "1"
-          ? "Your account is activated. Sign in to continue."
+          ? "Your account is activated. Sign in to cWe couldn't find your staff record. Refresh your profile or contact an administrator.ontinue."
           : null;
   const [sessionError, setSessionError] = useState<AuthErrorResult | null>(null);
 
