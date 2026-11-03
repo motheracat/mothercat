@@ -5,6 +5,7 @@ import { ArrowLeft, BriefcaseBusiness, Building2, Mail, UserRound } from "lucide
 import Link from "next/link";
 
 import { PageHeader, WorkspacePageSkeleton } from "@/components/workspace/ui";
+import { useWorkspace } from "@/components/workspace/workspace-context";
 import {
   deactivateStaff,
   formatOrganizationError,
@@ -94,12 +95,11 @@ function StaffProfileForm({
 }
 
 export function StaffProfile({ staffId, permissions }: { staffId: string; permissions: StaffProfilePermissions }) {
+  const { notify } = useWorkspace();
   const [staff, setStaff] = useState<StaffMember | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loadedStaffId, setLoadedStaffId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<{ id: string; message: string } | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -128,7 +128,6 @@ export function StaffProfile({ staffId, permissions }: { staffId: string; permis
     if (!staff) return;
     setSaving(true);
     setFormError(null);
-    setNotice(null);
     const changes: Partial<Pick<StaffMember, "full_name" | "work_email" | "job_title" | "department_id">> = {};
     if (values.full_name !== staff.full_name) changes.full_name = values.full_name;
     if (values.work_email !== staff.work_email) changes.work_email = values.work_email;
@@ -139,9 +138,11 @@ export function StaffProfile({ staffId, permissions }: { staffId: string; permis
       const updated = Object.keys(changes).length > 0 ? await updateStaff(staff.id, changes) : staff;
       setStaff(updated);
       setEditing(false);
-      setNotice("Staff profile updated.");
+      notify("Staff profile updated.");
     } catch (error) {
-      setFormError(formatOrganizationError(error, "Unable to update this staff profile."));
+      const message = formatOrganizationError(error, "Unable to update this staff profile.");
+      setFormError(message);
+      notify(message, "error");
     } finally {
       setSaving(false);
     }
@@ -149,25 +150,21 @@ export function StaffProfile({ staffId, permissions }: { staffId: string; permis
 
   async function handleDeactivate() {
     if (!staff || !window.confirm(`Deactivate ${staff.full_name}? This cannot be undone from this screen.`)) return;
-    setActionError(null);
-    setNotice(null);
     try {
       setStaff(await deactivateStaff(staff.id));
-      setNotice("Staff employment has been deactivated.");
+      notify("Staff employment has been deactivated.");
     } catch (error) {
-      setActionError(formatOrganizationError(error, "Unable to deactivate this staff profile."));
+      notify(formatOrganizationError(error, "Unable to deactivate this staff profile."), "error");
     }
   }
 
   async function handleProvision() {
     if (!staff?.work_email || !window.confirm(`Send an activation invitation to ${staff.work_email}?`)) return;
-    setActionError(null);
-    setNotice(null);
     try {
       await provisionStaff(staff.id);
-      setNotice(`An activation invitation was sent to ${staff.work_email}.`);
+      notify(`An activation invitation was sent to ${staff.work_email}.`);
     } catch (error) {
-      setActionError(formatOrganizationError(error, "Unable to send an activation invitation."));
+      notify(formatOrganizationError(error, "Unable to send an activation invitation."), "error");
     }
   }
 
@@ -210,9 +207,6 @@ export function StaffProfile({ staffId, permissions }: { staffId: string; permis
           </>
         }
       />
-      {notice ? <p role="status" className="mb-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{notice}</p> : null}
-      {actionError ? <div role="alert" className="error-banner mb-3"><p className="text-sm">{actionError}</p></div> : null}
-
       <section className="surface-card staff-profile-card">
         <div className="staff-profile-heading">
           <span className="staff-avatar-wrap staff-avatar-wrap-large" aria-hidden="true">

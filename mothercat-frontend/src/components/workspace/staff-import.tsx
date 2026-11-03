@@ -5,6 +5,7 @@ import { FileUp, Search } from "lucide-react";
 import Link from "next/link";
 
 import { PageHeader, Panel } from "@/components/workspace/ui";
+import { useWorkspace } from "@/components/workspace/workspace-context";
 import {
   formatOrganizationError,
   getStaffImport,
@@ -52,6 +53,7 @@ function ImportResult({ result }: { result: StaffImport }) {
 }
 
 export function StaffImport({ canImport }: { canImport: boolean }) {
+  const { notify } = useWorkspace();
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<StaffImport | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -82,15 +84,23 @@ export function StaffImport({ canImport }: { canImport: boolean }) {
       const imported = await uploadStaffCsv(file);
       setResult(imported);
       setImportId(imported.id);
+      if (imported.status === "completed" && imported.result.error_count === 0) {
+        notify("Staff CSV import completed.");
+      } else {
+        notify(`Import validation found ${imported.result.error_count} issue(s). Review the results below.`, "warning");
+      }
     } catch (requestError) {
+      let failedImport: StaffImport | null = null;
       if (requestError instanceof OrganizationApiError) {
-        const failedImport = parseStaffImport(requestError.payload);
+        failedImport = parseStaffImport(requestError.payload);
         if (failedImport) {
           setResult(failedImport);
           setImportId(failedImport.id);
         }
       }
-      setError(formatOrganizationError(requestError, "Unable to import this CSV."));
+      const message = formatOrganizationError(requestError, "Unable to import this CSV.");
+      setError(message);
+      notify(message, failedImport ? "warning" : "error");
     } finally {
       setUploading(false);
     }
@@ -104,8 +114,11 @@ export function StaffImport({ canImport }: { canImport: boolean }) {
     setError(null);
     try {
       setResult(await getStaffImport(id));
+      notify("Import result loaded.", "info");
     } catch (requestError) {
-      setError(formatOrganizationError(requestError, "Unable to retrieve this import result."));
+      const message = formatOrganizationError(requestError, "Unable to retrieve this import result.");
+      setError(message);
+      notify(message, "error");
     } finally {
       setLookupBusy(false);
     }

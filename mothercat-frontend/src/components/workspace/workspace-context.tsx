@@ -1,10 +1,11 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, Info, TriangleAlert, X } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 import type { AuthSession } from "@/lib/auth/types";
 
-type ToastTone = "success" | "error";
+type ToastTone = "success" | "error" | "warning" | "info";
 type ToastNotice = {
   id: number;
   message: string;
@@ -36,15 +37,24 @@ export function WorkspaceContextProvider({
   devOpen: boolean;
 }) {
   const [notice, setNotice] = useState<ToastNotice | null>(null);
+  const noticeId = useRef(0);
   const notify = useCallback((message: string, tone: ToastTone = "success") => {
-    setNotice({ id: Date.now(), message, tone });
+    setNotice({ id: ++noticeId.current, message, tone });
   }, []);
 
   useEffect(() => {
     if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(null), 6000);
+    const timeout = window.setTimeout(() => setNotice(null), notice.tone === "error" ? 8000 : 5000);
     return () => window.clearTimeout(timeout);
   }, [notice]);
+
+  const ToastIcon = notice?.tone === "success"
+    ? CheckCircle2
+    : notice?.tone === "error"
+      ? AlertCircle
+      : notice?.tone === "warning"
+        ? TriangleAlert
+        : Info;
 
   return (
     <WorkspaceContext.Provider value={{ session, devOpen, notify }}>
@@ -56,8 +66,16 @@ export function WorkspaceContextProvider({
             role={notice.tone === "error" ? "alert" : "status"}
             className={`workspace-toast workspace-toast-${notice.tone}`}
           >
-            <p>{notice.message}</p>
-            <button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)}>Dismiss</button>
+            <ToastIcon className="workspace-toast-icon" size={20} aria-hidden="true" />
+            <div className="workspace-toast-content">
+              <p className="workspace-toast-title">
+                {notice.tone === "success" ? "Success" : notice.tone === "error" ? "Action failed" : notice.tone === "warning" ? "Needs attention" : "Information"}
+              </p>
+              <p className="workspace-toast-message">{notice.message}</p>
+            </div>
+            <button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)}>
+              <X size={16} aria-hidden="true" />
+            </button>
           </div>
         </div>
       ) : null}

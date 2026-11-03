@@ -1587,41 +1587,98 @@ body {
 
 .workspace-toast {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: center;
+  gap: 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-left: 4px solid var(--accent);
+  border-radius: 12px;
   background: var(--surface);
-  padding: 12px 14px;
-  box-shadow: 0 12px 36px rgb(15 23 42 / 18%);
+  padding: 14px 14px 14px 12px;
+  box-shadow: 0 16px 40px rgb(15 23 42 / 20%);
   pointer-events: auto;
+  animation: workspace-toast-enter 180ms ease-out;
 }
 
 .workspace-toast-success {
-  border-color: rgb(21 128 61 / 28%);
+  border-color: rgb(21 128 61 / 24%);
+  border-left-color: var(--success-text);
+  background: #f0fdf4;
+  color: #14532d;
 }
 
 .workspace-toast-error {
   border-color: var(--auth-error-border);
+  border-left-color: var(--danger-text);
   background: var(--auth-error-bg);
   color: var(--auth-error-text);
 }
 
+.workspace-toast-warning {
+  border-color: #fde68a;
+  border-left-color: var(--warning-text);
+  background: #fffbeb;
+  color: #78350f;
+}
+
+.workspace-toast-info {
+  border-color: #bfdbfe;
+  border-left-color: var(--accent);
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.workspace-toast-icon {
+  flex: 0 0 auto;
+}
+
+.workspace-toast-content {
+  min-width: 0;
+  flex: 1;
+}
+
 .workspace-toast p {
   margin: 0;
-  font-size: 14px;
   line-height: 1.5;
+}
+
+.workspace-toast-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workspace-toast .workspace-toast-message {
+  margin-top: 2px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .workspace-toast button {
   flex: 0 0 auto;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
   border: 0;
   background: transparent;
-  padding: 2px 0;
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: 6px;
+  color: currentColor;
+  opacity: 0.72;
+}
+
+.workspace-toast button:hover {
+  background: rgb(15 23 42 / 7%);
+  opacity: 1;
+}
+
+@keyframes workspace-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .data-table {
