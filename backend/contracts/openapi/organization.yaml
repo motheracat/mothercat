@@ -525,6 +525,55 @@ paths:
         "503":
           $ref: "#/components/responses/Error"
 
+  /staff/{staffID}/provision-admin:
+    parameters:
+      - name: staffID
+        in: path
+        required: true
+        description: Internal UUID of the Organization staff record
+        schema:
+          type: string
+          format: uuid
+      - $ref: "#/components/parameters/Origin"
+    post:
+      tags: [Onboarding]
+      operationId: provisionAdminAccount
+      summary: Provision an Admin login account and send activation instructions
+      description: >
+        Requires `roles.manage` (currently held by SuperAdmin), a matching
+        Origin, and an eligible pending staff record with a work email.
+        Existing accounts cannot be promoted through this endpoint.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Admin account provisioned and invitation sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [staff, invitation_sent, role]
+                properties:
+                  staff:
+                    $ref: "#/components/schemas/Staff"
+                  invitation_sent:
+                    type: boolean
+                  role:
+                    type: string
+                    const: admin
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
 components:
   securitySchemes:
     sessionCookie:

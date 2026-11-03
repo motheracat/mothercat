@@ -12,6 +12,7 @@ export default async function StaffProfilePage({ params }: { params: Promise<{ s
         canUpdate: hasPermission(session, "staff.update"),
         canDeactivate: hasPermission(session, "staff.deactivate"),
         canProvision: hasPermission(session, "user_roles.assign"),
+        canProvisionAdmin: hasPermission(session, "roles.manage"),
       }}
     />
   );

@@ -16,6 +16,7 @@ import {
   getStaff,
   listDepartments,
   listStaff,
+  provisionAdmin,
   provisionStaff,
   updateStaff,
 } from "@/lib/organization/api";
@@ -153,6 +154,7 @@ export function StaffDirectory() {
   const canUpdate = !devOpen && hasPermission(session, "staff.update");
   const canDeactivate = !devOpen && hasPermission(session, "staff.deactivate");
   const canProvision = !devOpen && hasPermission(session, "user_roles.assign");
+  const canProvisionAdmin = !devOpen && hasPermission(session, "roles.manage");
   const [staff, setStaff] = useState<StaffRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -165,7 +167,7 @@ export function StaffDirectory() {
   const [listErrorState, setListErrorState] = useState<{ key: string; message: string } | null>(null);
   const [departmentsError, setDepartmentsError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [dialogMode, setDialogMode] = useState<"create" | "detail" | "edit" | "deactivate" | "provision" | null>(null);
+  const [dialogMode, setDialogMode] = useState<"create" | "detail" | "edit" | "deactivate" | "provision" | "provision-admin" | null>(null);
   const [selectedStaff, setSelectedStaff] = useState<StaffRecord | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -322,6 +324,24 @@ export function StaffDirectory() {
     }
   }
 
+  async function confirmAdminProvisioning() {
+    if (!selectedStaff) return;
+    setSaving(true);
+    setDetailError(null);
+    try {
+      await provisionAdmin(selectedStaff.id);
+      setDialogMode("detail");
+      notify("Admin account provisioned and activation instructions sent.");
+      refresh();
+    } catch (error) {
+      const message = formatOrganizationError(error, "Unable to provision this Admin account.");
+      setDetailError(message);
+      notify(message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const dialogTitle = dialogMode === "create"
     ? "Add staff"
     : dialogMode === "edit"
@@ -330,6 +350,8 @@ export function StaffDirectory() {
         ? "Deactivate staff"
         : dialogMode === "provision"
           ? "Provision login account"
+          : dialogMode === "provision-admin"
+            ? "Provision Admin account"
         : "Staff profile";
 
   return (
@@ -462,6 +484,17 @@ export function StaffDirectory() {
                 Provision account
               </button>
             ) : null}
+            {canProvisionAdmin && selectedStaff.employment_status === "pending" && !selectedStaff.account_id ? (
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={!selectedStaff.work_email}
+                title={!selectedStaff.work_email ? "Add a work email before provisioning" : undefined}
+                onClick={() => { setDetailError(null); setDialogMode("provision-admin"); }}
+              >
+                Provision as Admin
+              </button>
+            ) : null}
             <button type="button" className="button-secondary" onClick={closeDialog}>Done</button>
           </>
         ) : null}
@@ -517,6 +550,22 @@ export function StaffDirectory() {
               <button type="button" className="button-secondary" disabled={saving} onClick={() => { setDetailError(null); setDialogMode("detail"); }}>Cancel</button>
               <button type="button" className="button-primary" disabled={saving} onClick={() => void confirmProvisioning()}>
                 {saving ? "Provisioning…" : "Confirm provisioning"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {dialogMode === "provision-admin" ? (
+          <div className="space-y-4">
+            <p>
+              Provision an <strong>Admin</strong> login for <strong>{selectedStaff?.full_name}</strong> at{" "}
+              <strong>{selectedStaff?.work_email}</strong>? This creates an inactive account with staff,
+              department, and audit permissions, then sends activation instructions.
+            </p>
+            {detailError ? <p role="alert" className="field-error">{detailError}</p> : null}
+            <div className="flex justify-end gap-2">
+              <button type="button" className="button-secondary" disabled={saving} onClick={() => { setDetailError(null); setDialogMode("detail"); }}>Cancel</button>
+              <button type="button" className="button-primary" disabled={saving} onClick={() => void confirmAdminProvisioning()}>
+                {saving ? "Provisioning…" : "Confirm Admin provisioning"}
               </button>
             </div>
           </div>

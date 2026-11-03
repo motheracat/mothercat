@@ -11,6 +11,7 @@ import {
   formatOrganizationError,
   getStaff,
   listDepartments,
+  provisionAdmin,
   provisionStaff,
   updateStaff,
   type Department,
@@ -22,6 +23,7 @@ type StaffProfilePermissions = {
   canUpdate: boolean;
   canDeactivate: boolean;
   canProvision: boolean;
+  canProvisionAdmin: boolean;
 };
 
 function initials(name: string) {
@@ -168,6 +170,16 @@ export function StaffProfile({ staffId, permissions }: { staffId: string; permis
     }
   }
 
+  async function handleProvisionAdmin() {
+    if (!staff?.work_email || !window.confirm(`Provision ${staff.full_name} as an Admin and send an activation invitation to ${staff.work_email}?`)) return;
+    try {
+      await provisionAdmin(staff.id);
+      notify(`Admin activation invitation sent to ${staff.work_email}.`);
+    } catch (error) {
+      notify(formatOrganizationError(error, "Unable to provision this Admin account."), "error");
+    }
+  }
+
   const department = departments.find((item) => item.id === staff?.department_id);
   const isActive = staff?.employment_status === "active";
   const loading = loadedStaffId !== staffId;
@@ -220,6 +232,9 @@ export function StaffProfile({ staffId, permissions }: { staffId: string; permis
           <div className="flex flex-wrap gap-2">
             {permissions.canProvision && staff.employment_status === "pending" && !staff.account_id && staff.work_email ? (
               <button type="button" className="button-secondary" onClick={() => void handleProvision()}>Send invitation</button>
+            ) : null}
+            {permissions.canProvisionAdmin && staff.employment_status === "pending" && !staff.account_id && staff.work_email ? (
+              <button type="button" className="button-secondary" onClick={() => void handleProvisionAdmin()}>Provision as Admin</button>
             ) : null}
             {permissions.canDeactivate && staff.employment_status !== "inactive" && staff.employment_status !== "deactivated" ? (
               <button type="button" className="button-danger" onClick={() => void handleDeactivate()}>Deactivate</button>

@@ -502,6 +502,12 @@ Success: `200 OK` with `staff` and `invitation_sent: true`. Possible errors
 include `400`, `401`, `403`, `404`, `409`, and `503`. The user activates the
 account using the separate Identity activation workflow.
 
+To provision an eligible pending profile as an Admin, a SuperAdmin can instead
+call `POST /api/v1/staff/{staffID}/provision-admin`. It uses the same session,
+same-origin, work-email, and activation requirements, but requires
+`roles.manage`. The response also includes `"role": "admin"`. An existing
+account cannot be promoted by this workflow.
+
 ## Suggested frontend integration sequence
 
 1. Restore the signed-in user from the Identity session endpoint and retain the server-returned permissions for UI presentation.

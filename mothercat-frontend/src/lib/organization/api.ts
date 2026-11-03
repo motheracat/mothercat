@@ -302,6 +302,13 @@ export async function provisionStaff(staffId: string): Promise<void> {
   }
 }
 
+export async function provisionAdmin(staffId: string): Promise<void> {
+  const payload = await request(apiRoutes.staff.provisionAdmin(encodeURIComponent(staffId)), { method: "POST" });
+  if (!isRecord(payload) || payload.invitation_sent !== true || payload.role !== "admin") {
+    throw new Error("The organization service did not confirm that an Admin invitation was sent.");
+  }
+}
+
 export async function createDepartment(input: { name: string; description: string | null }): Promise<Department> {
   const payload = await request(apiRoutes.departments.create, { method: "POST", body: JSON.stringify(input) });
   if (!isRecord(payload) || !("department" in payload)) throw new Error("The organization service returned an invalid department.");

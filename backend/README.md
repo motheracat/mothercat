@@ -54,8 +54,12 @@ The database seeds two administrator levels:
   user-role assignment, and system settings management. The initial bootstrap
   account is assigned this role.
 
-The API currently has no role-management or user-role assignment endpoints, so
-the seeded `Admin` role cannot yet be assigned through the application UI/API.
+An authenticated `SuperAdmin` can provision an eligible pending staff profile
+directly as an `Admin` through `POST /api/v1/staff/{staffID}/provision-admin`.
+The workflow sends the standard activation invitation. The ID in the path is
+the staff profile UUID. This endpoint requires `roles.manage` and a matching
+Origin; the regular `/provision` endpoint continues to provision a Staff
+account.
 
 ## Account suspension and authentication safeguards
 

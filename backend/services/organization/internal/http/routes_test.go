@@ -237,12 +237,13 @@ func (identity *onboardingIdentityStub) SuspendAccount(_ context.Context, _, _ s
 
 type staffRoleAssignerStub struct {
 	accountID string
+	roleKey   string
 	err       error
 	called    bool
 }
 
-func (access *staffRoleAssignerStub) AssignDefaultStaffRole(_ context.Context, accountID string) error {
-	access.accountID = accountID
+func (access *staffRoleAssignerStub) AssignRole(_ context.Context, accountID, roleKey string) error {
+	access.accountID, access.roleKey = accountID, roleKey
 	access.called = true
 	return access.err
 }
@@ -488,7 +489,7 @@ func TestProvisionStaffCreatesInactiveAccountAssignsStaffRoleAndSendsInvitation(
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	if !identity.provisioned || !access.called || access.accountID != accountID ||
-		!identity.activated || !store.completed {
+		access.roleKey != "staff" || !identity.activated || !store.completed {
 		t.Fatalf("provisioned=%v assigned=%v activated=%v completed=%v", identity.provisioned, access.called, identity.activated, store.completed)
 	}
 	if len(audit.events) != 2 || audit.events[0].Action != "staff.provision.requested" ||
@@ -498,6 +499,68 @@ func TestProvisionStaffCreatesInactiveAccountAssignsStaffRoleAndSendsInvitation(
 	if !strings.Contains(response.Body.String(), `"employment_status":"active"`) ||
 		!strings.Contains(response.Body.String(), `"invitation_sent":true`) {
 		t.Fatalf("response does not report completed provisioning: %s", response.Body.String())
+	}
+}
+
+func TestProvisionAdminCreatesAccountWithAdminRoleAndSendsInvitation(t *testing.T) {
+	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
+	const accountID = "1c9491b8-21ce-4c66-a025-006bb346b810"
+	email := "admin@example.test"
+	store := &staffStoreStub{staff: domain.Staff{
+		ID: staffID, StaffID: "23847", FullName: "Ada Okafor",
+		WorkEmail: &email, EmploymentStatus: "pending",
+	}}
+	identity := &onboardingIdentityStub{accountID: accountID}
+	access := &staffRoleAssignerStub{}
+	audit := &auditStub{}
+	services := application.OnboardingServices{Identity: identity, Access: access}
+	principal := authorizedPrincipal()
+	principal.Permissions = append(principal.Permissions, "roles.manage")
+	handler := NewHandler(store, &authenticatorStub{principal: principal}, audit,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)), services)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/staff/"+staffID+"/provision-admin", nil)
+	request.Host = "example.test"
+	request.Header.Set("Origin", "http://example.test")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "opaque-session"})
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !identity.provisioned || !access.called || access.accountID != accountID ||
+		access.roleKey != "admin" || !identity.activated || !store.completed {
+		t.Fatalf("provisioned=%v assigned=%v role=%q activated=%v completed=%v",
+			identity.provisioned, access.called, access.roleKey, identity.activated, store.completed)
+	}
+	if !strings.Contains(response.Body.String(), `"role":"admin"`) ||
+		!strings.Contains(response.Body.String(), `"invitation_sent":true`) {
+		t.Fatalf("response does not report Admin provisioning: %s", response.Body.String())
+	}
+	if len(audit.events) != 2 || audit.events[0].Details["role"] != "admin" {
+		t.Fatalf("audit events = %+v", audit.events)
+	}
+}
+
+func TestProvisionAdminRequiresRoleManagementPermission(t *testing.T) {
+	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
+	store := &staffStoreStub{staff: domain.Staff{ID: staffID}}
+	identity := &onboardingIdentityStub{}
+	access := &staffRoleAssignerStub{}
+	services := application.OnboardingServices{Identity: identity, Access: access}
+	handler := NewHandler(store, &authenticatorStub{principal: authorizedPrincipal()},
+		&auditStub{}, slog.New(slog.NewJSONHandler(io.Discard, nil)), services)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/staff/"+staffID+"/provision-admin", nil)
+	request.Host = "example.test"
+	request.Header.Set("Origin", "http://example.test")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "opaque-session"})
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden || identity.provisioned || access.called {
+		t.Fatalf("status=%d provisioned=%v roleAssigned=%v", response.Code, identity.provisioned, access.called)
 	}
 }
 

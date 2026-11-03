@@ -5,6 +5,7 @@ import {
   formatOrganizationError,
   listStaff,
   OrganizationApiError,
+  provisionAdmin,
   uploadStaffCsv,
 } from "@/lib/organization/api";
 
@@ -101,6 +102,17 @@ describe("organization API client", () => {
       job_title: "Site Engineer",
       department_id: null,
     }));
+  });
+
+  it("provisions a pending staff account as Admin", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ invitation_sent: true, role: "admin" }));
+
+    await provisionAdmin("staff-profile-uuid");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/staff/staff-profile-uuid/provision-admin",
+      expect.objectContaining({ method: "POST", credentials: "include", cache: "no-store" }),
+    );
   });
 
   it("lets the browser set the multipart boundary for CSV uploads", async () => {

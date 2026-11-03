@@ -1074,8 +1074,12 @@ func provisionStaff(
 		writeError(w, http.StatusBadRequest, "invalid_staff_name", requestID(ctx))
 		return
 	}
+	provisionEventKey := "organization:staff.provision:" + staff.ID
+	if roleKey == "admin" {
+		provisionEventKey += ":admin"
+	}
 	if err := audit.Record(ctx, application.AuditEvent{
-		EventKey:   "organization:staff.provision:" + roleKey + ":" + staff.ID,
+		EventKey:   provisionEventKey,
 		ActorID:    principal.ID,
 		Action:     "staff.provision.requested",
 		ResourceID: staff.ID,
@@ -1120,8 +1124,12 @@ func provisionStaff(
 		writeError(w, http.StatusInternalServerError, "internal_error", requestID(ctx))
 		return
 	}
+	completedEventKey := "organization:staff.provision.completed:" + staff.ID
+	if roleKey == "admin" {
+		completedEventKey += ":admin"
+	}
 	if err := audit.Record(ctx, application.AuditEvent{
-		EventKey:   "organization:staff.provision.completed:" + staff.ID,
+		EventKey:   completedEventKey,
 		ActorID:    principal.ID,
 		Action:     "staff.provision.completed",
 		ResourceID: staff.ID,
@@ -1131,7 +1139,11 @@ func provisionStaff(
 		writeError(w, http.StatusServiceUnavailable, "audit_unavailable", requestID(ctx))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"staff": staff, "invitation_sent": true, "role": roleKey})
+	response := map[string]any{"staff": staff, "invitation_sent": true}
+	if roleKey == "admin" {
+		response["role"] = "admin"
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func createStaff(w http.ResponseWriter, r *http.Request, database store, authenticator application.Authenticator, audit application.AuditRecorder, logger *slog.Logger) {
