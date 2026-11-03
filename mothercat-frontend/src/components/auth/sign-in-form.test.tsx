@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SignInForm } from "@/components/auth/sign-in-form";
 
-const goodCredentials = { staffId: "1234567", password: "AvalidPassword1!" };
+const goodCredentials = { staffId: "12345", password: "AvalidPassword1!" };
 
 function fillForm(password = goodCredentials.password) {
   fireEvent.change(screen.getByLabelText("Staff ID"), { target: { value: goodCredentials.staffId } });
@@ -86,31 +86,42 @@ describe("SignInForm", () => {
     expect(alert).toHaveTextContent("This account can't sign in right now. Contact your administrator.");
   });
 
-  it("shows a fixed ID prefix and only accepts a seven-digit numeric staff ID", async () => {
+  it("shows a fixed ID prefix and only accepts a four- or five-digit numeric staff ID", async () => {
     const onLogin = vi.fn();
     const user = userEvent.setup();
     render(<SignInForm onLogin={onLogin} />);
     const staffIdInput = screen.getByLabelText("Staff ID");
     expect(screen.getByText("ID:")).toBeInTheDocument();
-    expect(staffIdInput).toHaveAttribute("maxLength", "7");
+    expect(staffIdInput).toHaveAttribute("maxLength", "5");
 
     await user.type(staffIdInput, "12A3456789");
-    expect(staffIdInput).toHaveValue("1234567");
+    expect(staffIdInput).toHaveValue("12345");
     await user.type(screen.getByLabelText("Password"), goodCredentials.password);
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(onLogin).toHaveBeenCalledWith(goodCredentials);
   });
 
-  it("rejects IDs that do not contain exactly seven digits", async () => {
+  it("rejects IDs that do not contain four or five digits", async () => {
     const onLogin = vi.fn();
     const user = userEvent.setup();
     render(<SignInForm onLogin={onLogin} />);
-    await user.type(screen.getByLabelText("Staff ID"), "123456");
+    await user.type(screen.getByLabelText("Staff ID"), "123");
     await user.type(screen.getByLabelText("Password"), goodCredentials.password);
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(onLogin).not.toHaveBeenCalled();
-    expect(screen.getByText("Enter the 7-digit number after ID:.")).toBeInTheDocument();
+    expect(screen.getByText("Enter the 4- or 5-digit number after ID:.")).toBeInTheDocument();
+  });
+
+  it("accepts a four-digit staff ID", async () => {
+    const onLogin = vi.fn();
+    const user = userEvent.setup();
+    render(<SignInForm onLogin={onLogin} />);
+    await user.type(screen.getByLabelText("Staff ID"), "1234");
+    await user.type(screen.getByLabelText("Password"), goodCredentials.password);
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(onLogin).toHaveBeenCalledWith({ ...goodCredentials, staffId: "1234" });
   });
 });

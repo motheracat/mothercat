@@ -56,7 +56,7 @@ export function SignInForm({ onLogin }: { onLogin: (credentials: LoginCredential
     const nextFieldErrors: FieldErrors = {};
     if (!normalizedStaffId) {
       nextFieldErrors.staffId = mapAuthError({ kind: "validation", field: "staffId" }).message;
-    } else if (!/^\d{7}$/.test(normalizedStaffId)) {
+    } else if (!/^\d{4,5}$/.test(normalizedStaffId)) {
       nextFieldErrors.staffId = mapAuthError({ kind: "validation", field: "staffIdFormat" }).message;
     }
 
@@ -122,18 +122,18 @@ export function SignInForm({ onLogin }: { onLogin: (credentials: LoginCredential
             type="text"
             inputMode="numeric"
             autoComplete="username"
-            maxLength={7}
-            pattern="[0-9]{7}"
+            maxLength={5}
+            pattern="[0-9]{4,5}"
             required
             value={staffId}
             onChange={(event) => {
-              setStaffId(event.target.value.replace(/\D/g, "").slice(0, 7));
+              setStaffId(event.target.value.replace(/\D/g, "").slice(0, 5));
               clearFeedback();
             }}
             aria-invalid={Boolean(fieldErrors.staffId || invalidCredentials)}
             aria-describedby={invalidCredentials ? "sign-in-error" : fieldErrors.staffId ? "staff-id-error" : undefined}
             className="sign-in-id-field"
-            placeholder="1234567"
+            placeholder="12345"
           />
         </div>
         {fieldErrors.staffId ? <p id="staff-id-error" className="form-field-error">{fieldErrors.staffId}</p> : null}
