@@ -1,16 +1,8 @@
-import Link from "next/link";
+import { StaffImport } from "@/components/workspace/staff-import";
+import { getCurrentSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/auth/permissions";
 
-import { EmptyState, PageHeader, Panel } from "@/components/workspace/ui";
-
-export default function StaffImportsPage() {
-  return (
-    <>
-      <PageHeader title="Staff imports" description="Import staff records from a CSV file." />
-      <Panel title="CSV import">
-        <EmptyState action={<Link href="/staff" className="button-secondary">Back to staff directory</Link>}>
-          CSV import is not available yet.
-        </EmptyState>
-      </Panel>
-    </>
-  );
+export default async function StaffImportsPage() {
+  const session = await getCurrentSession();
+  return <StaffImport canImport={hasPermission(session, "staff.import")} />;
 }

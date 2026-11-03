@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, ChevronDown, Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { formatAuthError, logout } from "@/lib/auth/client";
 import type { AuthSession } from "@/lib/auth/types";
+import { WorkspaceModalMenu } from "@/components/workspace/modal-menu";
 import { WorkspaceSidebar } from "@/components/workspace/sidebar";
 
 const breadcrumbLabels: Record<string, string> = {
@@ -17,6 +18,7 @@ const breadcrumbLabels: Record<string, string> = {
   roles: "Roles & permissions",
   audit: "Audit log",
   notifications: "Notifications",
+  profile: "My profile",
   account: "Password & security",
   settings: "Settings",
 };
@@ -44,29 +46,8 @@ export function WorkspaceShell({
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement>(null);
   const userMenuButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!userMenuOpen) return;
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setUserMenuOpen(false);
-        userMenuButtonRef.current?.focus();
-      }
-    }
-    function closeOnOutsideClick(event: PointerEvent) {
-      if (event.target instanceof Node && !userMenuRef.current?.contains(event.target)) {
-        setUserMenuOpen(false);
-      }
-    }
-    window.addEventListener("keydown", closeOnEscape);
-    document.addEventListener("pointerdown", closeOnOutsideClick);
-    return () => {
-      window.removeEventListener("keydown", closeOnEscape);
-      document.removeEventListener("pointerdown", closeOnOutsideClick);
-    };
-  }, [userMenuOpen]);
+  const closeUserMenu = useCallback(() => setUserMenuOpen(false), []);
 
   async function handleSignOut() {
     setIsSigningOut(true);
@@ -82,7 +63,9 @@ export function WorkspaceShell({
   }
 
   const segments = pathname.split("/").filter(Boolean);
-  const pageLabel = segments.map((segment) => breadcrumbLabels[segment] ?? segment).join(" / ");
+  const pageLabel = segments[0] === "staff" && segments.length > 1
+    ? "Staff directory / Staff profile"
+    : segments.map((segment) => breadcrumbLabels[segment] ?? segment).join(" / ");
   const signOutButton = (
     <button
       type="button"
@@ -139,13 +122,13 @@ export function WorkspaceShell({
               <Bell size={18} aria-hidden="true" />
             </Link>
             {session ? (
-              <div className="user-menu" ref={userMenuRef}>
+              <div className="user-menu">
                 <button
                   type="button"
                   ref={userMenuButtonRef}
                   className="user-menu-trigger"
                   aria-expanded={userMenuOpen}
-                  aria-controls="workspace-user-menu"
+                  aria-haspopup="dialog"
                   aria-label={`User menu for ${session.displayName}`}
                   onClick={() => setUserMenuOpen((open) => !open)}
                 >
@@ -156,17 +139,6 @@ export function WorkspaceShell({
                   </span>
                   <ChevronDown size={15} aria-hidden="true" className="user-menu-chevron text-[var(--muted)]" />
                 </button>
-                <div
-                  id="workspace-user-menu"
-                  className="user-menu-panel"
-                  data-open={userMenuOpen}
-                  aria-hidden={!userMenuOpen}
-                >
-                  <p className="border-b border-[var(--border)] px-2 py-2 text-xs text-[var(--muted)]">{session.displayName}</p>
-                  <Link href="/account" tabIndex={userMenuOpen ? 0 : -1} onClick={() => setUserMenuOpen(false)}>Password &amp; security</Link>
-                  <button type="button" tabIndex={userMenuOpen ? 0 : -1} disabled={isSigningOut} onClick={handleSignOut}>{isSigningOut ? "Signing out…" : "Sign out"}</button>
-                  {signOutError ? <p role="alert" className="px-2 py-1 text-xs text-[var(--danger-text)]">{signOutError}</p> : null}
-                </div>
               </div>
             ) : null}
           </div>
@@ -176,6 +148,44 @@ export function WorkspaceShell({
           <div className="workspace-content-inner">{children}</div>
         </main>
       </div>
+      {session ? (
+        <WorkspaceModalMenu
+          open={userMenuOpen}
+          onClose={closeUserMenu}
+          triggerRef={userMenuButtonRef}
+          title={`Account menu for ${session.displayName}`}
+          placement="top"
+        >
+          <p className="workspace-modal-user">{session.displayName}<span>{session.role}</span></p>
+          <Link
+            href="/profile"
+            className="workspace-modal-link"
+            data-menu-initial-focus=""
+            onClick={closeUserMenu}
+          >
+            My profile
+          </Link>
+          <Link
+            href="/account"
+            className="workspace-modal-link"
+            onClick={closeUserMenu}
+          >
+            Password &amp; security
+          </Link>
+          <button
+            type="button"
+            className="workspace-modal-link"
+            disabled={isSigningOut}
+            onClick={() => {
+              closeUserMenu();
+              void handleSignOut();
+            }}
+          >
+            {isSigningOut ? "Signing out…" : "Sign out"}
+          </button>
+          {signOutError ? <p role="alert" className="workspace-modal-error">{signOutError}</p> : null}
+        </WorkspaceModalMenu>
+      ) : null}
     </div>
   );
 }

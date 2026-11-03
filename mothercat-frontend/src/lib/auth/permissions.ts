@@ -22,12 +22,21 @@ export type PermissionKey =
   | "settings.manage"
   | "*";
 
+function isSuperAdmin(session: AuthSession): boolean {
+  return [session.role, ...session.roles].some(
+    (role) => role.toLowerCase().replace(/[^a-z0-9]/g, "") === "superadmin",
+  );
+}
+
 export function hasPermission(session: AuthSession | null, permission: PermissionKey | string): boolean {
   if (!session) {
     return false;
   }
   if (!session.isActive) {
     return false;
+  }
+  if (isSuperAdmin(session)) {
+    return true;
   }
   const perms = session.permissions ?? [];
   if (perms.includes("*")) {

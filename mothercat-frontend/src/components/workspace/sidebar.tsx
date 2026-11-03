@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Building2,
   Bell,
@@ -16,9 +16,11 @@ import {
   UsersRound,
   type LucideIcon,
 } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import type { AuthSession } from "@/lib/auth/types";
+import { WorkspaceModalMenu } from "@/components/workspace/modal-menu";
+import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
 
 type SidebarItem = {
   href: string;
@@ -51,43 +53,19 @@ export function WorkspaceSidebar({
 }) {
   const pathname = usePathname();
   const [moreState, setMoreState] = useState<{ pathname: string; open: boolean } | null>(null);
-  const moreContainerRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const moreOpen = moreState?.pathname === pathname && moreState.open;
+  const closeMoreMenu = useCallback(() => setMoreState({ pathname, open: false }), [pathname]);
 
   const permissions = session?.permissions ?? [];
-  const hasWildcard = permissions.includes("*");
-  const hasNoPermissions = !hasWildcard && (permissions.length === 0 || (permissions.length === 1 && permissions[0] === ""));
+  const hasNoPermissions = !hasPermission(session, "*") && (permissions.length === 0 || (permissions.length === 1 && permissions[0] === ""));
   const visibleItems = hasNoPermissions
     ? items.filter((item) => item.href === "/dashboard" || item.href === "/account")
-    : items.filter((item) => !item.permissions || hasWildcard || item.permissions.some((permission) => permissions.includes(permission)));
+    : items.filter((item) => !item.permissions || hasAnyPermission(session, item.permissions));
   const primaryItems = mobilePrimaryHrefs
     .map((href) => visibleItems.find((item) => item.href === href))
     .filter((item): item is SidebarItem => item !== undefined);
   const moreItems = visibleItems.filter((item) => !mobilePrimaryHrefs.includes(item.href));
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setMoreState({ pathname, open: false });
-        moreButtonRef.current?.focus();
-      }
-    }
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [moreOpen, pathname]);
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    function closeOnOutsideClick(event: PointerEvent) {
-      if (event.target instanceof Node && !moreContainerRef.current?.contains(event.target)) {
-        setMoreState({ pathname, open: false });
-      }
-    }
-    document.addEventListener("pointerdown", closeOnOutsideClick);
-    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, [moreOpen, pathname]);
 
   if (!session) return null;
 
@@ -151,45 +129,47 @@ export function WorkspaceSidebar({
           })}
         </div>
         {moreItems.length > 0 ? (
-          <div className="workspace-bottom-more" ref={moreContainerRef}>
-            <div
-              id="workspace-bottom-more-menu"
-              className="workspace-bottom-more-menu"
-              data-open={moreOpen}
-              aria-hidden={!moreOpen}
+          <>
+            <div className="workspace-bottom-more">
+              <button
+                type="button"
+                ref={moreButtonRef}
+                className="workspace-bottom-more-button"
+                aria-label={moreOpen ? "Close more navigation" : "More navigation"}
+                aria-expanded={moreOpen}
+                aria-haspopup="dialog"
+                onClick={() => setMoreState({ pathname, open: !moreOpen })}
+              >
+                <Plus size={23} aria-hidden="true" />
+              </button>
+            </div>
+            <WorkspaceModalMenu
+              open={moreOpen}
+              onClose={closeMoreMenu}
+              triggerRef={moreButtonRef}
+              title="More navigation"
+              placement="bottom"
             >
-              {moreItems.map((item, index) => {
+              {moreItems.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
                 const Icon = item.icon;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    aria-label={item.label}
                     aria-current={pathname === item.href ? "page" : undefined}
-                    tabIndex={moreOpen ? 0 : -1}
                     className="workspace-bottom-more-link"
                     data-active={active}
-                    style={{ "--menu-order": index } as CSSProperties}
+                    data-menu-initial-focus={item === moreItems[0] ? "" : undefined}
+                    onClick={closeMoreMenu}
                   >
                     <Icon size={19} aria-hidden="true" />
                     <span>{item.label}</span>
                   </Link>
                 );
               })}
-            </div>
-            <button
-              type="button"
-              ref={moreButtonRef}
-              className="workspace-bottom-more-button"
-              aria-label={moreOpen ? "Close more navigation" : "More navigation"}
-              aria-expanded={moreOpen}
-              aria-controls="workspace-bottom-more-menu"
-              onClick={() => setMoreState({ pathname, open: !moreOpen })}
-            >
-              <Plus size={23} aria-hidden="true" />
-            </button>
-          </div>
+            </WorkspaceModalMenu>
+          </>
         ) : null}
       </nav>
     </>

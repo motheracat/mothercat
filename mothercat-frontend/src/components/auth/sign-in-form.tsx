@@ -56,7 +56,7 @@ export function SignInForm({ onLogin }: { onLogin: (credentials: LoginCredential
     const nextFieldErrors: FieldErrors = {};
     if (!normalizedStaffId) {
       nextFieldErrors.staffId = mapAuthError({ kind: "validation", field: "staffId" }).message;
-    } else if (!/^\d+$/.test(normalizedStaffId)) {
+    } else if (!/^\d{7}$/.test(normalizedStaffId)) {
       nextFieldErrors.staffId = mapAuthError({ kind: "validation", field: "staffIdFormat" }).message;
     }
 
@@ -113,24 +113,29 @@ export function SignInForm({ onLogin }: { onLogin: (credentials: LoginCredential
     <form onSubmit={handleSubmit} noValidate className="sign-in-form">
       <div>
         <label htmlFor="staffId" className="field-label">Staff ID</label>
-        <input
-          ref={staffIdRef}
-          id="staffId"
-          name="staffId"
-          type="text"
-          inputMode="numeric"
-          autoComplete="username"
-          required
-          value={staffId}
-          onChange={(event) => {
-            setStaffId(event.target.value);
-            clearFeedback();
-          }}
-          aria-invalid={Boolean(fieldErrors.staffId || invalidCredentials)}
-          aria-describedby={invalidCredentials ? "sign-in-error" : fieldErrors.staffId ? "staff-id-error" : undefined}
-          className="form-input"
-          placeholder="Enter staff ID"
-        />
+        <div className={`sign-in-id-input${fieldErrors.staffId || invalidCredentials ? " has-error" : ""}`}>
+          <span className="sign-in-id-prefix" aria-hidden="true">ID:</span>
+          <input
+            ref={staffIdRef}
+            id="staffId"
+            name="staffId"
+            type="text"
+            inputMode="numeric"
+            autoComplete="username"
+            maxLength={7}
+            pattern="[0-9]{7}"
+            required
+            value={staffId}
+            onChange={(event) => {
+              setStaffId(event.target.value.replace(/\D/g, "").slice(0, 7));
+              clearFeedback();
+            }}
+            aria-invalid={Boolean(fieldErrors.staffId || invalidCredentials)}
+            aria-describedby={invalidCredentials ? "sign-in-error" : fieldErrors.staffId ? "staff-id-error" : undefined}
+            className="sign-in-id-field"
+            placeholder="1234567"
+          />
+        </div>
         {fieldErrors.staffId ? <p id="staff-id-error" className="form-field-error">{fieldErrors.staffId}</p> : null}
       </div>
 

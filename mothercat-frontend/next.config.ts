@@ -1,6 +1,28 @@
 import type { NextConfig } from "next";
 
-const apiBaseUrl = (process.env.API_BASE_URL ?? "https://mothercat-api.onrender.com").replace(/\/+$/, "");
+const configuredApiBaseUrl = process.env.API_BASE_URL;
+const isProduction = process.env.NODE_ENV === "production" || process.env.APP_ENV === "production" || process.env.APP_ENV === "staging";
+if (!configuredApiBaseUrl && isProduction) {
+  throw new Error("API_BASE_URL must be configured with the organization API origin before deployment.");
+}
+
+let apiBaseUrl: string | undefined;
+if (configuredApiBaseUrl) {
+  const parsedApiBaseUrl = new URL(configuredApiBaseUrl);
+  if (
+    parsedApiBaseUrl.pathname !== "/" ||
+    parsedApiBaseUrl.search ||
+    parsedApiBaseUrl.hash ||
+    parsedApiBaseUrl.username ||
+    parsedApiBaseUrl.password
+  ) {
+    throw new Error("API_BASE_URL must be an origin without a path, query, credentials, or fragment.");
+  }
+  if (isProduction && parsedApiBaseUrl.protocol !== "https:") {
+    throw new Error("API_BASE_URL must use HTTPS outside local development.");
+  }
+  apiBaseUrl = parsedApiBaseUrl.origin;
+}
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -23,12 +45,14 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
-    return [
-      {
-        source: "/api/v1/:path*",
-        destination: `${apiBaseUrl}/api/v1/:path*`,
-      },
-    ];
+    return apiBaseUrl
+      ? [
+          {
+            source: "/api/v1/:path*",
+            destination: `${apiBaseUrl}/api/v1/:path*`,
+          },
+        ]
+      : [];
   },
   turbopack: {
     rules: {

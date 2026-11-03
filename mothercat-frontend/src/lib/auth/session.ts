@@ -32,6 +32,10 @@ export async function getCurrentSession(): Promise<AuthSession | null> {
     return null;
   }
 
+  if (!env.API_BASE_URL) {
+    throw new Error("API_BASE_URL is not configured. Set it to the organization API origin to use authenticated pages.");
+  }
+
   const apiBaseUrl = env.API_BASE_URL.replace(/\/+$/, "");
   const response = await fetch(`${apiBaseUrl}/api/v1/auth/session`, {
     headers: {

@@ -37,11 +37,19 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Authentication API
 
-Copy `.env.example` to `.env.local` for local work, and set `API_BASE_URL` to
-the backend origin in each deployment environment. The default is
-`https://mothercat-api.onrender.com`.
+Copy `.env.example` to `.env.local` for local work. Set `API_BASE_URL` to the
+organization API origin supplied for that environment to enable API requests.
+The development server can start without it for frontend-only work, but
+authenticated pages and API features require it. Production and staging
+deployments must configure it. Do not include `/api/v1` in the value or
+hard-code a production API host.
 The `/api/v1` Next.js rewrite keeps browser requests on the frontend origin,
 avoiding cross-site cookie and CORS issues.
+
+Credentialed mutation requests also require the API's Origin check to accept
+the deployed frontend/API hosting arrangement. A rewrite or permissive CORS
+configuration alone does not change that policy; coordinate the accepted
+origin with the backend owner.
 
 The backend owns the `mothercat_session` Secure, HttpOnly cookie. The frontend
 does not read or store its value; protected server-rendered pages validate it
