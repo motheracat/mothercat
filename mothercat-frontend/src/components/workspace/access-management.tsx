@@ -264,6 +264,94 @@ export function AccessManagement({
       {error ? <ErrorBanner message={error} onRetry={reload} /> : null}
       {notice ? <p role="status" className="access-notice">{notice}</p> : null}
 
+      {canAssign ? (
+        <section className="surface-card access-user-roles">
+          <div className="surface-card-header access-section-heading">
+            <div className="access-heading-icon"><UserRoundCog size={18} aria-hidden="true" /></div>
+            <div className="access-heading-copy">
+              <h2 className="surface-title">Assign roles to a staff account</h2>
+              <p>Search for a provisioned account, then replace its role assignments.</p>
+            </div>
+          </div>
+          <div className="access-user-role-body">
+            <form className="access-staff-search" onSubmit={searchStaffAccounts}>
+              <label className="workspace-field">
+                <span className="field-label">Search staff</span>
+                <input
+                  className="form-input"
+                  value={staffSearch}
+                  onChange={(event) => setStaffSearch(event.target.value)}
+                  placeholder="Name, staff ID, or email"
+                />
+              </label>
+              <button type="submit" className="button-secondary" disabled={staffLoading}>
+                <Search size={16} aria-hidden="true" /> {staffLoading ? "Searching…" : "Search"}
+              </button>
+            </form>
+            {staffResults.length ? (
+              <label className="workspace-field access-staff-result-select">
+                <span className="field-label">Provisioned accounts</span>
+                <select
+                  className="form-select"
+                  value={selectedStaff?.id ?? ""}
+                  onChange={(event) => {
+                    setUserRoleDraft([]);
+                    const staff = staffResults.find((item) => item.id === event.target.value) ?? null;
+                    setAssignmentLoading(Boolean(staff?.account_id && staff.account_id !== currentUserId));
+                    setSelectedStaff(staff);
+                  }}
+                >
+                  <option value="">Select a staff account</option>
+                  {staffResults.map((staff) => (
+                    <option key={staff.id} value={staff.id}>
+                      {staff.full_name} · ID:{staff.staff_id}{staff.account_id === currentUserId ? " · Your account" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {staffResults.length === 0 && !staffLoading && staffSearch ? (
+              <p className="access-helper">No provisioned accounts found. Search results include staff profiles that have an account.</p>
+            ) : null}
+            {selectedStaff?.account_id ? (
+              selectedStaff.account_id === currentUserId ? (
+                <p className="access-warning" role="note">You cannot change roles for your own account.</p>
+              ) : (
+                <div className="access-assignment-editor">
+                  <p className="access-assignment-title">Roles for {selectedStaff.full_name}</p>
+                  {assignmentLoading ? <p role="status" className="access-loading">Loading current assignments…</p> : null}
+                  <div className="access-assignment-list" aria-busy={assignmentLoading}>
+                    {roles.map((role) => {
+                      const checked = userRoleDraft.includes(role.role_id);
+                      const delegable = canDelegateRole(role);
+                      const disabled = saving || (!delegable && !checked);
+                      return (
+                        <label className={`access-assignment-option${disabled ? " is-disabled" : ""}`} key={role.role_id}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={disabled}
+                            onChange={(event) => setUserRoleDraft((current) => event.target.checked
+                              ? [...current, role.role_id]
+                              : current.filter((roleId) => roleId !== role.role_id))}
+                          />
+                          <span><strong>{role.name}</strong><small>{role.description || role.role_id}</small></span>
+                          {!delegable && !checked ? <span className="access-cannot-delegate">Contains access you don’t hold</span> : null}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <button type="button" className="button-primary" disabled={saving || assignmentLoading} onClick={() => void saveUserRoles()}>
+                    <Save size={16} aria-hidden="true" /> {saving ? "Saving…" : "Save role assignments"}
+                  </button>
+                  <p className="access-helper">This replaces all selected account roles. The backend prevents privilege escalation and protects the last active Super Admin.</p>
+                </div>
+              )
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
       {createOpen ? (
         <section className="surface-card access-create-card" aria-labelledby="create-role-heading">
           <div className="surface-card-header">
@@ -425,93 +513,6 @@ export function AccessManagement({
         </div>
       </section>
 
-      {canAssign ? (
-        <section className="surface-card access-user-roles">
-          <div className="surface-card-header access-section-heading">
-            <div className="access-heading-icon"><UserRoundCog size={18} aria-hidden="true" /></div>
-            <div className="access-heading-copy">
-              <h2 className="surface-title">Assign roles to a staff account</h2>
-              <p>Search for a provisioned account, then replace its role assignments.</p>
-            </div>
-          </div>
-          <div className="access-user-role-body">
-            <form className="access-staff-search" onSubmit={searchStaffAccounts}>
-              <label className="workspace-field">
-                <span className="field-label">Search staff</span>
-                <input
-                  className="form-input"
-                  value={staffSearch}
-                  onChange={(event) => setStaffSearch(event.target.value)}
-                  placeholder="Name, staff ID, or email"
-                />
-              </label>
-              <button type="submit" className="button-secondary" disabled={staffLoading}>
-                <Search size={16} aria-hidden="true" /> {staffLoading ? "Searching…" : "Search"}
-              </button>
-            </form>
-            {staffResults.length ? (
-              <label className="workspace-field access-staff-result-select">
-                <span className="field-label">Provisioned accounts</span>
-                <select
-                  className="form-select"
-                  value={selectedStaff?.id ?? ""}
-                  onChange={(event) => {
-                    setUserRoleDraft([]);
-                    const staff = staffResults.find((item) => item.id === event.target.value) ?? null;
-                    setAssignmentLoading(Boolean(staff?.account_id && staff.account_id !== currentUserId));
-                    setSelectedStaff(staff);
-                  }}
-                >
-                  <option value="">Select a staff account</option>
-                  {staffResults.map((staff) => (
-                    <option key={staff.id} value={staff.id}>
-                      {staff.full_name} · ID:{staff.staff_id}{staff.account_id === currentUserId ? " · Your account" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            {staffResults.length === 0 && !staffLoading && staffSearch ? (
-              <p className="access-helper">No provisioned accounts found. Search results include staff profiles that have an account.</p>
-            ) : null}
-            {selectedStaff?.account_id ? (
-              selectedStaff.account_id === currentUserId ? (
-                <p className="access-warning" role="note">You cannot change roles for your own account.</p>
-              ) : (
-                <div className="access-assignment-editor">
-                  <p className="access-assignment-title">Roles for {selectedStaff.full_name}</p>
-                  {assignmentLoading ? <p role="status" className="access-loading">Loading current assignments…</p> : null}
-                  <div className="access-assignment-list" aria-busy={assignmentLoading}>
-                    {roles.map((role) => {
-                      const checked = userRoleDraft.includes(role.role_id);
-                      const delegable = canDelegateRole(role);
-                      const disabled = saving || (!delegable && !checked);
-                      return (
-                        <label className={`access-assignment-option${disabled ? " is-disabled" : ""}`} key={role.role_id}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={disabled}
-                            onChange={(event) => setUserRoleDraft((current) => event.target.checked
-                              ? [...current, role.role_id]
-                              : current.filter((roleId) => roleId !== role.role_id))}
-                          />
-                          <span><strong>{role.name}</strong><small>{role.description || role.role_id}</small></span>
-                          {!delegable && !checked ? <span className="access-cannot-delegate">Contains access you don’t hold</span> : null}
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <button type="button" className="button-primary" disabled={saving || assignmentLoading} onClick={() => void saveUserRoles()}>
-                    <Save size={16} aria-hidden="true" /> {saving ? "Saving…" : "Save role assignments"}
-                  </button>
-                  <p className="access-helper">This replaces all selected account roles. The backend prevents privilege escalation and protects the last active Super Admin.</p>
-                </div>
-              )
-            ) : null}
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }
