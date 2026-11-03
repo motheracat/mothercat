@@ -32,7 +32,7 @@ describe("mapAuthError", () => {
       message: "Enter your staff ID.",
     });
     expect(mapAuthError({ kind: "validation", field: "staffIdFormat" }).message).toBe(
-      "Enter the 7-digit number after ID:.",
+      "Enter the 4- or 5-digit number after ID:.",
     );
     expect(mapAuthError({ kind: "validation", field: "password" }).message).toBe("Enter your password.");
   });

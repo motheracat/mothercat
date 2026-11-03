@@ -37,7 +37,7 @@ function validationMessage(field: string | undefined): string {
     case "staffId":
       return "Enter your staff ID.";
     case "staffIdFormat":
-      return "Enter the 7-digit number after ID:.";
+      return "Enter the 4- or 5-digit number after ID:.";
     case "password":
       return "Enter your password.";
     default:
