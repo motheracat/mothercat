@@ -161,9 +161,12 @@ paths:
       operationId: updateStaff
       summary: Update permitted staff profile fields
       description: >
-        Requires `staff.update` and a matching Origin. `staff_id`, account
-        association, and employment status are not editable here. Send `null`
-        for nullable fields to clear them; omit fields that should stay unchanged.
+        Requires a valid session and a matching Origin. A staff member can edit
+        their own `full_name` and `work_email`. Updating another profile or
+        changing `job_title` or `department_id` requires `staff.update` (granted
+        to Admin and Super Admin). `staff_id`, account association, profile
+        image, and employment status are not editable here. Send `null` for
+        nullable fields to clear them; omit fields that should stay unchanged.
       security:
         - sessionCookie: []
       parameters:

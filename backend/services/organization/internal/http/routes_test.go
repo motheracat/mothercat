@@ -750,6 +750,58 @@ func TestUpdateStaffSupportsExplicitNullAndAuditsFieldNamesOnly(t *testing.T) {
 	}
 }
 
+func TestStaffCanUpdateOwnPersonalProfileWithoutStaffUpdatePermission(t *testing.T) {
+	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
+	accountID := "1c9491b8-21ce-4c66-a025-006bb346b810"
+	store := &staffStoreStub{staff: domain.Staff{AccountID: &accountID}}
+	audit := &auditStub{}
+	auth := &authenticatorStub{principal: application.Principal{ID: accountID}}
+	handler := NewHandler(store, auth, audit, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authorizedRequest(
+		http.MethodPatch, "/api/v1/staff/"+staffID,
+		`{"full_name":"Updated Name","work_email":"updated@example.test"}`,
+	))
+
+	if response.Code != http.StatusOK || !store.updated || !audit.called {
+		t.Fatalf("status=%d updated=%v audited=%v body=%s",
+			response.Code, store.updated, audit.called, response.Body.String())
+	}
+	if store.update.JobTitle.Set || store.update.DepartmentID.Set {
+		t.Fatalf("self-service update unexpectedly included administrative fields: %+v", store.update)
+	}
+}
+
+func TestStaffCannotUpdateAnotherProfileOrAdministrativeFields(t *testing.T) {
+	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
+	otherAccountID := "9c9491b8-21ce-4c66-a025-006bb346b810"
+	auth := &authenticatorStub{principal: application.Principal{
+		ID: "1c9491b8-21ce-4c66-a025-006bb346b810",
+	}}
+	audit := &auditStub{}
+	store := &staffStoreStub{staff: domain.Staff{AccountID: &otherAccountID}}
+	handler := NewHandler(store, auth, audit, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authorizedRequest(
+		http.MethodPatch, "/api/v1/staff/"+staffID, `{"full_name":"Changed Name"}`,
+	))
+	if response.Code != http.StatusForbidden || store.updated || audit.called {
+		t.Fatalf("cross-profile status=%d updated=%v audited=%v",
+			response.Code, store.updated, audit.called)
+	}
+
+	store = &staffStoreStub{staff: domain.Staff{AccountID: &auth.principal.ID}}
+	handler = NewHandler(store, auth, audit, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, authorizedRequest(
+		http.MethodPatch, "/api/v1/staff/"+staffID, `{"job_title":"Director"}`,
+	))
+	if response.Code != http.StatusForbidden || store.updated || audit.called {
+		t.Fatalf("self administrative-field status=%d updated=%v audited=%v",
+			response.Code, store.updated, audit.called)
+	}
+}
+
 func TestUpdateStaffRejectsCrossOriginAndUnknownFields(t *testing.T) {
 	const staffID = "7da27cda-3496-4d02-9d99-fb0e956297e5"
 	store := &staffStoreStub{}

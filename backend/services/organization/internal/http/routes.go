@@ -175,7 +175,7 @@ func authorizeRequest(
 		writeError(w, http.StatusServiceUnavailable, "identity_unavailable", requestID(r.Context()))
 		return nil, nil, application.Principal{}, false
 	}
-	if !hasPermission(principal.Permissions, permission) {
+	if permission != "" && !hasPermission(principal.Permissions, permission) {
 		cancel()
 		writeError(w, http.StatusForbidden, "permission_denied", requestID(r.Context()))
 		return nil, nil, application.Principal{}, false
@@ -413,7 +413,7 @@ func uploadProfilePicture(
 }
 
 func updateStaff(w http.ResponseWriter, r *http.Request, database store, authenticator application.Authenticator, audit application.AuditRecorder, logger *slog.Logger) {
-	ctx, cancel, principal, ok := authorizeRequest(w, r, authenticator, logger, "staff.update", true)
+	ctx, cancel, principal, ok := authorizeRequest(w, r, authenticator, logger, "", true)
 	if !ok {
 		return
 	}
@@ -434,6 +434,26 @@ func updateStaff(w http.ResponseWriter, r *http.Request, database store, authent
 	}
 	if err := payload.NormalizeAndValidate(); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_staff_record", requestID(ctx))
+		return
+	}
+	existing, err := database.FindByID(ctx, staffID)
+	if errors.Is(err, domain.ErrStaffNotFound) {
+		writeError(w, http.StatusNotFound, "staff_not_found", requestID(ctx))
+		return
+	}
+	if err != nil {
+		logger.ErrorContext(ctx, "load staff record before update", "request_id", requestID(ctx), "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", requestID(ctx))
+		return
+	}
+	isSelf := existing.AccountID != nil && *existing.AccountID == principal.ID
+	canUpdateAny := hasPermission(principal.Permissions, "staff.update")
+	if !isSelf && !canUpdateAny {
+		writeError(w, http.StatusForbidden, "permission_denied", requestID(ctx))
+		return
+	}
+	if isSelf && !canUpdateAny && (payload.JobTitle.Set || payload.DepartmentID.Set) {
+		writeError(w, http.StatusForbidden, "permission_denied", requestID(ctx))
 		return
 	}
 	if payload.WorkEmail.Set && payload.WorkEmail.Value != nil {
