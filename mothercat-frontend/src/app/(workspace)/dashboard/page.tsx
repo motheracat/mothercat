@@ -1,5 +1,5 @@
 import { DashboardOverview } from "@/components/workspace/dashboard-overview";
-import { EmptyState, PageHeader, Panel } from "@/components/workspace/ui";
+import { EmptyState, Panel } from "@/components/workspace/ui";
 
 export default function DashboardPage() {
   const today = new Date().toLocaleDateString("en", {
@@ -11,7 +11,12 @@ export default function DashboardPage() {
 
   return (
     <div className="dashboard-page">
-      <PageHeader title="Dashboard" description={today} />
+      <header className="page-header">
+        <div>
+          <h1 className="sr-only">Dashboard</h1>
+          <p className="page-description !mt-0">{today}</p>
+        </div>
+      </header>
       <DashboardOverview />
       <Panel title="Pending requests" className="dashboard-panel dashboard-pending">
         <EmptyState>No pending requests to review.</EmptyState>

@@ -10,11 +10,6 @@ export default async function PersonalProfilePage() {
 
   return (
     <>
-      <PageHeader
-        title="My profile"
-        description="Your personal details and access in this workspace."
-      />
-
       <div className="personal-profile-layout">
         <PersonalProfileDetails
           staffNumber={session.staffId}

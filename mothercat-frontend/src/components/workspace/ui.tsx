@@ -13,7 +13,7 @@ export function PageHeader({
   return (
     <div className="page-header">
       <div>
-        <h1 className="page-title">{title}</h1>
+        <h1 className="sr-only">{title}</h1>
         <p className="page-description">{description}</p>
       </div>
       {actions ? <div className="page-header-actions flex flex-wrap items-center gap-2">{actions}</div> : null}
