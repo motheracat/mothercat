@@ -119,7 +119,14 @@ func NewHandler(database store, authenticator application.Authenticator, audit a
 		if len(onboarding) > 0 {
 			services = &onboarding[0]
 		}
-		provisionStaff(w, r, database, authenticator, audit, services, logger)
+		provisionStaff(w, r, database, authenticator, audit, services, logger, "staff", "user_roles.assign")
+	})
+	mux.HandleFunc("POST /api/v1/staff/{staffID}/provision-admin", func(w http.ResponseWriter, r *http.Request) {
+		var services *application.OnboardingServices
+		if len(onboarding) > 0 {
+			services = &onboarding[0]
+		}
+		provisionStaff(w, r, database, authenticator, audit, services, logger, "admin", "roles.manage")
 	})
 	mux.HandleFunc("GET /api/v1/departments", func(w http.ResponseWriter, r *http.Request) {
 		listDepartments(w, r, database, authenticator, logger)
@@ -983,7 +990,17 @@ func getStaffImport(w http.ResponseWriter, r *http.Request, database store, auth
 	writeJSON(w, http.StatusOK, map[string]any{"import": batch})
 }
 
-func provisionStaff(w http.ResponseWriter, r *http.Request, database store, authenticator application.Authenticator, audit application.AuditRecorder, onboarding *application.OnboardingServices, logger *slog.Logger) {
+func provisionStaff(
+	w http.ResponseWriter,
+	r *http.Request,
+	database store,
+	authenticator application.Authenticator,
+	audit application.AuditRecorder,
+	onboarding *application.OnboardingServices,
+	logger *slog.Logger,
+	roleKey string,
+	requiredPermission string,
+) {
 	if !sameOrigin(r) {
 		writeError(w, http.StatusForbidden, "invalid_origin", requestID(r.Context()))
 		return
@@ -1016,7 +1033,7 @@ func provisionStaff(w http.ResponseWriter, r *http.Request, database store, auth
 		writeError(w, http.StatusServiceUnavailable, "identity_unavailable", requestID(ctx))
 		return
 	}
-	if !hasPermission(principal.Permissions, "user_roles.assign") {
+	if !hasPermission(principal.Permissions, requiredPermission) {
 		writeError(w, http.StatusForbidden, "permission_denied", requestID(r.Context()))
 		return
 	}
@@ -1030,7 +1047,7 @@ func provisionStaff(w http.ResponseWriter, r *http.Request, database store, auth
 		writeError(w, http.StatusInternalServerError, "internal_error", requestID(ctx))
 		return
 	}
-	if staff.EmploymentStatus == "active" && staff.AccountID != nil {
+	if roleKey != "admin" && staff.EmploymentStatus == "active" && staff.AccountID != nil {
 		if err := audit.Record(ctx, application.AuditEvent{
 			EventKey:   "organization:staff.provision.completed:" + staff.ID,
 			ActorID:    principal.ID,
@@ -1058,11 +1075,11 @@ func provisionStaff(w http.ResponseWriter, r *http.Request, database store, auth
 		return
 	}
 	if err := audit.Record(ctx, application.AuditEvent{
-		EventKey:   "organization:staff.provision:" + staff.ID,
+		EventKey:   "organization:staff.provision:" + roleKey + ":" + staff.ID,
 		ActorID:    principal.ID,
 		Action:     "staff.provision.requested",
 		ResourceID: staff.ID,
-		Details:    map[string]any{"staff_id": staff.StaffID},
+		Details:    map[string]any{"staff_id": staff.StaffID, "role": roleKey},
 	}); err != nil {
 		logger.ErrorContext(ctx, "record staff provisioning request", "request_id", requestID(ctx), "error", err)
 		writeError(w, http.StatusServiceUnavailable, "audit_unavailable", requestID(ctx))
@@ -1079,8 +1096,8 @@ func provisionStaff(w http.ResponseWriter, r *http.Request, database store, auth
 		writeError(w, http.StatusServiceUnavailable, "identity_unavailable", requestID(ctx))
 		return
 	}
-	if err := onboarding.Access.AssignDefaultStaffRole(ctx, accountID); err != nil {
-		logger.ErrorContext(ctx, "assign default Staff role", "request_id", requestID(ctx), "error", err)
+	if err := onboarding.Access.AssignRole(ctx, accountID, roleKey); err != nil {
+		logger.ErrorContext(ctx, "assign account role", "request_id", requestID(ctx), "role", roleKey, "error", err)
 		writeError(w, http.StatusServiceUnavailable, "access_unavailable", requestID(ctx))
 		return
 	}
@@ -1114,7 +1131,7 @@ func provisionStaff(w http.ResponseWriter, r *http.Request, database store, auth
 		writeError(w, http.StatusServiceUnavailable, "audit_unavailable", requestID(ctx))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"staff": staff, "invitation_sent": true})
+	writeJSON(w, http.StatusOK, map[string]any{"staff": staff, "invitation_sent": true, "role": roleKey})
 }
 
 func createStaff(w http.ResponseWriter, r *http.Request, database store, authenticator application.Authenticator, audit application.AuditRecorder, logger *slog.Logger) {

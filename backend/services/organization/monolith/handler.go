@@ -46,7 +46,7 @@ type AccountProvisioner interface {
 }
 
 type StaffRoleAssigner interface {
-	AssignDefaultStaffRole(context.Context, string) error
+	AssignRole(context.Context, string, string) error
 }
 
 type staffStore struct {

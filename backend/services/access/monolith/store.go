@@ -69,6 +69,10 @@ func (s *Store) GetUserAuthorization(ctx context.Context, userID string) (Author
 }
 
 func (s *Store) AssignDefaultStaffRole(ctx context.Context, userID string) error {
+	return s.AssignRole(ctx, userID, "staff")
+}
+
+func (s *Store) AssignRole(ctx context.Context, userID, roleKey string) error {
 	if s == nil || s.db == nil {
 		return errors.New("PostgreSQL database is unavailable")
 	}
@@ -76,25 +80,25 @@ func (s *Store) AssignDefaultStaffRole(ctx context.Context, userID string) error
 		INSERT INTO access.user_roles (user_id, role_key)
 		SELECT $1::uuid, role_key
 		FROM access.roles
-		WHERE role_key = 'staff' AND is_system_role
+		WHERE role_key = $2 AND is_system_role
 		ON CONFLICT (user_id, role_key) DO NOTHING
-	`, userID)
+	`, userID, roleKey)
 	if err != nil {
-		return fmt.Errorf("assign default Staff role: %w", err)
+		return fmt.Errorf("assign role %q: %w", roleKey, err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("check default Staff role assignment: %w", err)
+		return fmt.Errorf("check role %q assignment: %w", roleKey, err)
 	}
 	if rowsAffected == 0 {
 		var exists bool
 		if err := s.db.QueryRowContext(ctx,
-			`SELECT EXISTS (SELECT 1 FROM access.roles WHERE role_key = 'staff' AND is_system_role)`,
+			`SELECT EXISTS (SELECT 1 FROM access.roles WHERE role_key = $1 AND is_system_role)`, roleKey,
 		).Scan(&exists); err != nil {
-			return fmt.Errorf("check initialized Staff role: %w", err)
+			return fmt.Errorf("check initialized role %q: %w", roleKey, err)
 		}
 		if !exists {
-			return errors.New("default Staff role is not initialized; run PostgreSQL migrations")
+			return fmt.Errorf("system role %q is not initialized; run PostgreSQL migrations", roleKey)
 		}
 	}
 	return nil
