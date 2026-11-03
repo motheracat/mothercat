@@ -41,6 +41,43 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("PersonalProfileDetails", () => {
+  it("copies the displayed staff ID and confirms the action", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    vi.mocked(listStaff).mockResolvedValue({
+      staff: [staffRecord],
+      total: 1,
+      pagination: { limit: 100, offset: 0, total: 1 },
+    });
+
+    renderProfile();
+    fireEvent.click(await screen.findByRole("button", { name: "Copy staff ID" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("23847"));
+    expect(await screen.findByRole("status")).toHaveTextContent("Staff ID copied.");
+  });
+
+  it("explains when copying the staff ID is unavailable", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("Clipboard unavailable"));
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    vi.mocked(listStaff).mockResolvedValue({
+      staff: [staffRecord],
+      total: 1,
+      pagination: { limit: 100, offset: 0, total: 1 },
+    });
+
+    renderProfile();
+    fireEvent.click(await screen.findByRole("button", { name: "Copy staff ID" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Select it and copy it manually");
+  });
+
   it("shows both profile controls while the staff record is resolving", async () => {
     let resolveStaff!: (result: {
       staff: StaffMember[];

@@ -1,6 +1,6 @@
 "use client";
 
-import { BadgeCheck, Mail, UserRound } from "lucide-react";
+import { BadgeCheck, Check, Copy, Mail, UserRound } from "lucide-react";
 import { useCallback, useState, type FormEvent } from "react";
 
 import { Panel } from "@/components/workspace/ui";
@@ -67,6 +67,7 @@ export function PersonalProfileDetails({ staffNumber, displayName, email }: Pers
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   const handleStaffResolved = useCallback((resolvedStaff: StaffMember) => {
     setStaff(resolvedStaff);
@@ -95,6 +96,15 @@ export function PersonalProfileDetails({ staffNumber, displayName, email }: Pers
       setFormError(formatOrganizationError(error, "Unable to update your profile. Try again."));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function copyStaffNumber() {
+    try {
+      await navigator.clipboard.writeText(staffNumber);
+      setCopyFeedback("Staff ID copied.");
+    } catch {
+      setCopyFeedback("Could not copy the staff ID. Select it and copy it manually.");
     }
   }
 
@@ -170,7 +180,18 @@ export function PersonalProfileDetails({ staffNumber, displayName, email }: Pers
             </div>
             <div className="personal-profile-detail">
               <dt><BadgeCheck size={16} aria-hidden="true" /> Staff ID</dt>
-              <dd>{staffNumber}</dd>
+              <dd className="personal-profile-id-value">
+                <span>{staffNumber}</span>
+                <button
+                  type="button"
+                  className="personal-profile-copy-button"
+                  aria-label="Copy staff ID"
+                  title="Copy staff ID"
+                  onClick={() => void copyStaffNumber()}
+                >
+                  {copyFeedback === "Staff ID copied." ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+                </button>
+              </dd>
             </div>
             <div className="personal-profile-detail">
               <dt><Mail size={16} aria-hidden="true" /> Email address</dt>
@@ -178,6 +199,7 @@ export function PersonalProfileDetails({ staffNumber, displayName, email }: Pers
             </div>
           </dl>
         )}
+        {copyFeedback ? <p className="profile-picture-feedback" role="status">{copyFeedback}</p> : null}
         {loadError ? <p className="profile-picture-feedback" role="alert">{loadError}</p> : null}
       </Panel>
     </>
