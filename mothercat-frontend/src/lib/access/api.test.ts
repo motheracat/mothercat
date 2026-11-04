@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createRole,
+  listUserRoleAssignments,
   listRoles,
   replaceRolePermissions,
   replaceUserRoles,
@@ -50,6 +51,32 @@ describe("Access API", () => {
     expect(url).toBe("/api/v1/roles/auditor/permissions");
     expect(init.method).toBe("PUT");
     expect(JSON.parse(String(init.body))).toEqual({ permission_keys: ["audit.read", "staff.read"] });
+  });
+
+  it("loads paginated staff accounts with their role assignments", async () => {
+    const user = {
+      user_id: "account-1",
+      full_name: "Taylor Staff",
+      staff_id: "12345",
+      email: "taylor@example.com",
+      employment_status: "active",
+      account_active: true,
+      role_ids: ["staff", "auditor"],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      users: [user],
+      pagination: { limit: 20, offset: 0, total: 1 },
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listUserRoleAssignments({
+      limit: 20,
+      offset: 0,
+      search: "Taylor Staff",
+      roleId: "auditor",
+    })).resolves.toEqual({ users: [user], total: 1 });
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/users/role-assignments?limit=20&offset=0&search=Taylor+Staff&role_id=auditor");
   });
 
   it("encodes identifiers and submits user role replacement", async () => {

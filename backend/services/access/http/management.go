@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 const (
 	sessionCookieName = "mothercat_session"
 	maxRequestBody    = 16 << 10
+	defaultPageSize   = 20
+	maxPageSize       = 100
 )
 
 var (
@@ -48,6 +51,7 @@ type store interface {
 	ReplaceRolePermissions(context.Context, string, string, []string) ([]string, error)
 	GetUserRoles(context.Context, string) ([]string, error)
 	ReplaceUserRoles(context.Context, string, string, []string) ([]string, error)
+	ListUserRoleAssignments(context.Context, string, string, int, int) ([]domain.UserRoleAssignment, int, error)
 }
 
 type Handler struct {
@@ -66,6 +70,7 @@ func NewHandler(database store, authenticator Authenticator, logger *slog.Logger
 	mux.HandleFunc("POST /api/v1/roles", handler.createRole)
 	mux.HandleFunc("PATCH /api/v1/roles/{roleID}", handler.updateRole)
 	mux.HandleFunc("GET /api/v1/permissions", handler.listPermissions)
+	mux.HandleFunc("GET /api/v1/users/role-assignments", handler.listUserRoleAssignments)
 	mux.HandleFunc("PUT /api/v1/roles/{roleID}/permissions", handler.replaceRolePermissions)
 	mux.HandleFunc("GET /api/v1/users/{userID}/roles", handler.getUserRoles)
 	mux.HandleFunc("PUT /api/v1/users/{userID}/roles", handler.replaceUserRoles)
@@ -241,6 +246,61 @@ func (h *Handler) getUserRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user_id": userID, "role_ids": roles})
+}
+
+func (h *Handler) listUserRoleAssignments(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel, _, ok := h.authorize(w, r, "roles.read", false)
+	if !ok {
+		return
+	}
+	defer cancel()
+
+	query := r.URL.Query()
+	if len(query["search"]) > 1 || len(query["role_id"]) > 1 ||
+		len(query["limit"]) > 1 || len(query["offset"]) > 1 {
+		writeError(w, http.StatusBadRequest, "invalid_query", requestID(ctx))
+		return
+	}
+	search := strings.TrimSpace(query.Get("search"))
+	if len(search) > 200 {
+		writeError(w, http.StatusBadRequest, "invalid_query", requestID(ctx))
+		return
+	}
+	roleID := query.Get("role_id")
+	if roleID != "" && !roleIDPattern.MatchString(roleID) {
+		writeError(w, http.StatusBadRequest, "invalid_query", requestID(ctx))
+		return
+	}
+	limit := defaultPageSize
+	if value := query.Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > maxPageSize {
+			writeError(w, http.StatusBadRequest, "invalid_query", requestID(ctx))
+			return
+		}
+		limit = parsed
+	}
+	offset := 0
+	if value := query.Get("offset"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 0 {
+			writeError(w, http.StatusBadRequest, "invalid_query", requestID(ctx))
+			return
+		}
+		offset = parsed
+	}
+
+	users, total, err := h.store.ListUserRoleAssignments(ctx, search, roleID, limit, offset)
+	if err != nil {
+		h.fail(w, ctx, "list user role assignments", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"users": users,
+		"pagination": map[string]int{
+			"limit": limit, "offset": offset, "total": total,
+		},
+	})
 }
 
 func (h *Handler) replaceUserRoles(w http.ResponseWriter, r *http.Request) {

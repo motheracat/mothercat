@@ -33,6 +33,13 @@ type storeStub struct {
 	permissionCalls   int
 	userRoleCalls     int
 	roleListCalls     int
+	assignments       []domain.UserRoleAssignment
+	assignmentTotal   int
+	assignmentCalls   int
+	assignmentSearch  string
+	assignmentRole    string
+	assignmentLimit   int
+	assignmentOffset  int
 }
 
 func (s *storeStub) ListRoles(context.Context) ([]domain.Role, error) {
@@ -79,6 +86,19 @@ func (s *storeStub) ReplaceUserRoles(_ context.Context, _, _ string, roles []str
 	return roles, nil
 }
 
+func (s *storeStub) ListUserRoleAssignments(
+	_ context.Context,
+	search, roleID string,
+	limit, offset int,
+) ([]domain.UserRoleAssignment, int, error) {
+	s.assignmentCalls++
+	s.assignmentSearch = search
+	s.assignmentRole = roleID
+	s.assignmentLimit = limit
+	s.assignmentOffset = offset
+	return s.assignments, s.assignmentTotal, nil
+}
+
 func authorizedAccessHandler(s *storeStub, permissions ...string) http.Handler {
 	return NewHandler(
 		s,
@@ -111,6 +131,62 @@ func TestRoleReadRequiresBackendPermission(t *testing.T) {
 	}
 	if store.roleListCalls != 0 {
 		t.Fatal("role store was read without roles.read permission")
+	}
+}
+
+func TestListUserRoleAssignmentsRequiresPermissionAndReturnsFilteredPage(t *testing.T) {
+	user := domain.UserRoleAssignment{
+		UserID: "account-1", FullName: "Taylor Staff", StaffID: "12345",
+		Email: "taylor@example.com", EmploymentStatus: "active",
+		AccountActive: true, RoleIDs: []string{"staff", "auditor"},
+	}
+	store := &storeStub{assignments: []domain.UserRoleAssignment{user}, assignmentTotal: 1}
+	handler := authorizedAccessHandler(store, "roles.read")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(
+		http.MethodGet,
+		"/api/v1/users/role-assignments?search=Taylor&role_id=auditor&limit=10&offset=20",
+		"",
+	))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body)
+	}
+	if store.assignmentCalls != 1 || store.assignmentSearch != "Taylor" ||
+		store.assignmentRole != "auditor" || store.assignmentLimit != 10 || store.assignmentOffset != 20 {
+		t.Fatalf("assignment query = %#v", store)
+	}
+	if !strings.Contains(response.Body.String(), `"role_ids":["staff","auditor"]`) ||
+		!strings.Contains(response.Body.String(), `"total":1`) {
+		t.Fatalf("unexpected assignment response: %s", response.Body)
+	}
+
+	store = &storeStub{}
+	handler = authorizedAccessHandler(store)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(
+		http.MethodGet, "/api/v1/users/role-assignments", "",
+	))
+	if response.Code != http.StatusForbidden || store.assignmentCalls != 0 {
+		t.Fatalf("unauthorized status=%d assignment calls=%d", response.Code, store.assignmentCalls)
+	}
+}
+
+func TestListUserRoleAssignmentsRejectsInvalidQuery(t *testing.T) {
+	for _, target := range []string{
+		"/api/v1/users/role-assignments?limit=101",
+		"/api/v1/users/role-assignments?offset=-1",
+		"/api/v1/users/role-assignments?role_id=NotValid",
+		"/api/v1/users/role-assignments?search=Taylor&search=Other",
+	} {
+		t.Run(target, func(t *testing.T) {
+			store := &storeStub{}
+			handler := authorizedAccessHandler(store, "roles.read")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, target, ""))
+			if response.Code != http.StatusBadRequest || store.assignmentCalls != 0 {
+				t.Fatalf("status=%d assignment calls=%d body=%s", response.Code, store.assignmentCalls, response.Body)
+			}
+		})
 	}
 }
 

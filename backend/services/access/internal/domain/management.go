@@ -23,3 +23,13 @@ type Permission struct {
 	Key         string `json:"permission_key"`
 	Description string `json:"description"`
 }
+
+type UserRoleAssignment struct {
+	UserID           string   `json:"user_id"`
+	FullName         string   `json:"full_name"`
+	StaffID          string   `json:"staff_id"`
+	Email            string   `json:"email"`
+	EmploymentStatus string   `json:"employment_status"`
+	AccountActive    bool     `json:"account_active"`
+	RoleIDs          []string `json:"role_ids"`
+}

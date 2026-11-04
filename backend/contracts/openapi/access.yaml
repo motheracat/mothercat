@@ -273,6 +273,57 @@ paths:
         "503":
           $ref: "#/components/responses/Unavailable"
 
+  /api/v1/users/role-assignments:
+    get:
+      tags: [User role assignments]
+      operationId: listUserRoleAssignments
+      summary: List provisioned staff accounts and their roles
+      description: Returns account-linked staff profiles with their complete role assignment sets.
+      security:
+        - sessionCookie: []
+      x-required-permission: roles.read
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: search
+          in: query
+          description: Match staff name, staff ID, or email.
+          schema:
+            type: string
+            maxLength: 200
+        - name: role_id
+          in: query
+          description: Return accounts assigned this role.
+          schema:
+            type: string
+            pattern: "^[a-z][a-z0-9_]{0,63}$"
+      responses:
+        "200":
+          description: A page of provisioned accounts and their role assignments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRoleAssignmentListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
 components:
   securitySchemes:
     sessionCookie:
@@ -373,6 +424,46 @@ components:
         user_id:
           type: string
           format: uuid
+        role_ids:
+          type: array
+          items:
+            type: string
+    UserRoleAssignmentListResponse:
+      type: object
+      required: [users, pagination]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserRoleAssignment"
+        pagination:
+          type: object
+          required: [limit, offset, total]
+          properties:
+            limit:
+              type: integer
+            offset:
+              type: integer
+            total:
+              type: integer
+    UserRoleAssignment:
+      type: object
+      required: [user_id, full_name, staff_id, email, employment_status, account_active, role_ids]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        staff_id:
+          type: string
+        email:
+          type: string
+        employment_status:
+          type: string
+          enum: [pending, active, inactive, deactivated]
+        account_active:
+          type: boolean
         role_ids:
           type: array
           items:

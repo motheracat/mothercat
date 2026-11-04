@@ -18,6 +18,16 @@ export type UserRoleAssignments = {
   role_ids: string[];
 };
 
+export type UserRoleAssignmentSummary = {
+  user_id: string;
+  full_name: string;
+  staff_id: string;
+  email: string;
+  employment_status: string;
+  account_active: boolean;
+  role_ids: string[];
+};
+
 export class AccessApiError extends Error {
   constructor(
     message: string,
@@ -172,6 +182,51 @@ export async function getUserRoles(userId: string, signal?: AbortSignal): Promis
     throw new AccessApiError("The access service returned invalid user role assignments.", 502, "invalid_response");
   }
   return { user_id: payload.user_id, role_ids: payload.role_ids };
+}
+
+export async function listUserRoleAssignments(
+  params: { limit: number; offset: number; search?: string; roleId?: string },
+  signal?: AbortSignal,
+): Promise<{ users: UserRoleAssignmentSummary[]; total: number }> {
+  const query = new URLSearchParams({
+    limit: String(params.limit),
+    offset: String(params.offset),
+  });
+  if (params.search) query.set("search", params.search);
+  if (params.roleId) query.set("role_id", params.roleId);
+  const payload = await request(`/users/role-assignments?${query}`, { signal });
+  if (
+    !isRecord(payload) ||
+    !Array.isArray(payload.users) ||
+    !isRecord(payload.pagination) ||
+    typeof payload.pagination.total !== "number"
+  ) {
+    throw new AccessApiError("The access service returned an invalid user assignment list.", 502, "invalid_response");
+  }
+  const users = payload.users.map((item): UserRoleAssignmentSummary => {
+    if (
+      !isRecord(item) ||
+      typeof item.user_id !== "string" ||
+      typeof item.full_name !== "string" ||
+      typeof item.staff_id !== "string" ||
+      typeof item.email !== "string" ||
+      typeof item.employment_status !== "string" ||
+      typeof item.account_active !== "boolean" ||
+      !stringArray(item.role_ids)
+    ) {
+      throw new AccessApiError("The access service returned an invalid user assignment.", 502, "invalid_response");
+    }
+    return {
+      user_id: item.user_id,
+      full_name: item.full_name,
+      staff_id: item.staff_id,
+      email: item.email,
+      employment_status: item.employment_status,
+      account_active: item.account_active,
+      role_ids: item.role_ids,
+    };
+  });
+  return { users, total: payload.pagination.total };
 }
 
 export async function replaceUserRoles(userId: string, roleIds: string[]): Promise<UserRoleAssignments> {

@@ -11,18 +11,13 @@ const accessMocks = vi.hoisted(() => ({
   replaceRolePermissions: vi.fn(),
   getUserRoles: vi.fn(),
   replaceUserRoles: vi.fn(),
-}));
-
-const organizationMocks = vi.hoisted(() => ({
-  listStaff: vi.fn(),
+  listUserRoleAssignments: vi.fn(),
 }));
 
 vi.mock("@/lib/access/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/access/api")>();
   return { ...actual, ...accessMocks };
 });
-
-vi.mock("@/lib/organization/api", () => organizationMocks);
 
 afterEach(cleanup);
 
@@ -55,20 +50,17 @@ beforeEach(() => {
     user_id: userId,
     role_ids: roleIds,
   }));
-  organizationMocks.listStaff.mockResolvedValue({
-    staff: [{
-      id: "staff-profile",
-      account_id: "target-user",
-      staff_id: "12345",
-      department_id: null,
+  accessMocks.listUserRoleAssignments.mockResolvedValue({
+    users: [{
+      user_id: "target-user",
       full_name: "Taylor Staff",
-      profile_image_url: null,
-      work_email: "taylor@example.com",
-      job_title: null,
+      staff_id: "12345",
+      email: "taylor@example.com",
       employment_status: "active",
+      account_active: true,
+      role_ids: ["staff"],
     }],
     total: 1,
-    pagination: { limit: 50, offset: 0, total: 1 },
   });
 });
 
@@ -125,37 +117,46 @@ describe("AccessManagement", () => {
 
   it("allows searching for a provisioned account and saving its role assignments", async () => {
     renderAccessPage();
-    await screen.findByText("Auditor");
+    await screen.findByRole("button", { name: /^Auditor/ });
+    await screen.findByText("Taylor Staff");
 
-    fireEvent.change(screen.getByPlaceholderText("Name, staff ID, or email"), { target: { value: "Taylor" } });
+    fireEvent.change(screen.getByPlaceholderText("Search name, staff ID, or email"), { target: { value: "Taylor" } });
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
-    const accountSelect = await screen.findByLabelText("Provisioned accounts");
-    fireEvent.change(accountSelect, { target: { value: "staff-profile" } });
-    await screen.findByText("Roles for Taylor Staff");
+    await waitFor(() => {
+      expect(accessMocks.listUserRoleAssignments).toHaveBeenLastCalledWith({
+        limit: 20,
+        offset: 0,
+        search: "Taylor",
+      }, expect.any(AbortSignal));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit roles for Taylor Staff/i }));
 
     fireEvent.click(screen.getByRole("checkbox", { name: /Auditor/ }));
-    fireEvent.click(screen.getByRole("button", { name: /save role assignments/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save assignments/i }));
 
     await waitFor(() => {
       expect(accessMocks.replaceUserRoles).toHaveBeenCalledWith("target-user", ["staff", "auditor"]);
     });
   });
 
-  it("shows the no-accounts message only after a search returns no results", async () => {
-    organizationMocks.listStaff.mockResolvedValueOnce({
-      staff: [],
-      total: 0,
-      pagination: { limit: 50, offset: 0, total: 0 },
-    });
+  it("shows an empty state when the staff access search returns no results", async () => {
     renderAccessPage();
+    await screen.findByText("Taylor Staff");
+    accessMocks.listUserRoleAssignments.mockResolvedValueOnce({ users: [], total: 0 });
 
-    const searchInput = screen.getByPlaceholderText("Name, staff ID, or email");
-    fireEvent.change(searchInput, { target: { value: "Taylor" } });
-
-    expect(screen.queryByText(/No provisioned accounts found/)).not.toBeInTheDocument();
-
+    const searchInput = screen.getByPlaceholderText("Search name, staff ID, or email");
+    fireEvent.change(searchInput, { target: { value: "Missing" } });
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
-    expect(await screen.findByText(/No provisioned accounts found/)).toBeInTheDocument();
+    expect(await screen.findByText("No provisioned accounts found")).toBeInTheDocument();
+  });
+
+  it("does not present a failed directory load as an empty result", async () => {
+    accessMocks.listUserRoleAssignments.mockRejectedValueOnce(new Error("network failure"));
+    renderAccessPage();
+
+    expect(await screen.findByText("Unable to load staff access")).toBeInTheDocument();
+    expect(screen.queryByText("No provisioned accounts found")).not.toBeInTheDocument();
   });
 });

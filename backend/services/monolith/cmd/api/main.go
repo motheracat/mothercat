@@ -19,6 +19,7 @@ import (
 
 	accesshttp "github.com/mothercat-enterprise/mothercat/backend/services/access/http"
 	accessstore "github.com/mothercat-enterprise/mothercat/backend/services/access/monolith"
+	audithttp "github.com/mothercat-enterprise/mothercat/backend/services/audit/http"
 	auditstore "github.com/mothercat-enterprise/mothercat/backend/services/audit/monolith"
 	identityapp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/application"
 	identitydomain "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/domain"
@@ -115,7 +116,10 @@ func run(logger *slog.Logger) error {
 		localAccountProvisioner{service: authService}, access, logger, profileUploaders...,
 	)
 	accessHandler := accesshttp.NewHandler(access, accessAuthenticator{service: authService}, logger)
-	handler := newRouter(db, identityHandler, organizationHandler, accessHandler)
+	auditHandler := audithttp.NewHandler(
+		auditstore.NewReader(db), auditAuthenticator{service: authService}, logger,
+	)
+	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler)
 	server := &http.Server{
 		Addr: address, Handler: handler, ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
@@ -210,7 +214,7 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func newRouter(db *sql.DB, identity, organization http.Handler, access ...http.Handler) http.Handler {
+func newRouter(db *sql.DB, identity, organization, access, audit http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -230,11 +234,15 @@ func newRouter(db *sql.DB, identity, organization http.Handler, access ...http.H
 	mux.Handle("/api/v1/staff/", organization)
 	mux.Handle("/api/v1/departments", organization)
 	mux.Handle("/api/v1/departments/", organization)
-	if len(access) > 0 && access[0] != nil {
-		mux.Handle("/api/v1/roles", access[0])
-		mux.Handle("/api/v1/roles/", access[0])
-		mux.Handle("/api/v1/permissions", access[0])
-		mux.Handle("/api/v1/users/", access[0])
+	if access != nil {
+		mux.Handle("/api/v1/roles", access)
+		mux.Handle("/api/v1/roles/", access)
+		mux.Handle("/api/v1/permissions", access)
+		mux.Handle("/api/v1/users/", access)
+	}
+	if audit != nil {
+		mux.Handle("/api/v1/audit-events", audit)
+		mux.Handle("/api/v1/audit-events/", audit)
 	}
 	mux.Handle("/api/v1/", identity)
 	mux.Handle("/internal/v1/", identity)
@@ -254,6 +262,21 @@ func (a accessAuthenticator) Authenticate(ctx context.Context, token string) (ac
 		return accesshttp.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
 	}
 	return accesshttp.Principal{ID: account.ID, Permissions: account.Permissions}, nil
+}
+
+type auditAuthenticator struct {
+	service *identityapp.Service
+}
+
+func (a auditAuthenticator) Authenticate(ctx context.Context, token string) (audithttp.Principal, error) {
+	account, err := a.service.ResolveSession(ctx, token)
+	if err != nil {
+		if errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			return audithttp.Principal{}, audithttp.ErrUnauthenticated
+		}
+		return audithttp.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
+	}
+	return audithttp.Principal{Permissions: account.Permissions}, nil
 }
 
 type localAuthorizationProvider struct {

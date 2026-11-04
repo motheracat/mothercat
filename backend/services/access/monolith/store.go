@@ -390,6 +390,75 @@ func (s *Store) GetUserRoles(ctx context.Context, userID string) ([]string, erro
 	return roles, nil
 }
 
+func (s *Store) ListUserRoleAssignments(
+	ctx context.Context,
+	search, roleID string,
+	limit, offset int,
+) ([]domain.UserRoleAssignment, int, error) {
+	if s == nil || s.db == nil {
+		return nil, 0, errors.New("PostgreSQL database is unavailable")
+	}
+	const conditions = `
+		WHERE ($1 = '' OR s.full_name ILIKE '%' || $1 || '%'
+			OR s.staff_id ILIKE '%' || $1 || '%'
+			OR COALESCE(s.work_email, a.email) ILIKE '%' || $1 || '%')
+			AND ($2 = '' OR EXISTS (
+				SELECT 1 FROM access.user_roles filtered_role
+				WHERE filtered_role.user_id = a.id AND filtered_role.role_key = $2
+			))
+	`
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+			SELECT count(*)
+			FROM organization.staff_members s
+			JOIN identity.user_accounts a ON a.id = s.account_id
+	`+conditions, search, roleID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count user role assignments: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT a.id::text, s.full_name, s.staff_id,
+			COALESCE(s.work_email, a.email), s.employment_status,
+			(a.is_active AND a.suspended_at IS NULL),
+			COALESCE(
+				json_agg(ur.role_key ORDER BY ur.role_key)
+					FILTER (WHERE ur.role_key IS NOT NULL),
+				'[]'::json
+			)
+		FROM organization.staff_members s
+		JOIN identity.user_accounts a ON a.id = s.account_id
+		LEFT JOIN access.user_roles ur ON ur.user_id = a.id
+	`+conditions+`
+		GROUP BY a.id, s.full_name, s.staff_id, s.work_email, a.email,
+			s.employment_status, a.is_active, a.suspended_at
+		ORDER BY lower(s.full_name), s.staff_id
+		LIMIT $3 OFFSET $4
+	`, search, roleID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query user role assignments: %w", err)
+	}
+	defer rows.Close()
+	assignments := make([]domain.UserRoleAssignment, 0)
+	for rows.Next() {
+		var assignment domain.UserRoleAssignment
+		var roleIDsJSON []byte
+		if err := rows.Scan(
+			&assignment.UserID, &assignment.FullName, &assignment.StaffID,
+			&assignment.Email, &assignment.EmploymentStatus, &assignment.AccountActive,
+			&roleIDsJSON,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan user role assignment: %w", err)
+		}
+		if err := json.Unmarshal(roleIDsJSON, &assignment.RoleIDs); err != nil {
+			return nil, 0, fmt.Errorf("decode user role assignment: %w", err)
+		}
+		assignments = append(assignments, assignment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate user role assignments: %w", err)
+	}
+	return assignments, total, nil
+}
+
 func (s *Store) ReplaceUserRoles(
 	ctx context.Context,
 	actorID, userID string,

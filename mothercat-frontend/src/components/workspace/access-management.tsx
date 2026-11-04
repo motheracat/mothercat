@@ -1,7 +1,19 @@
 "use client";
 
-import { KeyRound, Plus, RefreshCw, Save, Search, ShieldCheck, UserRoundCog } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  KeyRound,
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
+  ShieldCheck,
+  UserRoundCog,
+  UsersRound,
+} from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { EmptyState, ErrorBanner, PageHeader, StatusPill } from "@/components/workspace/ui";
@@ -9,16 +21,14 @@ import {
   AccessApiError,
   createRole,
   formatAccessError,
-  getUserRoles,
+  listUserRoleAssignments,
   listPermissions,
   listRoles,
   replaceRolePermissions,
   replaceUserRoles,
   updateRole,
 } from "@/lib/access/api";
-import type { AccessPermission, AccessRole } from "@/lib/access/api";
-import { listStaff } from "@/lib/organization/api";
-import type { StaffMember } from "@/lib/organization/api";
+import type { AccessPermission, AccessRole, UserRoleAssignmentSummary } from "@/lib/access/api";
 
 type Props = {
   canRead: boolean;
@@ -49,14 +59,18 @@ export function AccessManagement({
   const [newRoleId, setNewRoleId] = useState("");
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleDescription, setNewRoleDescription] = useState("");
-  const [staffSearch, setStaffSearch] = useState("");
-  const [searchedStaffQuery, setSearchedStaffQuery] = useState<string | null>(null);
-  const [staffResults, setStaffResults] = useState<StaffMember[]>([]);
-  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
+  const [people, setPeople] = useState<UserRoleAssignmentSummary[]>([]);
+  const [peopleSearchDraft, setPeopleSearchDraft] = useState("");
+  const [peopleSearch, setPeopleSearch] = useState("");
+  const [peopleRoleFilter, setPeopleRoleFilter] = useState("");
+  const [peopleOffset, setPeopleOffset] = useState(0);
+  const [peopleTotal, setPeopleTotal] = useState(0);
+  const [peopleLoading, setPeopleLoading] = useState(canRead);
+  const [peopleError, setPeopleError] = useState(false);
+  const [expandedUserId, setExpandedUserId] = useState("");
+  const [selectedAssignment, setSelectedAssignment] = useState<UserRoleAssignmentSummary | null>(null);
   const [userRoleDraft, setUserRoleDraft] = useState<string[]>([]);
   const [loading, setLoading] = useState(canRead);
-  const [staffLoading, setStaffLoading] = useState(false);
-  const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -71,6 +85,33 @@ export function AccessManagement({
   const hasWildcard = actorPermissionSet.has("*");
   const canDelegatePermission = (key: string) => hasWildcard || actorPermissionSet.has(key);
   const canDelegateRole = (role: AccessRole) => role.permissions.every(canDelegatePermission);
+  const peoplePageSize = 20;
+
+  useEffect(() => {
+    if (!canRead) return;
+    const controller = new AbortController();
+    void listUserRoleAssignments({
+      limit: peoplePageSize,
+      offset: peopleOffset,
+      ...(peopleSearch ? { search: peopleSearch } : {}),
+      ...(peopleRoleFilter ? { roleId: peopleRoleFilter } : {}),
+    }, controller.signal)
+      .then(({ users, total }) => {
+        setPeople(users);
+        setPeopleTotal(total);
+        setPeopleError(false);
+      })
+      .catch((loadError: unknown) => {
+        if (!controller.signal.aborted) {
+          setPeopleError(true);
+          setError(formatAccessError(loadError, "Unable to load staff role assignments."));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPeopleLoading(false);
+      });
+    return () => controller.abort();
+  }, [canRead, peopleOffset, peopleRoleFilter, peopleSearch, refreshKey]);
 
   useEffect(() => {
     if (!canRead) {
@@ -102,28 +143,11 @@ export function AccessManagement({
     return () => controller.abort();
   }, [canRead, refreshKey]);
 
-  useEffect(() => {
-    if (!selectedStaff?.account_id) {
-      return;
-    }
-    const controller = new AbortController();
-    void getUserRoles(selectedStaff.account_id, controller.signal)
-      .then((assignment) => setUserRoleDraft(assignment.role_ids))
-      .catch((loadError: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(formatAccessError(loadError, "Unable to load this staff member’s role assignments."));
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setAssignmentLoading(false);
-      });
-    return () => controller.abort();
-  }, [selectedStaff]);
-
   const reload = useCallback(() => {
     setError(null);
     setNotice(null);
     setLoading(true);
+    setPeopleLoading(true);
     setRefreshKey((key) => key + 1);
   }, []);
 
@@ -148,6 +172,7 @@ export function AccessManagement({
       setNameDraft(created.name);
       setDescriptionDraft(created.description);
       setLoading(true);
+      setPeopleLoading(true);
       setNotice(`Role “${created.name}” created. Add its permissions below.`);
       setRefreshKey((key) => key + 1);
     } catch (saveError: unknown) {
@@ -198,40 +223,34 @@ export function AccessManagement({
     }
   }
 
-  async function searchStaffAccounts(event: FormEvent<HTMLFormElement>) {
+  async function searchPeople(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const query = staffSearch.trim();
-    setStaffLoading(true);
-    setSearchedStaffQuery(null);
+    const nextSearch = peopleSearchDraft.trim();
+    setPeopleLoading(true);
     setError(null);
-    setStaffResults([]);
-    setSelectedStaff(null);
-    setUserRoleDraft([]);
-    setAssignmentLoading(false);
-    try {
-      const result = await listStaff({
-        limit: 50,
-        offset: 0,
-        ...(query ? { search: query } : {}),
-      });
-      setStaffResults(result.staff.filter((staff) => staff.account_id));
-      setSearchedStaffQuery(query);
-    } catch (searchError: unknown) {
-      setError(formatAccessError(searchError, "Unable to search staff accounts."));
-    } finally {
-      setStaffLoading(false);
+    setNotice(null);
+    if (nextSearch === peopleSearch && peopleOffset === 0) {
+      setRefreshKey((key) => key + 1);
     }
+    setPeopleSearch(nextSearch);
+    setPeopleOffset(0);
+    setExpandedUserId("");
+    setSelectedAssignment(null);
   }
 
   async function saveUserRoles() {
-    if (!selectedStaff?.account_id || selectedStaff.account_id === currentUserId) return;
+    if (!selectedAssignment || selectedAssignment.user_id === currentUserId) return;
     setSaving(true);
     setError(null);
     setNotice(null);
     try {
-      const saved = await replaceUserRoles(selectedStaff.account_id, userRoleDraft);
+      const saved = await replaceUserRoles(selectedAssignment.user_id, userRoleDraft);
       setUserRoleDraft(saved.role_ids);
-      setNotice(`Role assignments updated for ${selectedStaff.full_name}.`);
+      setPeople((current) => current.map((person) => person.user_id === saved.user_id
+        ? { ...person, role_ids: saved.role_ids }
+        : person));
+      setSelectedAssignment((current) => current ? { ...current, role_ids: saved.role_ids } : current);
+      setNotice(`Role assignments updated for ${selectedAssignment.full_name}.`);
     } catch (saveError: unknown) {
       setError(formatAccessError(saveError, "Unable to update role assignments."));
     } finally {
@@ -268,93 +287,219 @@ export function AccessManagement({
       {error ? <ErrorBanner message={error} onRetry={reload} /> : null}
       {notice ? <p role="status" className="access-notice">{notice}</p> : null}
 
-      {canAssign ? (
-        <section className="surface-card access-user-roles">
-          <div className="surface-card-header access-section-heading">
-            <div className="access-heading-icon"><UserRoundCog size={18} aria-hidden="true" /></div>
+      <section className="surface-card access-directory-card" aria-labelledby="access-directory-heading">
+        <div className="access-directory-intro">
+          <div className="access-directory-title">
+            <div className="access-heading-icon"><UsersRound size={19} aria-hidden="true" /></div>
             <div className="access-heading-copy">
-              <h2 className="surface-title">Assign roles to a staff account</h2>
-              <p>Search for a provisioned account, then replace its role assignments.</p>
+              <h2 className="surface-title" id="access-directory-heading">People &amp; access</h2>
+              <p>See who has access beyond the standard staff role, and manage assignments in place.</p>
             </div>
           </div>
-          <div className="access-user-role-body">
-            <form className="access-staff-search" onSubmit={searchStaffAccounts}>
-              <label className="workspace-field">
-                <span className="field-label">Search staff</span>
-                <input
-                  className="form-input"
-                  value={staffSearch}
-                  onChange={(event) => setStaffSearch(event.target.value)}
-                  placeholder="Name, staff ID, or email"
-                />
-              </label>
-              <button type="submit" className="button-secondary" disabled={staffLoading}>
-                <Search size={16} aria-hidden="true" /> {staffLoading ? "Searching…" : "Search"}
-              </button>
-            </form>
-            {staffResults.length ? (
-              <label className="workspace-field access-staff-result-select">
-                <span className="field-label">Provisioned accounts</span>
-                <select
-                  className="form-select"
-                  value={selectedStaff?.id ?? ""}
-                  onChange={(event) => {
-                    setUserRoleDraft([]);
-                    const staff = staffResults.find((item) => item.id === event.target.value) ?? null;
-                    setAssignmentLoading(Boolean(staff?.account_id && staff.account_id !== currentUserId));
-                    setSelectedStaff(staff);
-                  }}
-                >
-                  <option value="">Select a staff account</option>
-                  {staffResults.map((staff) => (
-                    <option key={staff.id} value={staff.id}>
-                      {staff.full_name} · ID:{staff.staff_id}{staff.account_id === currentUserId ? " · Your account" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            {staffResults.length === 0 && !staffLoading && staffSearch.trim() && searchedStaffQuery === staffSearch.trim() ? (
-              <p className="access-helper">No provisioned accounts found. Search results include staff profiles that have an account.</p>
-            ) : null}
-            {selectedStaff?.account_id ? (
-              selectedStaff.account_id === currentUserId ? (
-                <p className="access-warning" role="note">You cannot change roles for your own account.</p>
-              ) : (
-                <div className="access-assignment-editor">
-                  <p className="access-assignment-title">Roles for {selectedStaff.full_name}</p>
-                  {assignmentLoading ? <p role="status" className="access-loading">Loading current assignments…</p> : null}
-                  <div className="access-assignment-list" aria-busy={assignmentLoading}>
-                    {roles.map((role) => {
-                      const checked = userRoleDraft.includes(role.role_id);
-                      const delegable = canDelegateRole(role);
-                      const disabled = saving || (!delegable && !checked);
-                      return (
-                        <label className={`access-assignment-option${disabled ? " is-disabled" : ""}`} key={role.role_id}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={disabled}
-                            onChange={(event) => setUserRoleDraft((current) => event.target.checked
-                              ? [...current, role.role_id]
-                              : current.filter((roleId) => roleId !== role.role_id))}
-                          />
-                          <span><strong>{role.name}</strong><small>{role.description || role.role_id}</small></span>
-                          {!delegable && !checked ? <span className="access-cannot-delegate">Contains access you don’t hold</span> : null}
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <button type="button" className="button-primary" disabled={saving || assignmentLoading} onClick={() => void saveUserRoles()}>
-                    <Save size={16} aria-hidden="true" /> {saving ? "Saving…" : "Save role assignments"}
-                  </button>
-                  <p className="access-helper">This replaces all selected account roles. The backend prevents privilege escalation and protects the last active Super Admin.</p>
-                </div>
-              )
-            ) : null}
+          <button type="button" className="button-ghost access-refresh" onClick={reload} disabled={loading || peopleLoading} aria-label="Refresh access data">
+            <RefreshCw size={16} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="access-summary-grid">
+          <div className="access-summary-card">
+            <span className="access-summary-icon"><UsersRound size={17} aria-hidden="true" /></span>
+            <span className="access-summary-label">Accounts matching filters</span>
+            <strong>{peopleTotal}</strong>
           </div>
-        </section>
-      ) : null}
+          <div className="access-summary-card">
+            <span className="access-summary-icon access-summary-icon-accent"><ShieldCheck size={17} aria-hidden="true" /></span>
+            <span className="access-summary-label">With additional roles <small>on this page</small></span>
+            <strong>{people.filter((person) => person.role_ids.some((roleId) => roleId !== "staff")).length}</strong>
+          </div>
+          <div className="access-summary-card">
+            <span className="access-summary-icon access-summary-icon-accent"><KeyRound size={17} aria-hidden="true" /></span>
+            <span className="access-summary-label">Roles available</span>
+            <strong>{roles.length}</strong>
+          </div>
+        </div>
+        <form className="access-directory-controls" onSubmit={searchPeople}>
+          <label className="access-directory-search">
+            <span className="sr-only">Search staff accounts</span>
+            <Search size={17} aria-hidden="true" />
+            <input
+              value={peopleSearchDraft}
+              onChange={(event) => setPeopleSearchDraft(event.target.value)}
+              placeholder="Search name, staff ID, or email"
+            />
+          </label>
+          <label className="access-directory-role-filter">
+            <span className="sr-only">Filter by role</span>
+            <select
+              className="form-select"
+              value={peopleRoleFilter}
+              onChange={(event) => {
+                setPeopleLoading(true);
+                setError(null);
+                setNotice(null);
+                setPeopleRoleFilter(event.target.value);
+                setPeopleOffset(0);
+                setExpandedUserId("");
+                setSelectedAssignment(null);
+              }}
+            >
+              <option value="">All roles</option>
+              {roles.map((role) => <option key={role.role_id} value={role.role_id}>{role.name}</option>)}
+            </select>
+          </label>
+          <button type="submit" className="button-secondary" disabled={peopleLoading}>
+            {peopleLoading ? "Loading…" : "Search"}
+          </button>
+        </form>
+        <div className="access-directory-table-wrap" aria-busy={peopleLoading}>
+          <table className="data-table access-directory-table">
+            <thead>
+              <tr>
+                <th scope="col">Staff member</th>
+                <th scope="col">Account</th>
+                <th scope="col">Assigned roles</th>
+                {canAssign ? <th scope="col"><span className="sr-only">Actions</span></th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {peopleLoading ? (
+                <tr><td colSpan={canAssign ? 4 : 3} className="access-directory-state">Loading staff access…</td></tr>
+              ) : people.length ? people.map((person) => {
+                const expanded = expandedUserId === person.user_id;
+                return (
+                  <Fragment key={person.user_id}>
+                    <tr className={expanded ? "is-expanded" : ""}>
+                      <td>
+                        <div className="access-person-cell">
+                          <span className="access-person-avatar" aria-hidden="true">{person.full_name.trim().charAt(0).toUpperCase() || "?"}</span>
+                          <span className="access-person-copy">
+                            <strong>{person.full_name}</strong>
+                            <span>{person.email || "No email address"} · ID {person.staff_id}</span>
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <StatusPill
+                          label={person.account_active ? "Account active" : "Account inactive"}
+                          tone={person.account_active ? "success" : "neutral"}
+                        />
+                        <span className="access-employment-status">{person.employment_status}</span>
+                      </td>
+                      <td>
+                        <div className="access-role-chips">
+                          {person.role_ids.length ? person.role_ids.map((roleId) => {
+                            const role = roles.find((item) => item.role_id === roleId);
+                            return (
+                              <span className={`access-role-chip${roleId === "staff" ? " is-base-role" : ""}`} key={roleId}>
+                                {role?.name ?? roleId}
+                              </span>
+                            );
+                          }) : <span className="access-no-roles">No roles assigned</span>}
+                        </div>
+                      </td>
+                      {canAssign ? (
+                        <td className="access-directory-action-cell">
+                          <button
+                            type="button"
+                            className="button-secondary access-edit-roles"
+                            aria-expanded={expanded}
+                            aria-controls={`assignment-${person.user_id}`}
+                            aria-label={`${expanded ? "Close" : "Edit"} roles for ${person.full_name}`}
+                            onClick={() => {
+                              if (expanded) {
+                                setExpandedUserId("");
+                                setSelectedAssignment(null);
+                                return;
+                              }
+                              setExpandedUserId(person.user_id);
+                              setSelectedAssignment(person);
+                              setUserRoleDraft(person.role_ids);
+                            }}
+                          >
+                            {expanded ? "Close" : "Manage"} <ChevronDown size={15} aria-hidden="true" />
+                          </button>
+                        </td>
+                      ) : null}
+                    </tr>
+                    {canAssign && expanded ? (
+                      <tr className="access-expanded-row">
+                        <td colSpan={4}>
+                          <section className="access-inline-editor" id={`assignment-${person.user_id}`} aria-label={`Role assignments for ${person.full_name}`}>
+                            {person.user_id === currentUserId ? (
+                              <p className="access-warning" role="note">You cannot change roles for your own account.</p>
+                            ) : (
+                              <>
+                                <div className="access-inline-editor-heading">
+                                  <div>
+                                    <h3>Manage roles for {person.full_name}</h3>
+                                    <p>Select the complete set of roles this account should have.</p>
+                                  </div>
+                                  <span>{userRoleDraft.length} selected</span>
+                                </div>
+                                <div className="access-assignment-list">
+                                  {roles.map((role) => {
+                                    const checked = userRoleDraft.includes(role.role_id);
+                                    const delegable = canDelegateRole(role);
+                                    const disabled = saving || (!delegable && !checked);
+                                    return (
+                                      <label className={`access-assignment-option${disabled ? " is-disabled" : ""}`} key={role.role_id}>
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          disabled={disabled}
+                                          onChange={(event) => setUserRoleDraft((current) => event.target.checked
+                                            ? [...current, role.role_id]
+                                            : current.filter((roleId) => roleId !== role.role_id))}
+                                        />
+                                        <span><strong>{role.name}</strong><small>{role.description || role.role_id}</small></span>
+                                        {!delegable && !checked ? <span className="access-cannot-delegate">Contains access you don’t hold</span> : null}
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                                <div className="access-inline-editor-footer">
+                                  <p>The selected set replaces all current assignments. Privilege escalation and removal of the last Super Admin are blocked.</p>
+                                  <button type="button" className="button-primary" disabled={saving} onClick={() => void saveUserRoles()}>
+                                    <Save size={16} aria-hidden="true" /> {saving ? "Saving…" : "Save assignments"}
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </section>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              }) : (
+                <tr><td colSpan={canAssign ? 4 : 3} className="access-directory-state">
+                  <span className="access-directory-empty-icon"><UserRoundCog size={21} aria-hidden="true" /></span>
+                  <strong>{peopleError ? "Unable to load staff access" : "No provisioned accounts found"}</strong>
+                  <span>{peopleError ? "Refresh the page and try again." : "Try a different search or role filter."}</span>
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="access-directory-pagination">
+          <span>
+            {peopleTotal ? `Showing ${peopleOffset + 1}–${Math.min(peopleOffset + people.length, peopleTotal)} of ${peopleTotal}` : "No accounts"}
+          </span>
+          <div>
+            <button type="button" className="button-ghost" aria-label="Previous page" disabled={peopleLoading || peopleOffset === 0} onClick={() => {
+              setPeopleLoading(true);
+              setPeopleOffset((offset) => Math.max(0, offset - peoplePageSize));
+            }}>
+              <ChevronLeft size={17} aria-hidden="true" />
+            </button>
+            <button type="button" className="button-ghost" aria-label="Next page" disabled={peopleLoading || peopleOffset + peoplePageSize >= peopleTotal} onClick={() => {
+              setPeopleLoading(true);
+              setPeopleOffset((offset) => offset + peoplePageSize);
+            }}>
+              <ChevronRight size={17} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </section>
 
       {createOpen ? (
         <section className="surface-card access-create-card" aria-labelledby="create-role-heading">
