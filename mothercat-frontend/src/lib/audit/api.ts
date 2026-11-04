@@ -159,11 +159,25 @@ export async function getAuditEvent(id: string, signal?: AbortSignal): Promise<A
   return parseAuditEvent(payload.event);
 }
 
-export function formatAuditError(error: unknown, fallback: string): string {
+export function formatAuditError(
+  error: unknown,
+  fallback: string,
+  developmentOpen = false,
+): string {
   if (!(error instanceof AuditApiError)) return fallback;
-  if (error.status === 401) return "Your session has expired. Sign in again.";
+  if (error.status === 401) {
+    return developmentOpen
+      ? "Development-open mode uses a mock workspace session. Sign in to the backend with an account that has audit.read to load real audit events."
+      : "Your session has expired. Sign in again.";
+  }
   if (error.status === 403) {
     return "Your account isn't authorized to view audit events. Ask an administrator to verify your audit.read permission.";
+  }
+  if (error.code === "upstream_unavailable") {
+    return "The audit API isn't reachable. Start the backend and verify API_BASE_URL, then retry.";
+  }
+  if (error.status === 503) {
+    return "The audit service is temporarily unavailable. Check the backend and database, then retry.";
   }
   if (error.status === 0) return error.message;
   return fallback;

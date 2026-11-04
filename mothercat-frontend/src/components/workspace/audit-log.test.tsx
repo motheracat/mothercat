@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuditLog } from "@/components/workspace/audit-log";
+import { AuditApiError } from "@/lib/audit/api";
 
 const auditMocks = vi.hoisted(() => ({
   listAuditEvents: vi.fn(),
@@ -100,6 +101,17 @@ describe("AuditLog", () => {
     expect(auditMocks.listAuditEvents).not.toHaveBeenCalled();
   });
 
+  it("allows development-open preview and explains backend authentication failures", async () => {
+    auditMocks.listAuditEvents.mockRejectedValueOnce(
+      new AuditApiError("unauthorized", 401, "unauthorized"),
+    );
+    render(<AuditLog canRead developmentOpen />);
+
+    expect(await screen.findByText(/Development-open mode uses a mock workspace session/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Sign in to the backend with an account that has audit\.read/i)).toBeInTheDocument();
+    expect(auditMocks.listAuditEvents).toHaveBeenCalledOnce();
+  });
+
   it("shows a real empty state and distinguishes it from load errors", async () => {
     auditMocks.listAuditEvents.mockResolvedValue({ events: [], total: 0, limit: 25, offset: 0 });
     render(<AuditLog canRead />);
@@ -117,6 +129,16 @@ describe("AuditLog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("staff.updated")).toBeInTheDocument();
     expect(auditMocks.listAuditEvents).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a backend connection message for an unavailable API", async () => {
+    auditMocks.listAuditEvents.mockRejectedValueOnce(
+      new AuditApiError("upstream unavailable", 503, "upstream_unavailable"),
+    );
+    render(<AuditLog canRead />);
+
+    expect(await screen.findByText(/The audit API isn't reachable/i)).toBeInTheDocument();
+    expect(screen.queryByText("No audit events are available yet.")).not.toBeInTheDocument();
   });
 
   it("validates date ranges before requesting results", async () => {

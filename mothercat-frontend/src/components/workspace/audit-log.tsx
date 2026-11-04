@@ -122,7 +122,13 @@ function AuditEventDetails({
   );
 }
 
-export function AuditLog({ canRead }: { canRead: boolean }) {
+export function AuditLog({
+  canRead,
+  developmentOpen = false,
+}: {
+  canRead: boolean;
+  developmentOpen?: boolean;
+}) {
   const [draft, setDraft] = useState<FilterDraft>(emptyFilter);
   const [filters, setFilters] = useState<FilterDraft>(emptyFilter);
   const [offset, setOffset] = useState(0);
@@ -158,12 +164,12 @@ export function AuditLog({ canRead }: { canRead: boolean }) {
     } catch (error) {
       if (!signal.aborted) {
         setEvents([]);
-        setListError(formatAuditError(error, "Unable to load audit events."));
+        setListError(formatAuditError(error, "Unable to load audit events.", developmentOpen));
       }
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [filters, offset]);
+  }, [developmentOpen, filters, offset]);
 
   useEffect(() => {
     if (!canRead) return;
@@ -181,14 +187,14 @@ export function AuditLog({ canRead }: { canRead: boolean }) {
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
-          setDetailError(formatAuditError(error, "Unable to load this audit event."));
+          setDetailError(formatAuditError(error, "Unable to load this audit event.", developmentOpen));
         }
       })
       .finally(() => {
         if (!controller.signal.aborted) setDetailLoading(false);
       });
     return () => controller.abort();
-  }, [selectedEventId, detailRefreshKey]);
+  }, [developmentOpen, selectedEventId, detailRefreshKey]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -289,6 +295,12 @@ export function AuditLog({ canRead }: { canRead: boolean }) {
           </button>
         )}
       />
+
+      {developmentOpen ? (
+        <p className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
+          Development-open mode lets you preview this page. The API still checks your real session and audit.read permission before returning events.
+        </p>
+      ) : null}
 
       <Panel title="Find events">
         <form className="grid gap-4 p-4" onSubmit={applyFilters}>

@@ -5,6 +5,6 @@ import { hasPermission } from "@/lib/auth/permissions";
 
 export default async function AuditPage() {
   const session = await getCurrentSession();
-  const canRead = !isDevOpen() && hasPermission(session, "audit.read");
-  return <AuditLog canRead={canRead} />;
+  const canRead = hasPermission(session, "audit.read");
+  return <AuditLog canRead={canRead} developmentOpen={isDevOpen()} />;
 }

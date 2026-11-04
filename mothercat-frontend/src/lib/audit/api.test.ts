@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AuditApiError,
+  formatAuditError,
   getAuditEvent,
   listAuditEvents,
 } from "@/lib/audit/api";
@@ -75,6 +76,23 @@ describe("Audit API", () => {
       code: "permission_denied",
       requestId: "request-123",
     } satisfies Partial<AuditApiError>);
+  });
+
+  it("explains that development-open mode still requires a real backend session", () => {
+    const error = new AuditApiError("unauthorized", 401, "unauthorized");
+    expect(formatAuditError(error, "Unable to load audit events.", true)).toContain(
+      "Development-open mode uses a mock workspace session.",
+    );
+    expect(formatAuditError(error, "Unable to load audit events.")).toBe(
+      "Your session has expired. Sign in again.",
+    );
+  });
+
+  it("explains when the frontend cannot reach the backend", () => {
+    const error = new AuditApiError("upstream unavailable", 503, "upstream_unavailable");
+    expect(formatAuditError(error, "Unable to load audit events.")).toBe(
+      "The audit API isn't reachable. Start the backend and verify API_BASE_URL, then retry.",
+    );
   });
 
   it("rejects malformed event response data", async () => {
