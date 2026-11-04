@@ -29,7 +29,10 @@ export const apiRoutes = {
   },
   departmentDetails: (departmentId: string) => `/departments/${departmentId}`,
   roles: "/roles",
-  audit: "/audit",
+  audit: {
+    list: "/audit-events",
+    details: (eventId: string) => `/audit-events/${eventId}`,
+  },
   settings: "/settings",
 } as const;
 
