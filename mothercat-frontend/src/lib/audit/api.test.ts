@@ -95,6 +95,11 @@ describe("Audit API", () => {
     );
   });
 
+  it("includes the request ID for backend failures", () => {
+    const error = new AuditApiError("internal error", 500, "internal_error", "audit-request-123");
+    expect(formatAuditError(error, "Unable to load audit events.")).toContain("audit-request-123");
+  });
+
   it("rejects malformed event response data", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       event: { ...event, details: "not-an-object" },

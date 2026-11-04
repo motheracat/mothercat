@@ -179,6 +179,14 @@ export function formatAuditError(
   if (error.status === 503) {
     return "The audit service is temporarily unavailable. Check the backend and database, then retry.";
   }
+  if (error.status === 500) {
+    return error.requestId
+      ? `The audit service failed while loading events. Ask an administrator to check backend logs with request ID ${error.requestId}.`
+      : "The audit service failed while loading events. Check the backend logs and try again.";
+  }
+  if (error.status === 400) {
+    return "The audit service rejected these filters. Clear the filters and try again.";
+  }
   if (error.status === 0) return error.message;
   return fallback;
 }

@@ -141,6 +141,15 @@ describe("AuditLog", () => {
     expect(screen.queryByText("No audit events are available yet.")).not.toBeInTheDocument();
   });
 
+  it("shows the backend request ID when the audit API fails internally", async () => {
+    auditMocks.listAuditEvents.mockRejectedValueOnce(
+      new AuditApiError("internal error", 500, "internal_error", "audit-request-123"),
+    );
+    render(<AuditLog canRead />);
+
+    expect(await screen.findByText(/backend logs with request ID audit-request-123/i)).toBeInTheDocument();
+  });
+
   it("validates date ranges before requesting results", async () => {
     render(<AuditLog canRead />);
     await screen.findByText("staff.updated");
