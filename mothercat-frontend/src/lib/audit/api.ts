@@ -132,21 +132,22 @@ export async function listAuditEvents(
   if (filter.to) query.set("to", filter.to);
 
   const payload = await request(`${apiRoutes.audit.list}?${query}`, signal);
+  const page = isRecord(payload) ? payload.page ?? payload.pagination : undefined;
   if (
     !isRecord(payload) ||
     !Array.isArray(payload.events) ||
-    !isRecord(payload.page) ||
-    typeof payload.page.limit !== "number" ||
-    typeof payload.page.offset !== "number" ||
-    typeof payload.page.total !== "number"
+    !isRecord(page) ||
+    typeof page.limit !== "number" ||
+    typeof page.offset !== "number" ||
+    typeof page.total !== "number"
   ) {
     throw new AuditApiError("The audit service returned an invalid event list.", 502, "invalid_response");
   }
   return {
     events: payload.events.map(parseAuditEvent),
-    total: payload.page.total,
-    limit: payload.page.limit,
-    offset: payload.page.offset,
+    total: page.total,
+    limit: page.limit,
+    offset: page.offset,
   };
 }
 

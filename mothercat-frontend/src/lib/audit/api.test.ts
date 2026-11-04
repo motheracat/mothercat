@@ -123,4 +123,18 @@ describe("Audit API", () => {
       total: 1,
     });
   });
+
+  it("accepts the pagination envelope used by other backend list endpoints", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      events: [event],
+      pagination: { limit: 25, offset: 0, total: 1 },
+    }), { status: 200 })));
+
+    await expect(listAuditEvents({ limit: 25, offset: 0 })).resolves.toMatchObject({
+      events: [event],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    });
+  });
 });
