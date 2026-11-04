@@ -59,6 +59,7 @@ describe("Access API", () => {
       full_name: "Taylor Staff",
       staff_id: "12345",
       email: "taylor@example.com",
+      profile_image_url: null,
       employment_status: "active",
       account_active: true,
       role_ids: ["staff", "auditor"],

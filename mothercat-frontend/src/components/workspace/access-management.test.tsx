@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccessManagement } from "@/components/workspace/access-management";
@@ -12,12 +12,43 @@ const accessMocks = vi.hoisted(() => ({
   getUserRoles: vi.fn(),
   replaceUserRoles: vi.fn(),
   listUserRoleAssignments: vi.fn(),
+  listStaff: vi.fn(),
 }));
 
 vi.mock("@/lib/access/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/access/api")>();
   return { ...actual, ...accessMocks };
 });
+
+vi.mock("@/lib/organization/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/organization/api")>();
+  return { ...actual, listStaff: accessMocks.listStaff };
+});
+
+vi.mock("next/image", () => ({
+  default: ({ src, className }: { src: string; className?: string }) => (
+    <span data-image-source={src} className={className} />
+  ),
+}));
+
+vi.mock("@/components/workspace/dialog", () => ({
+  Dialog: ({
+    open,
+    title,
+    children,
+    actions,
+  }: {
+    open: boolean;
+    title: string;
+    children: React.ReactNode;
+    actions?: React.ReactNode;
+  }) => open ? (
+    <section role="dialog" aria-label={title}>
+      {children}
+      {actions}
+    </section>
+  ) : null,
+}));
 
 afterEach(cleanup);
 
@@ -56,20 +87,27 @@ beforeEach(() => {
       full_name: "Taylor Staff",
       staff_id: "12345",
       email: "taylor@example.com",
+      profile_image_url: null,
       employment_status: "active",
       account_active: true,
       role_ids: ["staff"],
     }],
     total: 1,
   });
+  accessMocks.listStaff.mockResolvedValue({
+    staff: [],
+    total: 0,
+    pagination: { limit: 100, offset: 0, total: 0 },
+  });
 });
 
-function renderAccessPage() {
+function renderAccessPage(canReadStaff = true) {
   return render(
     <AccessManagement
       canRead
       canManage
       canAssign
+      canReadStaff={canReadStaff}
       permissions={["roles.read", "roles.manage", "user_roles.assign", "staff.read", "audit.read"]}
       currentUserId="current-user"
     />,
@@ -101,10 +139,11 @@ describe("AccessManagement", () => {
     renderAccessPage();
 
     fireEvent.click(await screen.findByRole("button", { name: /create role/i }));
+    const createDialog = screen.getByRole("dialog", { name: "Create a role" });
     fireEvent.change(screen.getByPlaceholderText("e.g. project_reviewer"), { target: { value: "project_reviewer" } });
-    fireEvent.change(screen.getAllByLabelText("Display name")[0], { target: { value: "Project Reviewer" } });
-    fireEvent.change(screen.getAllByLabelText("Description")[0], { target: { value: "Reviews project reports" } });
-    fireEvent.click(screen.getByRole("button", { name: /create role/i }));
+    fireEvent.change(within(createDialog).getByLabelText("Display name"), { target: { value: "Project Reviewer" } });
+    fireEvent.change(within(createDialog).getByLabelText("Description"), { target: { value: "Reviews project reports" } });
+    fireEvent.click(within(createDialog).getByRole("button", { name: /create role/i }));
 
     await waitFor(() => {
       expect(accessMocks.createRole).toHaveBeenCalledWith({
@@ -113,12 +152,40 @@ describe("AccessManagement", () => {
         description: "Reviews project reports",
       });
     });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create a role" })).not.toBeInTheDocument());
+  });
+
+  it("uses the supplied skyline image in the workspace security box", async () => {
+    const { container } = renderAccessPage(false);
+    await screen.findByText("WORKSPACE SECURITY");
+
+    expect(container.querySelector(".access-control-hero-image")).toHaveAttribute(
+      "data-image-source",
+      "/images/Blueprint%20Construction%20Skyline.png",
+    );
+  });
+
+  it("keeps role creation errors visible inside the modal", async () => {
+    accessMocks.createRole.mockRejectedValue(new Error("Role creation failed."));
+    renderAccessPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create role" }));
+    const createDialog = screen.getByRole("dialog", { name: "Create a role" });
+    fireEvent.change(within(createDialog).getByPlaceholderText("e.g. project_reviewer"), { target: { value: "project_reviewer" } });
+    fireEvent.change(within(createDialog).getByLabelText("Display name"), { target: { value: "Project Reviewer" } });
+    fireEvent.click(within(createDialog).getByRole("button", { name: "Create role" }));
+
+    expect(await within(createDialog).findByRole("alert")).toHaveTextContent("Unable to create the role.");
+    expect(screen.getByRole("dialog", { name: "Create a role" })).toBeInTheDocument();
   });
 
   it("allows searching for a provisioned account and saving its role assignments", async () => {
     renderAccessPage();
     await screen.findByRole("button", { name: /^Auditor/ });
     await screen.findByText("Taylor Staff");
+    expect(screen.getByRole("img", { name: "Active" })).toBeInTheDocument();
+    expect(screen.queryByText("Account active")).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Account" })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Search name, staff ID, or email"), { target: { value: "Taylor" } });
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
@@ -130,7 +197,7 @@ describe("AccessManagement", () => {
       }, expect.any(AbortSignal));
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit roles for Taylor Staff/i }));
+    fireEvent.click(screen.getByRole("button", { name: /View account for Taylor Staff/i }));
 
     fireEvent.click(screen.getByRole("checkbox", { name: /Auditor/ }));
     fireEvent.click(screen.getByRole("button", { name: /save assignments/i }));
@@ -138,6 +205,47 @@ describe("AccessManagement", () => {
     await waitFor(() => {
       expect(accessMocks.replaceUserRoles).toHaveBeenCalledWith("target-user", ["staff", "auditor"]);
     });
+  });
+
+  it("loads the matching staff profile picture instead of leaving an initials avatar", async () => {
+    accessMocks.listStaff.mockResolvedValue({
+      staff: [{
+        id: "staff-record",
+        account_id: "target-user",
+        staff_id: "12345",
+        department_id: null,
+        full_name: "Taylor Staff",
+        profile_image_url: "https://res.cloudinary.com/example/taylor.png",
+        work_email: "taylor@example.com",
+        job_title: null,
+        employment_status: "active",
+      }],
+      total: 1,
+      pagination: { limit: 100, offset: 0, total: 1 },
+    });
+    const { container } = renderAccessPage();
+    expect(await screen.findByText("Taylor Staff")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector(".access-person-avatar [data-image-source]")).toHaveAttribute(
+        "data-image-source",
+        "https://res.cloudinary.com/example/taylor.png",
+      );
+    });
+    expect(accessMocks.listStaff).toHaveBeenCalledWith(
+      { limit: 100, offset: 0, search: "12345" },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("uses a three-dot menu for role management and lets account rows expand", async () => {
+    renderAccessPage();
+    await screen.findByText("Taylor Staff");
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Taylor Staff" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Manage roles" }));
+
+    expect(await screen.findByRole("region", { name: "Role assignments for Taylor Staff" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close account for Taylor Staff" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("shows an empty state when the staff access search returns no results", async () => {

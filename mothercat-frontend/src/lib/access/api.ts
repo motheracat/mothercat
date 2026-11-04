@@ -24,6 +24,7 @@ export type UserRoleAssignmentSummary = {
   full_name: string;
   staff_id: string;
   email: string;
+  profile_image_url: string | null;
   employment_status: string;
   account_active: boolean;
   role_ids: string[];
@@ -222,6 +223,7 @@ export async function listUserRoleAssignments(
       full_name: item.full_name,
       staff_id: item.staff_id,
       email: item.email,
+      profile_image_url: typeof item.profile_image_url === "string" ? item.profile_image_url : null,
       employment_status: item.employment_status,
       account_active: item.account_active,
       role_ids: item.role_ids,

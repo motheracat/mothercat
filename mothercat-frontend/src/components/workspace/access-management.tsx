@@ -1,9 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import {
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Ellipsis,
   KeyRound,
   Plus,
   RefreshCw,
@@ -16,6 +17,7 @@ import {
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
+import { Dialog } from "@/components/workspace/dialog";
 import { EmptyState, ErrorBanner, PageHeader, StatusPill } from "@/components/workspace/ui";
 import {
   AccessApiError,
@@ -29,11 +31,13 @@ import {
   updateRole,
 } from "@/lib/access/api";
 import type { AccessPermission, AccessRole, UserRoleAssignmentSummary } from "@/lib/access/api";
+import { listStaff } from "@/lib/organization/api";
 
 type Props = {
   canRead: boolean;
   canManage: boolean;
   canAssign: boolean;
+  canReadStaff: boolean;
   permissions: string[];
   currentUserId: string;
 };
@@ -42,10 +46,24 @@ function isDuplicateRoleError(error: unknown) {
   return error instanceof AccessApiError && error.status === 409;
 }
 
+function AccessPersonAvatar({ name, imageUrl }: { name: string; imageUrl: string | null }) {
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+  const canShowImage = imageUrl && (imageUrl.startsWith("/") || /^https?:\/\//i.test(imageUrl));
+
+  return (
+    <span className="access-person-avatar" aria-hidden="true">
+      {canShowImage && failedImageUrl !== imageUrl ? (
+        <Image src={imageUrl} alt="" width={42} height={42} unoptimized onError={() => setFailedImageUrl(imageUrl)} />
+      ) : name.trim().charAt(0).toUpperCase() || "?"}
+    </span>
+  );
+}
+
 export function AccessManagement({
   canRead,
   canManage,
   canAssign,
+  canReadStaff,
   permissions: actorPermissions,
   currentUserId,
 }: Props) {
@@ -59,7 +77,10 @@ export function AccessManagement({
   const [newRoleId, setNewRoleId] = useState("");
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleDescription, setNewRoleDescription] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
   const [people, setPeople] = useState<UserRoleAssignmentSummary[]>([]);
+  const [staffImages, setStaffImages] = useState<Record<string, string>>({});
+  const [staffImageLookupFailed, setStaffImageLookupFailed] = useState(false);
   const [peopleSearchDraft, setPeopleSearchDraft] = useState("");
   const [peopleSearch, setPeopleSearch] = useState("");
   const [peopleRoleFilter, setPeopleRoleFilter] = useState("");
@@ -68,6 +89,7 @@ export function AccessManagement({
   const [peopleLoading, setPeopleLoading] = useState(canRead);
   const [peopleError, setPeopleError] = useState(false);
   const [expandedUserId, setExpandedUserId] = useState("");
+  const [menuUserId, setMenuUserId] = useState("");
   const [selectedAssignment, setSelectedAssignment] = useState<UserRoleAssignmentSummary | null>(null);
   const [userRoleDraft, setUserRoleDraft] = useState<string[]>([]);
   const [loading, setLoading] = useState(canRead);
@@ -114,6 +136,43 @@ export function AccessManagement({
   }, [canRead, peopleOffset, peopleRoleFilter, peopleSearch, refreshKey]);
 
   useEffect(() => {
+    if (!canReadStaff || people.length === 0) return;
+    const controller = new AbortController();
+    let nextIndex = 0;
+    let hadLookupFailure = false;
+    const workers = Array.from({ length: Math.min(4, people.length) }, async () => {
+      while (nextIndex < people.length && !controller.signal.aborted) {
+        const person = people[nextIndex];
+        nextIndex += 1;
+        const imageUrl = person.profile_image_url;
+        if (imageUrl) {
+          setStaffImages((current) => ({ ...current, [person.user_id]: imageUrl }));
+          continue;
+        }
+        try {
+          const result = await listStaff({
+            limit: 100,
+            offset: 0,
+            search: person.staff_id,
+          }, controller.signal);
+          const staffMember = result.staff.find((member) => member.staff_id === person.staff_id);
+          const staffImageUrl = staffMember?.profile_image_url;
+          if (staffImageUrl && !controller.signal.aborted) {
+            setStaffImages((current) => ({ ...current, [person.user_id]: staffImageUrl }));
+          }
+        } catch {
+          if (controller.signal.aborted) return;
+          hadLookupFailure = true;
+        }
+      }
+    });
+    void Promise.all(workers).then(() => {
+      if (!controller.signal.aborted) setStaffImageLookupFailed(hadLookupFailure);
+    });
+    return () => controller.abort();
+  }, [canReadStaff, people]);
+
+  useEffect(() => {
     if (!canRead) {
       return;
     }
@@ -146,6 +205,7 @@ export function AccessManagement({
   const reload = useCallback(() => {
     setError(null);
     setNotice(null);
+    setStaffImageLookupFailed(false);
     setLoading(true);
     setPeopleLoading(true);
     setRefreshKey((key) => key + 1);
@@ -154,6 +214,7 @@ export function AccessManagement({
   async function submitCreateRole(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
+    setCreateError(null);
     setError(null);
     setNotice(null);
     try {
@@ -176,7 +237,7 @@ export function AccessManagement({
       setNotice(`Role “${created.name}” created. Add its permissions below.`);
       setRefreshKey((key) => key + 1);
     } catch (saveError: unknown) {
-      setError(formatAccessError(saveError, isDuplicateRoleError(saveError)
+      setCreateError(formatAccessError(saveError, isDuplicateRoleError(saveError)
         ? "That role key or display name is already in use."
         : "Unable to create the role."));
     } finally {
@@ -258,6 +319,19 @@ export function AccessManagement({
     }
   }
 
+  function toggleAccount(person: UserRoleAssignmentSummary) {
+    if (expandedUserId === person.user_id) {
+      setExpandedUserId("");
+      setSelectedAssignment(null);
+      setMenuUserId("");
+      return;
+    }
+    setExpandedUserId(person.user_id);
+    setSelectedAssignment(person);
+    setUserRoleDraft(person.role_ids);
+    setMenuUserId("");
+  }
+
   if (!canRead) {
     return (
       <>
@@ -277,14 +351,37 @@ export function AccessManagement({
         title="Roles & permissions"
         description="Manage role access and account assignments."
         actions={canManage ? (
-          <button type="button" className="button-primary" onClick={() => setCreateOpen((open) => !open)}>
+          <button type="button" className="button-primary" onClick={() => { setCreateError(null); setCreateOpen(true); }}>
             <Plus size={17} aria-hidden="true" />
-            {createOpen ? "Close form" : "Create role"}
+            Create role
           </button>
         ) : null}
       />
 
+      <section className="access-control-hero" aria-label="Access control overview">
+        <Image
+          src="/images/Blueprint%20Construction%20Skyline.png"
+          alt=""
+          fill
+          priority
+          sizes="(max-width: 760px) 100vw, 1280px"
+          className="access-control-hero-image"
+        />
+        <span className="access-control-hero-overlay" aria-hidden="true" />
+        <div className="access-control-hero-icon"><ShieldCheck size={23} aria-hidden="true" /></div>
+        <div className="access-control-hero-copy">
+          <span>WORKSPACE SECURITY</span>
+          <p>Shape access around responsibilities. Review roles, permissions, and account assignments in one place.</p>
+        </div>
+        <div className="access-control-hero-badge"><span aria-hidden="true" /> Policy controls</div>
+      </section>
+
       {error ? <ErrorBanner message={error} onRetry={reload} /> : null}
+      {canReadStaff && staffImageLookupFailed ? (
+        <p role="status" className="access-image-fallback-notice">
+          Some staff photos could not be loaded. Initials are shown for those accounts.
+        </p>
+      ) : null}
       {notice ? <p role="status" className="access-notice">{notice}</p> : null}
 
       <section className="surface-card access-directory-card" aria-labelledby="access-directory-heading">
@@ -355,34 +452,43 @@ export function AccessManagement({
             <thead>
               <tr>
                 <th scope="col">Staff member</th>
-                <th scope="col">Account</th>
                 <th scope="col">Assigned roles</th>
                 {canAssign ? <th scope="col"><span className="sr-only">Actions</span></th> : null}
               </tr>
             </thead>
             <tbody>
               {peopleLoading ? (
-                <tr><td colSpan={canAssign ? 4 : 3} className="access-directory-state">Loading staff access…</td></tr>
+                <tr><td colSpan={canAssign ? 3 : 2} className="access-directory-state">Loading staff access…</td></tr>
               ) : people.length ? people.map((person) => {
                 const expanded = expandedUserId === person.user_id;
+                const personImageUrl = person.profile_image_url || staffImages[person.user_id];
                 return (
                   <Fragment key={person.user_id}>
-                    <tr className={expanded ? "is-expanded" : ""}>
+                    <tr className={`access-account-row${expanded ? " is-expanded" : ""}`}>
                       <td>
-                        <div className="access-person-cell">
-                          <span className="access-person-avatar" aria-hidden="true">{person.full_name.trim().charAt(0).toUpperCase() || "?"}</span>
-                          <span className="access-person-copy">
-                            <strong>{person.full_name}</strong>
-                            <span>{person.email || "No email address"} · ID {person.staff_id}</span>
+                        <button
+                          type="button"
+                          className="access-person-trigger"
+                          aria-label={`${expanded ? "Close" : "View"} account for ${person.full_name}`}
+                          aria-expanded={expanded}
+                          aria-controls={`assignment-${person.user_id}`}
+                          onClick={() => toggleAccount(person)}
+                        >
+                          <span className="access-person-cell">
+                            <span className="access-person-avatar-wrap">
+                              <AccessPersonAvatar name={person.full_name} imageUrl={personImageUrl} />
+                              <span
+                                className={`staff-avatar-status access-person-status-dot ${person.account_active && person.employment_status === "active" ? "is-active" : "is-inactive"}`}
+                                role="img"
+                                aria-label={person.account_active && person.employment_status === "active" ? "Active" : "Inactive"}
+                              />
+                            </span>
+                            <span className="access-person-copy">
+                              <strong>{person.full_name}</strong>
+                              <span>{person.email || "No email address"} · ID {person.staff_id}</span>
+                            </span>
                           </span>
-                        </div>
-                      </td>
-                      <td>
-                        <StatusPill
-                          label={person.account_active ? "Account active" : "Account inactive"}
-                          tone={person.account_active ? "success" : "neutral"}
-                        />
-                        <span className="access-employment-status">{person.employment_status}</span>
+                        </button>
                       </td>
                       <td>
                         <div className="access-role-chips">
@@ -398,33 +504,40 @@ export function AccessManagement({
                       </td>
                       {canAssign ? (
                         <td className="access-directory-action-cell">
-                          <button
-                            type="button"
-                            className="button-secondary access-edit-roles"
-                            aria-expanded={expanded}
-                            aria-controls={`assignment-${person.user_id}`}
-                            aria-label={`${expanded ? "Close" : "Edit"} roles for ${person.full_name}`}
-                            onClick={() => {
-                              if (expanded) {
-                                setExpandedUserId("");
-                                setSelectedAssignment(null);
-                                return;
-                              }
-                              setExpandedUserId(person.user_id);
-                              setSelectedAssignment(person);
-                              setUserRoleDraft(person.role_ids);
-                            }}
-                          >
-                            {expanded ? "Close" : "Manage"} <ChevronDown size={15} aria-hidden="true" />
-                          </button>
+                          <div className="access-account-menu-wrap">
+                            <button
+                              type="button"
+                              className="access-account-menu-trigger"
+                              aria-expanded={menuUserId === person.user_id}
+                              aria-controls={`account-menu-${person.user_id}`}
+                              aria-label={`More actions for ${person.full_name}`}
+                              onClick={() => setMenuUserId((current) => current === person.user_id ? "" : person.user_id)}
+                            >
+                              <Ellipsis size={20} aria-hidden="true" />
+                            </button>
+                            {menuUserId === person.user_id ? (
+                              <div className="access-account-menu" id={`account-menu-${person.user_id}`} role="menu">
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => toggleAccount(person)}
+                                >
+                                  <UserRoundCog size={16} aria-hidden="true" />
+                                  {expanded ? "Close account details" : "Manage roles"}
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
                         </td>
                       ) : null}
                     </tr>
-                    {canAssign && expanded ? (
+                    {expanded ? (
                       <tr className="access-expanded-row">
-                        <td colSpan={4}>
+                        <td colSpan={canAssign ? 3 : 2}>
                           <section className="access-inline-editor" id={`assignment-${person.user_id}`} aria-label={`Role assignments for ${person.full_name}`}>
-                            {person.user_id === currentUserId ? (
+                            {!canAssign ? (
+                              <p className="access-role-readonly">This account has {person.role_ids.length} assigned {person.role_ids.length === 1 ? "role" : "roles"}. Your permissions do not allow changing assignments.</p>
+                            ) : person.user_id === currentUserId ? (
                               <p className="access-warning" role="note">You cannot change roles for your own account.</p>
                             ) : (
                               <>
@@ -501,39 +614,46 @@ export function AccessManagement({
         </div>
       </section>
 
-      {createOpen ? (
-        <section className="surface-card access-create-card" aria-labelledby="create-role-heading">
-          <div className="surface-card-header">
-            <h2 className="surface-title" id="create-role-heading">Create a role</h2>
-          </div>
-          <form className="access-create-form" onSubmit={submitCreateRole}>
-            <label className="workspace-field">
-              <span className="field-label">Role key</span>
-              <input
-                className="form-input"
-                value={newRoleId}
-                onChange={(event) => setNewRoleId(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                pattern="[a-z][a-z0-9_]{0,63}"
-                maxLength={64}
-                placeholder="e.g. project_reviewer"
-                required
-              />
-            </label>
-            <label className="workspace-field">
-              <span className="field-label">Display name</span>
-              <input className="form-input" value={newRoleName} onChange={(event) => setNewRoleName(event.target.value)} maxLength={100} required />
-            </label>
-            <label className="workspace-field access-create-description">
-              <span className="field-label">Description</span>
-              <input className="form-input" value={newRoleDescription} onChange={(event) => setNewRoleDescription(event.target.value)} maxLength={2000} />
-            </label>
-            <button type="submit" className="button-primary" disabled={saving}>
-              <Plus size={16} aria-hidden="true" /> Create role
+      <Dialog
+        open={createOpen}
+        title="Create a role"
+        onClose={() => {
+          if (!saving) setCreateOpen(false);
+        }}
+        actions={(
+          <>
+            <button type="button" className="button-secondary" disabled={saving} onClick={() => setCreateOpen(false)}>Cancel</button>
+            <button type="submit" form="create-role-form" className="button-primary" disabled={saving}>
+              <Plus size={16} aria-hidden="true" /> {saving ? "Creating…" : "Create role"}
             </button>
-          </form>
-          <p className="access-helper">New roles start with no permissions. Add access only after creating the role.</p>
-        </section>
-      ) : null}
+          </>
+        )}
+      >
+        {createError ? <p role="alert" className="field-error mb-4">{createError}</p> : null}
+        <form id="create-role-form" className="access-create-modal-form" onSubmit={submitCreateRole}>
+          <label className="workspace-field">
+            <span className="field-label">Role key</span>
+            <input
+              className="form-input"
+              value={newRoleId}
+              onChange={(event) => setNewRoleId(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+              pattern="[a-z][a-z0-9_]{0,63}"
+              maxLength={64}
+              placeholder="e.g. project_reviewer"
+              required
+            />
+          </label>
+          <label className="workspace-field">
+            <span className="field-label">Display name</span>
+            <input className="form-input" value={newRoleName} onChange={(event) => setNewRoleName(event.target.value)} maxLength={100} required />
+          </label>
+          <label className="workspace-field">
+            <span className="field-label">Description</span>
+            <textarea className="form-input form-textarea" value={newRoleDescription} onChange={(event) => setNewRoleDescription(event.target.value)} maxLength={2000} />
+          </label>
+          <p className="access-create-modal-helper">New roles start with no permissions. Add access only after creating the role.</p>
+        </form>
+      </Dialog>
 
       <section className="access-role-layout" aria-label="Role management">
         <div className="surface-card access-role-list-card">

@@ -298,6 +298,71 @@ body {
   transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
 }
 
+.dashboard-people-card {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 100% 0%, rgb(191 219 254 / 54%), transparent 48%),
+    linear-gradient(135deg, #fff, #f8fbff);
+}
+
+.dashboard-people-card:hover {
+  background:
+    radial-gradient(circle at 100% 0%, rgb(191 219 254 / 70%), transparent 48%),
+    linear-gradient(135deg, #fff, #f8fbff);
+}
+
+.dashboard-people-caption {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.dashboard-people-stack {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 5px 3px 5px 12px;
+}
+
+.dashboard-people-avatar,
+.dashboard-people-more {
+  position: relative;
+  display: inline-flex;
+  width: 43px;
+  height: 43px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 3px solid white;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #dbeafe, #eff6ff);
+  color: #1e3a8a;
+  box-shadow: 0 3px 9px rgb(15 23 42 / 14%);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dashboard-people-avatar + .dashboard-people-avatar,
+.dashboard-people-more {
+  margin-left: -13px;
+}
+
+.dashboard-people-more {
+  background: #e2e8f0;
+  color: #475569;
+  letter-spacing: 1px;
+}
+
+.dashboard-people-more span {
+  transform: translateY(-2px);
+}
+
 .dashboard-stat-card:hover {
   transform: translateY(-2px);
   border-color: rgb(29 78 216 / 32%);
@@ -1856,6 +1921,116 @@ body {
   padding-bottom: 20px;
 }
 
+.access-control-hero {
+  position: relative;
+  display: flex;
+  min-height: 100px;
+  align-items: center;
+  gap: 16px;
+  overflow: hidden;
+  border: 1px solid rgb(15 23 42 / 16%);
+  border-radius: 18px;
+  background: #0b2445;
+  padding: 20px 24px;
+}
+
+.access-control-hero-image {
+  z-index: 0;
+  object-fit: contain;
+  object-position: center;
+}
+
+.access-control-hero-overlay {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: linear-gradient(90deg, rgb(7 21 53 / 82%), rgb(7 21 53 / 55%) 58%, rgb(7 21 53 / 30%));
+  pointer-events: none;
+}
+
+.access-control-hero > :not(.access-control-hero-image, .access-control-hero-overlay) {
+  position: relative;
+  z-index: 2;
+}
+
+.access-control-hero::after {
+  position: absolute;
+  right: 24%;
+  bottom: -50px;
+  width: 170px;
+  height: 100px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 50%;
+  content: "";
+  transform: rotate(-20deg);
+}
+
+.access-control-hero-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgb(29 78 216 / 12%);
+  border-radius: 15px;
+  background: rgb(255 255 255 / 78%);
+  color: #1d4ed8;
+  box-shadow: 0 5px 14px rgb(30 64 175 / 9%);
+}
+
+.access-control-hero-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.access-control-hero-copy > span {
+  color: #bfdbfe;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.access-control-hero-copy > p {
+  max-width: 660px;
+  margin: 5px 0 0;
+  color: #f1f5f9;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.access-control-hero-badge {
+  display: inline-flex;
+  min-height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgb(22 163 74 / 15%);
+  border-radius: 999px;
+  background: rgb(240 253 244 / 85%);
+  padding: 0 11px;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.access-control-hero-badge > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgb(22 163 74 / 12%);
+}
+
+.access-image-fallback-notice {
+  margin: 0;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  background: #fff7ed;
+  padding: 10px 13px;
+  color: #9a3412;
+  font-size: 12px;
+}
+
 .access-role-layout {
   display: grid;
   grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.7fr);
@@ -2101,6 +2276,18 @@ body {
   white-space: nowrap;
 }
 
+.access-create-modal-form {
+  display: grid;
+  gap: 15px;
+}
+
+.access-create-modal-helper {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .access-loading {
   padding: 18px;
   color: var(--muted);
@@ -2109,7 +2296,7 @@ body {
 
 .access-directory-card {
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .access-directory-intro,
@@ -2244,11 +2431,21 @@ body {
 }
 
 .access-directory-table-wrap {
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .access-directory-table {
-  min-width: 760px;
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.access-directory-table th:nth-child(1) { width: 38%; }
+.access-directory-table th:nth-child(2) { width: 52%; }
+.access-directory-table th:nth-child(3) { width: 10%; }
+
+.access-account-row td {
+  vertical-align: middle;
 }
 
 .access-directory-table th {
@@ -2282,18 +2479,61 @@ body {
   gap: 11px;
 }
 
+.access-person-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.staff-avatar-status.access-person-status-dot {
+  right: -2px;
+  bottom: -2px;
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+
+.access-person-trigger {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  padding: 2px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.access-person-trigger:hover .access-person-copy strong {
+  color: var(--accent);
+}
+
+.access-person-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .access-person-avatar {
+  position: relative;
   display: grid;
   width: 36px;
   height: 36px;
   flex: 0 0 auto;
   place-items: center;
+  overflow: hidden;
   border: 1px solid rgb(29 78 216 / 10%);
-  border-radius: 11px;
+  border-radius: 50%;
   background: linear-gradient(145deg, #eff6ff, #dbeafe);
   color: #1d4ed8;
   font-size: 14px;
   font-weight: 700;
+}
+
+.access-person-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .access-person-copy {
@@ -2317,8 +2557,8 @@ body {
 }
 
 .access-employment-status {
-  display: block;
-  margin-top: 4px;
+  display: inline-flex;
+  margin-top: 5px;
   text-transform: capitalize;
 }
 
@@ -2355,22 +2595,73 @@ body {
 }
 
 .access-directory-action-cell {
+  position: relative;
   white-space: nowrap;
 }
 
-.access-edit-roles {
-  min-height: 34px;
-  gap: 6px;
-  padding: 0 10px;
-  font-size: 11px;
+.access-account-menu-wrap {
+  position: relative;
+  display: inline-flex;
 }
 
-.access-edit-roles svg {
-  transition: transform 140ms ease;
+.access-account-menu-trigger {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
 }
 
-.access-edit-roles[aria-expanded="true"] svg {
-  transform: rotate(180deg);
+.access-account-menu-trigger:hover,
+.access-account-menu-trigger[aria-expanded="true"] {
+  border-color: var(--border);
+  background: #f8fafc;
+  color: var(--text);
+}
+
+.access-account-menu-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.access-account-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 188px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface);
+  padding: 5px;
+  box-shadow: 0 12px 28px rgb(15 23 42 / 14%);
+}
+
+.access-account-menu > button {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 0 9px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.access-account-menu > button:hover,
+.access-account-menu > button:focus-visible {
+  outline: none;
+  background: var(--page-bg);
 }
 
 .access-directory-state {
@@ -2538,7 +2829,133 @@ body {
   }
 }
 
+@media (max-width: 760px) {
+  .access-assignment-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .access-directory-table {
+    display: block;
+  }
+
+  .access-directory-table thead {
+    display: none;
+  }
+
+  .access-directory-table tbody {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .access-directory-table tbody tr.access-account-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    overflow: visible;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: linear-gradient(145deg, #fff, #fbfdff);
+    box-shadow: 0 3px 12px rgb(15 23 42 / 4%);
+    padding: 10px 12px;
+  }
+
+  .access-directory-table tbody tr.access-account-row.is-expanded {
+    border-color: rgb(29 78 216 / 30%);
+    background: #f8fbff;
+  }
+
+  .access-directory-table tbody tr.access-account-row > td {
+    display: block;
+    min-width: 0;
+    border: 0;
+    padding: 7px 42px 7px 0 !important;
+    text-align: left !important;
+  }
+
+  .access-directory-table tbody tr.access-account-row > td:first-child {
+    padding: 3px 42px 12px 0 !important;
+  }
+
+  .access-directory-table tbody tr.access-account-row > td:nth-child(2) {
+    display: grid;
+    grid-template-columns: 70px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    border-top: 1px solid #edf1f6;
+  }
+
+  .access-directory-table tbody tr.access-account-row > td:nth-child(2)::before {
+    content: "Roles";
+  }
+
+  .access-directory-table tbody tr.access-account-row > td:nth-child(2)::before {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .access-directory-table tbody tr.access-account-row > .access-directory-action-cell {
+    position: absolute;
+    top: 10px;
+    right: 8px;
+    padding: 0 !important;
+  }
+
+  .access-directory-table tbody tr.access-expanded-row {
+    display: block;
+    border: 0;
+    background: transparent;
+    padding: 0;
+  }
+
+  .access-directory-table tbody tr.access-expanded-row > td {
+    display: block;
+    padding: 0 !important;
+  }
+}
+
 @media (max-width: 600px) {
+  .dashboard-kpis > a.dashboard-people-card {
+    display: grid;
+    min-height: 112px;
+    align-items: center;
+    justify-items: center;
+    padding: 16px;
+  }
+
+  .dashboard-people-stack {
+    align-self: center;
+    justify-self: center;
+    justify-content: center;
+    margin: 0;
+    padding: 5px 3px;
+  }
+
+  .access-control-hero {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .access-control-hero-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 13px;
+  }
+
+  .access-control-hero-copy {
+    flex-basis: calc(100% - 58px);
+  }
+
+  .access-control-hero-badge {
+    margin-left: 54px;
+  }
+
   .access-permission-list,
   .access-assignment-list,
   .access-create-form {
@@ -2631,10 +3048,12 @@ body {
 }
 
 .status-pill::before {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--pill-radius);
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
   background: currentColor;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
   content: "";
 }
 

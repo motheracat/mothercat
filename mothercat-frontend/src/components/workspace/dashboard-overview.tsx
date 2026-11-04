@@ -23,6 +23,7 @@ type DashboardData = {
   totalStaff: number;
   activeStaff: number;
   pendingStaff: number;
+  staffPreview: StaffMember[];
   departments: DepartmentPreview[];
   departmentCount: number;
 };
@@ -31,19 +32,14 @@ function initials(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "S";
 }
 
-function DashboardTeamAvatar({ member }: { member: StaffMember }) {
-  const [imageFailed, setImageFailed] = useState(false);
+function DashboardAvatarFace({ member }: { member: StaffMember }) {
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
   const imageUrl = member.profile_image_url;
   const canShowImage = imageUrl && (imageUrl.startsWith("/") || /^https?:\/\//i.test(imageUrl));
 
   return (
-    <Link
-      href={`/staff/${encodeURIComponent(member.id)}`}
-      className="dashboard-team-avatar"
-      aria-label={`${member.full_name}, ${member.employment_status === "active" ? "active" : "not active"}`}
-      title={member.full_name}
-    >
-      {canShowImage && !imageFailed ? (
+    <>
+      {canShowImage && failedImageUrl !== imageUrl ? (
         <Image
           src={imageUrl}
           alt=""
@@ -51,7 +47,7 @@ function DashboardTeamAvatar({ member }: { member: StaffMember }) {
           sizes="36px"
           unoptimized
           className="dashboard-team-photo"
-          onError={() => setImageFailed(true)}
+          onError={() => setFailedImageUrl(imageUrl)}
         />
       ) : (
         <span className="dashboard-team-initials" aria-hidden="true">{initials(member.full_name)}</span>
@@ -60,6 +56,34 @@ function DashboardTeamAvatar({ member }: { member: StaffMember }) {
         className={`dashboard-team-status ${member.employment_status === "active" ? "is-active" : "is-inactive"}`}
         aria-hidden="true"
       />
+    </>
+  );
+}
+
+function DashboardTeamAvatar({ member }: { member: StaffMember }) {
+  return (
+    <Link
+      href={`/staff/${encodeURIComponent(member.id)}`}
+      className="dashboard-team-avatar"
+      aria-label={`${member.full_name}, ${member.employment_status === "active" ? "active" : "not active"}`}
+      title={member.full_name}
+    >
+      <DashboardAvatarFace member={member} />
+    </Link>
+  );
+}
+
+function DashboardPeoplePreview({ staff, hasMore }: { staff: StaffMember[]; hasMore: boolean }) {
+  return (
+    <Link href="/staff" className="surface-card dashboard-people-card" aria-label="Browse staff profiles">
+      <div className="dashboard-people-stack" aria-hidden="true">
+        {staff.slice(0, 5).map((member) => (
+          <span className="dashboard-people-avatar" key={member.id} title={member.full_name}>
+            <DashboardAvatarFace member={member} />
+          </span>
+        ))}
+        {hasMore ? <span className="dashboard-people-more"><span>•••</span></span> : null}
+      </div>
     </Link>
   );
 }
@@ -74,8 +98,9 @@ export function DashboardOverview() {
     let active = true;
     async function loadDashboard() {
       try {
-        const [allStaff, activeStaff, pendingStaff, allDepartments] = await Promise.all([
+        const [allStaff, staffPreview, activeStaff, pendingStaff, allDepartments] = await Promise.all([
           listStaff({ limit: 1, offset: 0 }),
+          listStaff({ limit: 5, offset: 0 }),
           listStaff({ limit: 1, offset: 0, employmentStatus: "active" }),
           listStaff({ limit: 1, offset: 0, employmentStatus: "pending" }),
           listDepartments(),
@@ -92,6 +117,7 @@ export function DashboardOverview() {
           totalStaff: allStaff.total,
           activeStaff: activeStaff.total,
           pendingStaff: pendingStaff.total,
+          staffPreview: staffPreview.staff.slice(0, 5),
           departments: previews,
           departmentCount: allDepartments.length,
         });
@@ -137,7 +163,7 @@ export function DashboardOverview() {
           ))
         ) : (
           <>
-            <StatCard label="Total staff" value={data ? String(data.totalStaff) : "Unavailable"} href="/staff" />
+            <DashboardPeoplePreview staff={data?.staffPreview ?? []} hasMore={(data?.totalStaff ?? 0) > (data?.staffPreview.length ?? 0)} />
             <StatCard label="Departments" value={data ? String(data.departmentCount) : "Unavailable"} href="/departments" />
             <StatCard label="Active staff" value={data ? String(data.activeStaff) : "Unavailable"} href="/staff" />
             <StatCard label="Pending staff" value={data ? String(data.pendingStaff) : "Unavailable"} href="/staff" />

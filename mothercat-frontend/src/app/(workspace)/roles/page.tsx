@@ -11,6 +11,7 @@ export default async function RolesPage() {
       canRead={!devOpen && hasPermission(session, "roles.read")}
       canManage={!devOpen && hasPermission(session, "roles.manage")}
       canAssign={!devOpen && hasPermission(session, "user_roles.assign")}
+      canReadStaff={!devOpen && hasPermission(session, "staff.read")}
       permissions={devOpen ? [] : session?.permissions ?? []}
       currentUserId={devOpen ? "" : session?.userId ?? ""}
     />
