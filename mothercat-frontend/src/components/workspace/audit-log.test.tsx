@@ -37,9 +37,11 @@ const event = {
   id: "00000000-0000-4000-8000-000000000001",
   actor_type: "user",
   actor_id: "account-1",
+  actor_name: "Ada Okafor",
   action: "staff.updated",
   resource_type: "staff_member",
   resource_id: "staff-1",
+  resource_name: "Sam Rivera",
   occurred_at: "2026-11-04T10:00:00Z",
   details: { field: "job_title", new_value: "Site Engineer" },
 };
@@ -61,17 +63,22 @@ describe("AuditLog", () => {
   it("loads real audit events and opens event details", async () => {
     render(<AuditLog canRead />);
 
-    expect(await screen.findByText("staff.updated")).toBeInTheDocument();
-    expect(screen.getByText("account-1")).toBeInTheDocument();
+    expect(await screen.findByText("Staff Updated")).toBeInTheDocument();
+    expect(screen.getByText("Ada Okafor")).toBeInTheDocument();
+    expect(screen.getByText("Sam Rivera")).toBeInTheDocument();
+    expect(screen.queryByText("account-1")).not.toBeInTheDocument();
+    expect(screen.queryByText("staff-1")).not.toBeInTheDocument();
     expect(auditMocks.listAuditEvents).toHaveBeenCalledWith(
       { limit: 25, offset: 0 },
       expect.any(AbortSignal),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "View details for staff.updated by account-1" }));
+    fireEvent.click(screen.getByRole("button", { name: "View details for Staff Updated by Ada Okafor" }));
     expect(await screen.findByRole("dialog", { name: "Audit event details" })).toBeInTheDocument();
     expect(auditMocks.getAuditEvent).toHaveBeenCalledWith(event.id, expect.any(AbortSignal));
-    expect(await screen.findByText(/"new_value": "Site Engineer"/)).toBeInTheDocument();
+    expect(await screen.findByText("New Value")).toBeInTheDocument();
+    expect(screen.getByText("Site Engineer")).toBeInTheDocument();
+    expect(screen.queryByText(event.id)).not.toBeInTheDocument();
   });
 
   it("applies exact filters and resets to the first result page", async () => {
@@ -79,9 +86,9 @@ describe("AuditLog", () => {
       .mockResolvedValueOnce({ events: [event], total: 40, limit: 25, offset: 0 })
       .mockResolvedValueOnce({ events: [event], total: 1, limit: 25, offset: 0 });
     render(<AuditLog canRead />);
-    await screen.findByText("staff.updated");
+    await screen.findByText("Staff Updated");
 
-    fireEvent.change(screen.getByLabelText("Actor ID"), { target: { value: " account-1 " } });
+    fireEvent.change(screen.getByLabelText("Actor account ID"), { target: { value: " account-1 " } });
     fireEvent.change(screen.getByLabelText("Resource type"), { target: { value: "staff_member" } });
     fireEvent.click(screen.getByRole("button", { name: /apply filters/i }));
 
@@ -127,7 +134,7 @@ describe("AuditLog", () => {
 
     expect(await screen.findByText("Unable to load audit events.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByText("staff.updated")).toBeInTheDocument();
+    expect(await screen.findByText("Staff Updated")).toBeInTheDocument();
     expect(auditMocks.listAuditEvents).toHaveBeenCalledTimes(2);
   });
 
@@ -160,15 +167,15 @@ describe("AuditLog", () => {
     auditMocks.getAuditEvent.mockResolvedValue({ ...event, details: null });
     render(<AuditLog canRead />);
 
-    expect(await screen.findByText("staff.updated")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "View details for staff.updated by account-1" }));
+    expect(await screen.findByText("Staff Updated")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View details for Staff Updated by Ada Okafor" }));
     expect(await screen.findByRole("dialog", { name: "Audit event details" })).toBeInTheDocument();
-    expect(await screen.findByText("null", { selector: "pre" })).toBeInTheDocument();
+    expect(await screen.findByText("Not provided")).toBeInTheDocument();
   });
 
   it("validates date ranges before requesting results", async () => {
     render(<AuditLog canRead />);
-    await screen.findByText("staff.updated");
+    await screen.findByText("Staff Updated");
 
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-11-04T10:00" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-11-03T10:00" } });

@@ -64,6 +64,20 @@ describe("SignInForm", () => {
     expect(await screen.findByText("Can't reach the server. Check your connection and try again.")).toBeInTheDocument();
   });
 
+  it("submits only once when the form is triggered repeatedly while the request is pending", async () => {
+    let finishLogin!: () => void;
+    const onLogin = vi.fn(() => new Promise<void>((resolve) => { finishLogin = resolve; }));
+    render(<SignInForm onLogin={onLogin} />);
+    fillForm();
+    const form = screen.getByRole("button", { name: "Sign in" }).closest("form")!;
+
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(onLogin).toHaveBeenCalledTimes(1);
+    await act(async () => finishLogin());
+  });
+
   it("only renders a reference for server errors", async () => {
     const onLogin = vi.fn().mockRejectedValue({ status: 503, requestId: "1234567890abcdef" });
     render(<SignInForm onLogin={onLogin} />);

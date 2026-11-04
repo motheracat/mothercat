@@ -3,6 +3,8 @@
 This guide covers the staff directory, CSV import, and department operations
 available to the frontend. The machine-readable source of truth is
 [`../contracts/openapi/organization.yaml`](../contracts/openapi/organization.yaml).
+Frontend retry behavior is described in the
+[API retry policy](./API-RETRY-POLICY.md).
 
 ## Scope and endpoint summary
 

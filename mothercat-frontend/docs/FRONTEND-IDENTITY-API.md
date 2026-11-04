@@ -27,6 +27,9 @@ Those are not frontend user workflows. Organization endpoints, such as staff
 record creation, are documented separately in
 [`../contracts/openapi/organization.yaml`](../contracts/openapi/organization.yaml).
 
+Frontend retry behavior is described in the
+[API retry policy](./API-RETRY-POLICY.md).
+
 ## Environments and base URL
 
 Use the API origin supplied by the backend/deployment owner for each

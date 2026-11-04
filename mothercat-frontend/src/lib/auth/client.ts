@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth/types";
 import { mapAuthError } from "@/lib/auth/map-auth-error";
 import { invalidateReadCache } from "@/lib/organization/read-cache";
+import { fetchWithRetry } from "@/lib/api/retry";
 
 type ApiErrorPayload = {
   error?: {
@@ -75,15 +76,8 @@ async function requestApi(
   body?: Record<string, string>,
 ): Promise<unknown> {
   let response: Response;
-  const controller = new AbortController();
-  let timedOut = false;
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, 10_000);
-
   try {
-    response = await fetch(buildApiUrl(path), {
+    response = await fetchWithRetry(buildApiUrl(path), {
       method,
       headers: {
         Accept: "application/json",
@@ -91,11 +85,12 @@ async function requestApi(
       },
       credentials: "include",
       cache: "no-store",
-      signal: controller.signal,
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }, {
+      retryUnsafeRequests: path === apiRoutes.auth.login,
+      timeoutMs: 10_000,
     });
   } catch {
-    clearTimeout(timeout);
     throw new AuthNetworkError();
   }
 
@@ -104,11 +99,7 @@ async function requestApi(
     payload = await response.json();
   } catch {
     payload = null;
-  } finally {
-    clearTimeout(timeout);
   }
-
-  if (timedOut) throw new AuthNetworkError();
 
   if (!response.ok) {
     const apiError = (payload as ApiErrorPayload | null)?.error;

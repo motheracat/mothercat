@@ -23,9 +23,11 @@ type EventRecord struct {
 	ID           string          `json:"id"`
 	ActorType    string          `json:"actor_type"`
 	ActorID      string          `json:"actor_id"`
+	ActorName    string          `json:"actor_name,omitempty"`
 	Action       string          `json:"action"`
 	ResourceType string          `json:"resource_type"`
 	ResourceID   string          `json:"resource_id"`
+	ResourceName string          `json:"resource_name,omitempty"`
 	OccurredAt   time.Time       `json:"occurred_at"`
 	Details      json.RawMessage `json:"details"`
 }

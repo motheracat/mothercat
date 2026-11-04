@@ -1,13 +1,16 @@
 import { buildApiUrl } from "@/lib/api/config";
 import { apiRoutes } from "@/lib/api/routes";
+import { fetchWithRetry } from "@/lib/api/retry";
 
 export type AuditEvent = {
   id: string;
   actor_type: string;
   actor_id: string;
+  actor_name?: string;
   action: string;
   resource_type: string;
   resource_id: string;
+  resource_name?: string;
   occurred_at: string;
   details: unknown;
 };
@@ -49,7 +52,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function request(path: string, signal?: AbortSignal): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetch(buildApiUrl(path), {
+    response = await fetchWithRetry(buildApiUrl(path), {
       headers: { Accept: "application/json" },
       credentials: "include",
       cache: "no-store",
@@ -97,9 +100,11 @@ function parseAuditEvent(value: unknown): AuditEvent {
     typeof value.id !== "string" ||
     typeof value.actor_type !== "string" ||
     typeof value.actor_id !== "string" ||
+    (value.actor_name !== undefined && typeof value.actor_name !== "string") ||
     typeof value.action !== "string" ||
     typeof value.resource_type !== "string" ||
     typeof value.resource_id !== "string" ||
+    (value.resource_name !== undefined && typeof value.resource_name !== "string") ||
     typeof value.occurred_at !== "string"
   ) {
     throw new AuditApiError("The audit service returned an invalid event.", 502, "invalid_response");
@@ -108,9 +113,11 @@ function parseAuditEvent(value: unknown): AuditEvent {
     id: value.id,
     actor_type: value.actor_type,
     actor_id: value.actor_id,
+    ...(typeof value.actor_name === "string" ? { actor_name: value.actor_name } : {}),
     action: value.action,
     resource_type: value.resource_type,
     resource_id: value.resource_id,
+    ...(typeof value.resource_name === "string" ? { resource_name: value.resource_name } : {}),
     occurred_at: value.occurred_at,
     details: value.details,
   };

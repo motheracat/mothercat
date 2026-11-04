@@ -18,7 +18,7 @@ func TestEventWhereBuildsParameterizedFilters(t *testing.T) {
 	}
 
 	where, args := eventWhere(filter)
-	wantWhere := " WHERE actor_id = $1 AND action = $2 AND resource_type = $3 AND resource_id = $4 AND occurred_at >= $5 AND occurred_at <= $6"
+	wantWhere := " WHERE e.actor_id = $1 AND e.action = $2 AND e.resource_type = $3 AND e.resource_id = $4 AND e.occurred_at >= $5 AND e.occurred_at <= $6"
 	wantArgs := []any{"actor' OR true --", "staff.updated", "staff_member", "staff-1", from, to}
 	if where != wantWhere {
 		t.Fatalf("where = %q, want %q", where, wantWhere)

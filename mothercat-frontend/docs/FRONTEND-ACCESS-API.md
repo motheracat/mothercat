@@ -2,7 +2,8 @@
 
 This guide covers the Access Control API implemented by the Go backend. It is
 for the frontend developer building the role editor and user-role assignment
-screens.
+screens. Frontend retry behavior is described in the
+[API retry policy](./API-RETRY-POLICY.md).
 
 ## Important identifiers
 

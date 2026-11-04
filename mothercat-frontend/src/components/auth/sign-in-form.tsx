@@ -22,6 +22,7 @@ export function SignInForm({ onLogin }: { onLogin: (credentials: LoginCredential
   const [copyStatus, setCopyStatus] = useState("");
   const passwordRef = useRef<HTMLInputElement>(null);
   const staffIdRef = useRef<HTMLInputElement>(null);
+  const submissionInProgress = useRef(false);
 
   useEffect(() => {
     if (retrySeconds === null) return;
@@ -50,7 +51,7 @@ export function SignInForm({ onLogin }: { onLogin: (credentials: LoginCredential
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSubmitting || (retrySeconds !== null && retrySeconds > 0)) return;
+    if (submissionInProgress.current || isSubmitting || (retrySeconds !== null && retrySeconds > 0)) return;
 
     const normalizedStaffId = staffId.trim();
     const nextFieldErrors: FieldErrors = {};
@@ -76,6 +77,7 @@ export function SignInForm({ onLogin }: { onLogin: (credentials: LoginCredential
       return;
     }
 
+    submissionInProgress.current = true;
     setIsSubmitting(true);
     setError(null);
     setFieldErrors({});
@@ -92,6 +94,7 @@ export function SignInForm({ onLogin }: { onLogin: (credentials: LoginCredential
         setRetrySeconds(mapped.retryAfterSeconds ?? 60);
       }
     } finally {
+      submissionInProgress.current = false;
       setIsSubmitting(false);
     }
   }

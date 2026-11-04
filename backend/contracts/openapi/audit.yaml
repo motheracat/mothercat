@@ -161,12 +161,18 @@ components:
           type: string
         actor_id:
           type: string
+        actor_name:
+          type: string
+          description: Resolved actor name when the corresponding account or staff record is available.
         action:
           type: string
         resource_type:
           type: string
         resource_id:
           type: string
+        resource_name:
+          type: string
+          description: Resolved resource name when the corresponding record is available.
         occurred_at:
           type: string
           format: date-time

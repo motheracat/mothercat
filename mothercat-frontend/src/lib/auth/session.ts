@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { isDevOpen } from "@/lib/auth/mode";
 import { parseAuthSession, type AuthSession } from "@/lib/auth/types";
 import { env } from "@/lib/env";
+import { fetchWithRetry } from "@/lib/api/retry";
 
 export const SESSION_COOKIE_NAME = "mothercat_session";
 
@@ -37,7 +38,7 @@ export async function getCurrentSession(): Promise<AuthSession | null> {
   }
 
   const apiBaseUrl = env.API_BASE_URL.replace(/\/+$/, "");
-  const response = await fetch(`${apiBaseUrl}/api/v1/auth/session`, {
+  const response = await fetchWithRetry(`${apiBaseUrl}/api/v1/auth/session`, {
     headers: {
       Accept: "application/json",
       Cookie: `${SESSION_COOKIE_NAME}=${sessionCookie.value}`,

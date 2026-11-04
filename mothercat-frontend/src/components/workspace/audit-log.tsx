@@ -64,7 +64,39 @@ function formatDate(value: string) {
 }
 
 function displayLabel(value: string) {
-  return value.replaceAll("_", " ");
+  return value
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function AuditValue({ value }: { value: unknown }) {
+  if (value === null || value === undefined) {
+    return <span className="text-[var(--muted)]">Not provided</span>;
+  }
+  if (typeof value === "boolean") return <span>{value ? "Yes" : "No"}</span>;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="text-[var(--muted)]">None</span>;
+    return (
+      <ul className="list-inside list-disc space-y-1">
+        {value.map((item, index) => <li key={index}><AuditValue value={item} /></li>)}
+      </ul>
+    );
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return <span className="text-[var(--muted)]">None</span>;
+    return (
+      <dl className="grid gap-3 sm:grid-cols-2">
+        {entries.map(([key, item]) => (
+          <div key={key} className="min-w-0">
+            <dt className="text-xs font-medium text-[var(--muted)]">{displayLabel(key)}</dt>
+            <dd className="mt-1 break-words text-sm text-[var(--text)]"><AuditValue value={item} /></dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+  return <span className="break-words">{String(value)}</span>;
 }
 
 function AuditEventDetails({
@@ -89,7 +121,7 @@ function AuditEventDetails({
       <dl className="grid gap-4 sm:grid-cols-2">
         <div>
           <dt className="field-label">Action</dt>
-          <dd className="mt-1 break-words text-sm font-medium text-[var(--text)]">{event.action}</dd>
+          <dd className="mt-1 break-words text-sm font-medium text-[var(--text)]">{displayLabel(event.action)}</dd>
         </div>
         <div>
           <dt className="field-label">Time</dt>
@@ -97,26 +129,24 @@ function AuditEventDetails({
         </div>
         <div>
           <dt className="field-label">Actor</dt>
-          <dd className="mt-1 break-all text-sm text-[var(--text)]">
-            {event.actor_id} <span className="text-[var(--muted)]">({displayLabel(event.actor_type)})</span>
+          <dd className="mt-1 text-sm text-[var(--text)]">
+            {event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}
+            <span className="text-[var(--muted)]"> · {displayLabel(event.actor_type)}</span>
           </dd>
         </div>
         <div>
           <dt className="field-label">Resource</dt>
-          <dd className="mt-1 break-all text-sm text-[var(--text)]">
-            {displayLabel(event.resource_type)} · {event.resource_id}
+          <dd className="mt-1 text-sm text-[var(--text)]">
+            {event.resource_name || "Name unavailable"}
+            <span className="text-[var(--muted)]"> · {displayLabel(event.resource_type)}</span>
           </dd>
-        </div>
-        <div className="sm:col-span-2">
-          <dt className="field-label">Event ID</dt>
-          <dd className="mt-1 break-all font-mono text-xs text-[var(--muted)]">{event.id}</dd>
         </div>
       </dl>
       <section aria-labelledby="audit-event-data-title">
-        <h3 id="audit-event-data-title" className="field-label">Event data</h3>
-        <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--page-bg)] p-4 text-xs leading-5 text-[var(--text)]">
-          {JSON.stringify(event.details, null, 2)}
-        </pre>
+        <h3 id="audit-event-data-title" className="field-label">Change details</h3>
+        <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--page-bg)] p-4 text-sm leading-5 text-[var(--text)]">
+          <AuditValue value={event.details} />
+        </div>
       </section>
     </div>
   );
@@ -306,7 +336,7 @@ export function AuditLog({
         <form className="grid gap-4 p-4" onSubmit={applyFilters}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="workspace-field">
-              <span className="field-label">Actor ID</span>
+              <span className="field-label">Actor account ID</span>
               <input
                 className="form-input"
                 value={draft.actorId}
@@ -375,7 +405,7 @@ export function AuditLog({
               Clear
             </button>
             <p className="ml-auto text-xs text-[var(--muted)]">
-              Filters match exact actor, action, and resource values.
+              Filters match exact actor account, action, and resource identifiers.
             </p>
           </div>
         </form>
@@ -407,14 +437,16 @@ export function AuditLog({
               {events.map((event) => (
                 <tr key={event.id}>
                   <td>
-                    <span className="block max-w-48 truncate font-medium" title={event.actor_id}>{event.actor_id}</span>
+                    <span className="block max-w-48 truncate font-medium">
+                      {event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}
+                    </span>
                     <span className="text-xs text-[var(--muted)]">{displayLabel(event.actor_type)}</span>
                   </td>
-                  <td><span className="break-all font-medium">{event.action}</span></td>
+                  <td><span className="break-words font-medium">{displayLabel(event.action)}</span></td>
                   <td>
                     <span className="block">{displayLabel(event.resource_type)}</span>
-                    <span className="block max-w-48 truncate text-xs text-[var(--muted)]" title={event.resource_id}>
-                      {event.resource_id}
+                    <span className="block max-w-48 truncate text-xs text-[var(--muted)]">
+                      {event.resource_name || "Name unavailable"}
                     </span>
                   </td>
                   <td className="whitespace-nowrap">
@@ -427,7 +459,7 @@ export function AuditLog({
                     <button
                       type="button"
                       className="button-ghost"
-                      aria-label={`View details for ${event.action} by ${event.actor_id}`}
+                      aria-label={`View details for ${displayLabel(event.action)} by ${event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}`}
                       onClick={() => openDetails(event.id)}
                     >
                       <Eye size={16} aria-hidden="true" />

@@ -1,4 +1,5 @@
 import { buildApiUrl } from "@/lib/api/config";
+import { fetchWithRetry } from "@/lib/api/retry";
 
 export type AccessRole = {
   role_id: string;
@@ -51,7 +52,7 @@ function stringArray(value: unknown): value is string[] {
 async function request(path: string, init?: RequestInit): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetch(buildApiUrl(path), {
+    response = await fetchWithRetry(buildApiUrl(path), {
       ...init,
       headers: {
         Accept: "application/json",

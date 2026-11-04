@@ -11,9 +11,11 @@ const event = {
   id: "00000000-0000-4000-8000-000000000001",
   actor_type: "user",
   actor_id: "account-1",
+  actor_name: "Ada Okafor",
   action: "staff.updated",
   resource_type: "staff_member",
   resource_id: "staff-1",
+  resource_name: "Sam Rivera",
   occurred_at: "2026-11-04T10:00:00Z",
   details: { field: "job_title" },
 };

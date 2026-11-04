@@ -1,4 +1,5 @@
 import { buildApiUrl } from "@/lib/api/config";
+import { fetchWithRetry } from "@/lib/api/retry";
 import { apiRoutes } from "@/lib/api/routes";
 import { awaitReadWithSignal, cacheRead, invalidateReadCache } from "@/lib/organization/read-cache";
 
@@ -108,7 +109,7 @@ async function request(path: string, init: RequestInit = {}): Promise<unknown> {
 
   let response: Response;
   try {
-    response = await fetch(buildApiUrl(path), {
+    response = await fetchWithRetry(buildApiUrl(path), {
       ...init,
       headers,
       credentials: "include",
