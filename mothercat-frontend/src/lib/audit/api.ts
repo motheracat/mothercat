@@ -9,7 +9,7 @@ export type AuditEvent = {
   resource_type: string;
   resource_id: string;
   occurred_at: string;
-  details: Record<string, unknown>;
+  details: unknown;
 };
 
 export type AuditEventFilter = {
@@ -100,8 +100,7 @@ function parseAuditEvent(value: unknown): AuditEvent {
     typeof value.action !== "string" ||
     typeof value.resource_type !== "string" ||
     typeof value.resource_id !== "string" ||
-    typeof value.occurred_at !== "string" ||
-    !isRecord(value.details)
+    typeof value.occurred_at !== "string"
   ) {
     throw new AuditApiError("The audit service returned an invalid event.", 502, "invalid_response");
   }
@@ -186,6 +185,9 @@ export function formatAuditError(
   }
   if (error.status === 400) {
     return "The audit service rejected these filters. Clear the filters and try again.";
+  }
+  if (error.code === "invalid_response") {
+    return "The audit API returned event data in an unexpected format. Refresh and check that the frontend and backend are on compatible versions.";
   }
   if (error.status === 0) return error.message;
   return fallback;

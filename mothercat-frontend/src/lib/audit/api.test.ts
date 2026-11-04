@@ -102,12 +102,25 @@ describe("Audit API", () => {
 
   it("rejects malformed event response data", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      event: { ...event, details: "not-an-object" },
+      event: { ...event, action: 42 },
     }), { status: 200 })));
 
     await expect(getAuditEvent(event.id)).rejects.toMatchObject({
       status: 502,
       code: "invalid_response",
+    });
+  });
+
+  it("accepts valid JSON details that are not objects", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      events: [{ ...event, details: null }],
+      page: { limit: 25, offset: 0, total: 1 },
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listAuditEvents({ limit: 25, offset: 0 })).resolves.toMatchObject({
+      events: [{ id: event.id, details: null }],
+      total: 1,
     });
   });
 });

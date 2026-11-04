@@ -150,6 +150,22 @@ describe("AuditLog", () => {
     expect(await screen.findByText(/backend logs with request ID audit-request-123/i)).toBeInTheDocument();
   });
 
+  it("renders events with null or scalar JSON details", async () => {
+    auditMocks.listAuditEvents.mockResolvedValue({
+      events: [{ ...event, details: null }],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    });
+    auditMocks.getAuditEvent.mockResolvedValue({ ...event, details: null });
+    render(<AuditLog canRead />);
+
+    expect(await screen.findByText("staff.updated")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View details for staff.updated by account-1" }));
+    expect(await screen.findByRole("dialog", { name: "Audit event details" })).toBeInTheDocument();
+    expect(await screen.findByText("null", { selector: "pre" })).toBeInTheDocument();
+  });
+
   it("validates date ranges before requesting results", async () => {
     render(<AuditLog canRead />);
     await screen.findByText("staff.updated");
