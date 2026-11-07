@@ -21,13 +21,13 @@ import (
 	accessstore "github.com/mothercat-enterprise/mothercat/backend/services/access/monolith"
 	audithttp "github.com/mothercat-enterprise/mothercat/backend/services/audit/http"
 	auditstore "github.com/mothercat-enterprise/mothercat/backend/services/audit/monolith"
-	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/notifications"
-	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/tasks"
 	identityapp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/application"
 	identitydomain "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/domain"
 	identityhttp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/http"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/mail"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/notifications"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/persistence"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/tasks"
 	organizationmonolith "github.com/mothercat-enterprise/mothercat/backend/services/organization/monolith"
 )
 

@@ -196,12 +196,12 @@ type task struct {
 }
 
 type submission struct {
-	ID                string    `json:"id"`
-	SubmissionNumber  int       `json:"submission_number"`
-	Summary           string    `json:"summary"`
-	Links             []string  `json:"links"`
-	SubmitterAccountID string   `json:"submitter_account_id"`
-	SubmittedAt       time.Time `json:"submitted_at"`
+	ID                 string    `json:"id"`
+	SubmissionNumber   int       `json:"submission_number"`
+	Summary            string    `json:"summary"`
+	Links              []string  `json:"links"`
+	SubmitterAccountID string    `json:"submitter_account_id"`
+	SubmittedAt        time.Time `json:"submitted_at"`
 }
 
 type historyEntry struct {
@@ -304,7 +304,7 @@ func (h *Handler) listTasks(w http.ResponseWriter, ctx context.Context, principa
 			WHERE ts.task_id=t.id ORDER BY ts.submission_number DESC LIMIT 1
 		) latest_submission ON true
 		WHERE `+where+fmt.Sprintf(" ORDER BY t.created_at DESC, t.id LIMIT $%d OFFSET $%d",
-			len(pageArgs)-1, len(pageArgs)), pageArgs...)
+		len(pageArgs)-1, len(pageArgs)), pageArgs...)
 	if err != nil {
 		h.fail(w, ctx, "list tasks", err)
 		return
@@ -335,11 +335,6 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := h.taskID(w, r, ctx)
 	if !ok {
-		return
-	}
-	limit, offset, err := parsePage(r.URL.Query())
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_query", requestID(ctx))
 		return
 	}
 	if h.db == nil {
@@ -681,6 +676,11 @@ func (h *Handler) listTaskChildren(w http.ResponseWriter, r *http.Request, kind 
 	}
 	id, ok := h.taskID(w, r, ctx)
 	if !ok {
+		return
+	}
+	limit, offset, err := parsePage(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_query", requestID(ctx))
 		return
 	}
 	if h.db == nil {

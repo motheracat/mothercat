@@ -50,13 +50,13 @@ type Handler struct {
 }
 
 type notification struct {
-	ID         string     `json:"id"`
-	EventType  string     `json:"event_type"`
-	Title      string     `json:"title"`
-	Body       string     `json:"body"`
-	Resource   *resource  `json:"resource,omitempty"`
-	ReadAt     *time.Time `json:"read_at,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID        string     `json:"id"`
+	EventType string     `json:"event_type"`
+	Title     string     `json:"title"`
+	Body      string     `json:"body"`
+	Resource  *resource  `json:"resource,omitempty"`
+	ReadAt    *time.Time `json:"read_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 type resource struct {
