@@ -67,6 +67,13 @@ notifications with bounded exponential retry, and records delivery and
 notification rows atomically. The outbox event ID is the idempotency key;
 disabled event preferences suppress new notifications.
 
+The internal task reminder job runs immediately at API startup and every 15
+minutes. It queues one `task.due_soon` event per task due within 24 hours and
+one `task.overdue` event per overdue task while the task is active. Migration
+`010_task_reminder_idempotency` allows system-generated events without a user
+actor and makes concurrent or repeated job runs safe. Reminder events notify
+the task creator and current assignee.
+
 - `GET /api/v1/notifications?unread=true&limit=50&offset=0`
 - `GET /api/v1/notifications/unread-count`
 - `POST /api/v1/notifications/{notificationId}/read`

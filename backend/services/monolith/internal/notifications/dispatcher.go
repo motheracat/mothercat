@@ -22,13 +22,13 @@ type Dispatcher struct {
 }
 
 type outboxEvent struct {
-	ID        string
-	EventType string
-	TaskID    string
-	ActorID   string
+	ID          string
+	EventType   string
+	TaskID      string
+	ActorID     string
 	RecipientID string
-	Title     string
-	Body      string
+	Title       string
+	Body        string
 }
 
 func NewDispatcher(db *sql.DB, logger *slog.Logger) *Dispatcher {
@@ -117,14 +117,14 @@ func (d *Dispatcher) processOne(ctx context.Context, id string) (bool, error) {
 	defer func() { _ = tx.Rollback() }()
 
 	var event outboxEvent
-	var recipientID sql.NullString
+	var actorID, recipientID sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		SELECT id::text, event_type, task_id::text, actor_account_id::text,
 		       recipient_account_id::text, title, body
 		FROM tasks.outbox_events
 		WHERE id=$1::uuid AND processed_at IS NULL AND available_at <= now()
 		FOR UPDATE SKIP LOCKED
-	`, id).Scan(&event.ID, &event.EventType, &event.TaskID, &event.ActorID,
+	`, id).Scan(&event.ID, &event.EventType, &event.TaskID, &actorID,
 		&recipientID, &event.Title, &event.Body)
 	if errors.Is(err, sql.ErrNoRows) {
 		if err := tx.Commit(); err != nil {
@@ -135,6 +135,9 @@ func (d *Dispatcher) processOne(ctx context.Context, id string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("lock notification event: %w", err)
 	}
+	if actorID.Valid {
+		event.ActorID = actorID.String
+	}
 	if recipientID.Valid {
 		event.RecipientID = recipientID.String
 	}
@@ -144,7 +147,7 @@ func (d *Dispatcher) processOne(ctx context.Context, id string) (bool, error) {
 		return false, err
 	}
 	for _, recipient := range recipients {
-		if recipient == event.ActorID {
+		if event.ActorID != "" && recipient == event.ActorID {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `

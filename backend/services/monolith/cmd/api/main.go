@@ -122,6 +122,7 @@ func run(logger *slog.Logger) error {
 		auditstore.NewReader(db), auditAuthenticator{service: authService}, logger,
 	)
 	taskHandler := tasks.NewHandler(db, taskAuthenticator{service: authService}, logger)
+	taskReminderJob := tasks.NewReminderJob(db, logger)
 	notificationHandler := notifications.NewHandler(db, notificationAuthenticator{service: authService}, logger)
 	notificationDispatcher := notifications.NewDispatcher(db, logger)
 	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler, taskHandler, notificationHandler)
@@ -139,6 +140,11 @@ func run(logger *slog.Logger) error {
 		defer close(dispatcherDone)
 		notificationDispatcher.Run(ctx)
 	}()
+	reminderDone := make(chan struct{})
+	go func() {
+		defer close(reminderDone)
+		taskReminderJob.Run(ctx)
+	}()
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
 	logger.Info("Mothercat API listening", "address", address)
@@ -149,13 +155,16 @@ func run(logger *slog.Logger) error {
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			_ = server.Close()
 			<-dispatcherDone
+			<-reminderDone
 			return fmt.Errorf("graceful HTTP shutdown: %w", err)
 		}
 		<-dispatcherDone
+		<-reminderDone
 		return nil
 	case err := <-serverErrors:
 		stop()
 		<-dispatcherDone
+		<-reminderDone
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}

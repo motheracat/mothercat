@@ -35,14 +35,18 @@ func expectPendingEvent(mock sqlmock.Sqlmock) {
 func expectLockedEvent(mock sqlmock.Sqlmock, eventType string) {
 	mock.ExpectBegin()
 	var recipient any
+	var actor any = actorID
 	if eventType == "task.assigned" {
 		recipient = recipientID
+	}
+	if eventType == "task.due_soon" || eventType == "task.overdue" {
+		actor = nil
 	}
 	mock.ExpectQuery(`SELECT id::text, event_type, task_id::text, actor_account_id::text`).
 		WithArgs(outboxEventID).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "event_type", "task_id", "actor_account_id", "recipient_account_id", "title", "body",
-		}).AddRow(outboxEventID, eventType, taskID, actorID, recipient, "Task update", "Updated"))
+		}).AddRow(outboxEventID, eventType, taskID, actor, recipient, "Task update", "Updated"))
 }
 
 func TestProcessBatchDeliversAndMarksOutboxEventAtomically(t *testing.T) {
@@ -90,6 +94,36 @@ func TestProcessBatchSchedulesRetryAfterDeliveryFailure(t *testing.T) {
 	}
 	if processed != 0 {
 		t.Fatalf("ProcessBatch() processed %d events after delivery failure, want 0", processed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProcessBatchDeliversSystemReminderToTaskParticipants(t *testing.T) {
+	dispatcher, mock := newMockDispatcher(t)
+	expectPendingEvent(mock)
+	expectLockedEvent(mock, "task.due_soon")
+	mock.ExpectQuery(`(?s)SELECT created_by::text.*UNION.*assignee_account_id::text`).
+		WithArgs(taskID).
+		WillReturnRows(sqlmock.NewRows([]string{"recipient"}).AddRow(actorID).AddRow(recipientID))
+	mock.ExpectExec(`INSERT INTO notifications\.notifications`).
+		WithArgs(actorID, "task.due_soon", "Task update", "Updated", taskID, outboxEventID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO notifications\.notifications`).
+		WithArgs(recipientID, "task.due_soon", "Task update", "Updated", taskID, outboxEventID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE tasks\.outbox_events SET processed_at=now\(\), last_error=NULL`).
+		WithArgs(outboxEventID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	processed, err := dispatcher.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessBatch() error = %v", err)
+	}
+	if processed != 1 {
+		t.Fatalf("ProcessBatch() processed %d events, want 1", processed)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
