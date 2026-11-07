@@ -58,10 +58,14 @@ require a same-origin `Origin` header.
 
 ## Notifications API
 
-The in-app notification module runs in the same API server. Migration
-`008_notifications` creates recipient-owned notification and preference tables.
-Task assignment, submission, review, and comment events create notifications
-transactionally; disabled event preferences suppress new notifications.
+The in-app notification module runs in the same API server. Migrations
+`008_notifications` and `009_notification_outbox` create recipient-owned
+notification, preference, and transactional outbox tables. Task assignment,
+submission, review, and comment events write an outbox event in the same
+transaction as the task change. An internal dispatcher delivers events to
+notifications with bounded exponential retry, and records delivery and
+notification rows atomically. The outbox event ID is the idempotency key;
+disabled event preferences suppress new notifications.
 
 - `GET /api/v1/notifications?unread=true&limit=50&offset=0`
 - `GET /api/v1/notifications/unread-count`

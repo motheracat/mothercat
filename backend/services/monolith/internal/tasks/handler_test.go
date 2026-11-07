@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 const testAccountID = "00000000-0000-4000-8000-000000000001"
@@ -139,5 +141,37 @@ func TestParseETag(t *testing.T) {
 			t.Errorf("parseETag(%q)=(%d,%t), want (%d,%t)",
 				test.value, version, ok, test.want, test.ok)
 		}
+	}
+}
+
+func TestEnqueueTaskEventUsesCallingTransaction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec(`INSERT INTO tasks\.outbox_events`).
+		WithArgs("task.assigned", "00000000-0000-4000-8000-000000000002",
+			testAccountID, "00000000-0000-4000-8000-000000000003",
+			"Task assigned", "You have been assigned a task.").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := enqueueTaskEvent(context.Background(), tx, testAccountID,
+		"00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003",
+		"task.assigned", "Task assigned",
+		"You have been assigned a task."); err != nil {
+		t.Fatalf("enqueueTaskEvent() error = %v", err)
+	}
+	mock.ExpectCommit()
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -42,80 +42,14 @@ type Principal struct {
 	Permissions []string
 }
 
-func notifyTaskRecipient(ctx context.Context, tx *sql.Tx, recipient, actor, taskID, eventType, title, body string) error {
-	if recipient == actor {
-		return nil
-	}
+func enqueueTaskEvent(ctx context.Context, tx *sql.Tx, actor, taskID, recipient, eventType, title, body string) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO notifications.notifications (
-			recipient_account_id, event_type, title, body, resource_type, resource_id, source_event_id
-		)
-		SELECT $1::uuid, $3, $4, $5, 'task', $2::uuid, gen_random_uuid()
-		WHERE coalesce((
-			SELECT enabled FROM notifications.notification_preferences
-			WHERE account_id=$1::uuid AND event_type=$3
-		), true)
-		ON CONFLICT (source_event_id, recipient_account_id) DO NOTHING
-	`, recipient, taskID, eventType, title, body)
+		INSERT INTO tasks.outbox_events (
+			event_type, task_id, actor_account_id, recipient_account_id, title, body
+		) VALUES ($1, $2::uuid, $3::uuid, nullif($4, '')::uuid, $5, $6)
+	`, eventType, taskID, actor, recipient, title, body)
 	if err != nil {
-		return fmt.Errorf("create task notification: %w", err)
-	}
-	return nil
-}
-
-func notifyTaskCreator(ctx context.Context, tx *sql.Tx, taskID, actor, eventType, title, body string) error {
-	var creator string
-	if err := tx.QueryRowContext(ctx, `SELECT created_by::text FROM tasks.tasks WHERE id=$1::uuid`,
-		taskID).Scan(&creator); err != nil {
-		return fmt.Errorf("load task creator for notification: %w", err)
-	}
-	return notifyTaskRecipient(ctx, tx, creator, actor, taskID, eventType, title, body)
-}
-
-func notifyTaskAssignee(ctx context.Context, tx *sql.Tx, taskID, actor, eventType, title, body string) error {
-	var assignee sql.NullString
-	if err := tx.QueryRowContext(ctx, `
-		SELECT assignee_account_id::text FROM tasks.task_assignments
-		WHERE task_id=$1::uuid AND unassigned_at IS NULL
-	`, taskID).Scan(&assignee); err != nil {
-		return fmt.Errorf("load task assignee for notification: %w", err)
-	}
-	if !assignee.Valid {
-		return nil
-	}
-	return notifyTaskRecipient(ctx, tx, assignee.String, actor, taskID, eventType, title, body)
-}
-
-func notifyTaskParticipants(ctx context.Context, tx *sql.Tx, taskID, actor, eventType, title, body string) error {
-	rows, err := tx.QueryContext(ctx, `
-		SELECT created_by::text FROM tasks.tasks WHERE id=$1::uuid
-		UNION
-		SELECT assignee_account_id::text FROM tasks.task_assignments
-		WHERE task_id=$1::uuid AND unassigned_at IS NULL
-	`, taskID)
-	if err != nil {
-		return fmt.Errorf("load task participants for notification: %w", err)
-	}
-	var recipients []string
-	for rows.Next() {
-		var recipient string
-		if err := rows.Scan(&recipient); err != nil {
-			_ = rows.Close()
-			return fmt.Errorf("scan task notification recipient: %w", err)
-		}
-		recipients = append(recipients, recipient)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return fmt.Errorf("read task notification recipients: %w", err)
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close task notification recipients: %w", err)
-	}
-	for _, recipient := range recipients {
-		if err := notifyTaskRecipient(ctx, tx, recipient, actor, taskID, eventType, title, body); err != nil {
-			return err
-		}
+		return fmt.Errorf("enqueue task event: %w", err)
 	}
 	return nil
 }
@@ -817,7 +751,7 @@ func (h *Handler) addComment(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, ctx, "audit task comment", err)
 		return
 	}
-	if err := notifyTaskParticipants(ctx, tx, id, principal.ID,
+	if err := enqueueTaskEvent(ctx, tx, principal.ID, id, "",
 		"task.comment_added", "New task comment", "A new comment was added to a task."); err != nil {
 		h.fail(w, ctx, "notify task comment", err)
 		return
@@ -1017,7 +951,7 @@ func (h *Handler) assignTask(ctx context.Context, principal Principal, id, assig
 	if err := recordStatusAndAudit(ctx, tx, principal.ID, id, current.Status, "assigned", "task.assigned", ""); err != nil {
 		return task{}, err
 	}
-	if err := notifyTaskRecipient(ctx, tx, assigneeID, principal.ID, id,
+	if err := enqueueTaskEvent(ctx, tx, principal.ID, id, assigneeID,
 		"task.assigned", "Task assigned", "You have been assigned a task."); err != nil {
 		return task{}, err
 	}
@@ -1099,7 +1033,7 @@ func (h *Handler) submitTask(ctx context.Context, principal Principal, id string
 	if err := recordStatusAndAudit(ctx, tx, principal.ID, id, current.Status, "submitted", "task.submitted", ""); err != nil {
 		return task{}, err
 	}
-	if err := notifyTaskCreator(ctx, tx, id, principal.ID,
+	if err := enqueueTaskEvent(ctx, tx, principal.ID, id, "",
 		"task.submitted", "Task submitted", "An assigned task has been submitted for review."); err != nil {
 		return task{}, err
 	}
@@ -1154,7 +1088,7 @@ func (h *Handler) reviewTask(ctx context.Context, principal Principal, id, decis
 	title := map[string]string{
 		"approved": "Task approved", "changes_requested": "Changes requested", "rejected": "Task rejected",
 	}[decision]
-	if err := notifyTaskAssignee(ctx, tx, id, principal.ID, "task."+decision, title, feedback); err != nil {
+	if err := enqueueTaskEvent(ctx, tx, principal.ID, id, "", "task."+decision, title, feedback); err != nil {
 		return task{}, err
 	}
 	if err := tx.Commit(); err != nil {

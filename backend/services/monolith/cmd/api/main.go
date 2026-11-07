@@ -123,6 +123,7 @@ func run(logger *slog.Logger) error {
 	)
 	taskHandler := tasks.NewHandler(db, taskAuthenticator{service: authService}, logger)
 	notificationHandler := notifications.NewHandler(db, notificationAuthenticator{service: authService}, logger)
+	notificationDispatcher := notifications.NewDispatcher(db, logger)
 	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler, taskHandler, notificationHandler)
 	server := &http.Server{
 		Addr: address, Handler: handler, ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
@@ -133,6 +134,11 @@ func run(logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	dispatcherDone := make(chan struct{})
+	go func() {
+		defer close(dispatcherDone)
+		notificationDispatcher.Run(ctx)
+	}()
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
 	logger.Info("Mothercat API listening", "address", address)
@@ -142,10 +148,14 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			_ = server.Close()
+			<-dispatcherDone
 			return fmt.Errorf("graceful HTTP shutdown: %w", err)
 		}
+		<-dispatcherDone
 		return nil
 	case err := <-serverErrors:
+		stop()
+		<-dispatcherDone
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
