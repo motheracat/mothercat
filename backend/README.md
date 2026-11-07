@@ -56,6 +56,25 @@ account in that department. Draft edits require the creator and a matching
 database transaction as the corresponding change. Cookie-authenticated writes
 require a same-origin `Origin` header.
 
+## Notifications API
+
+The in-app notification module runs in the same API server. Migration
+`008_notifications` creates recipient-owned notification and preference tables.
+Task assignment, submission, review, and comment events create notifications
+transactionally; disabled event preferences suppress new notifications.
+
+- `GET /api/v1/notifications?unread=true&limit=50&offset=0`
+- `GET /api/v1/notifications/unread-count`
+- `POST /api/v1/notifications/{notificationId}/read`
+- `POST /api/v1/notifications/read-all`
+- `GET /api/v1/notifications/preferences`
+- `PUT /api/v1/notifications/preferences` with
+  `{"preferences":[{"event_type":"task.assigned","enabled":true}]}`
+
+All notification reads and updates are scoped to the authenticated account.
+The list, history, and comments endpoints are paginated; notification write
+requests require a same-origin `Origin` header.
+
 ## Initial administrator
 
 The one-time `POST /api/v1/auth/bootstrap` endpoint creates the first active

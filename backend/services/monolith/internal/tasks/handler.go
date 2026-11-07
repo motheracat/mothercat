@@ -42,6 +42,84 @@ type Principal struct {
 	Permissions []string
 }
 
+func notifyTaskRecipient(ctx context.Context, tx *sql.Tx, recipient, actor, taskID, eventType, title, body string) error {
+	if recipient == actor {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO notifications.notifications (
+			recipient_account_id, event_type, title, body, resource_type, resource_id, source_event_id
+		)
+		SELECT $1::uuid, $3, $4, $5, 'task', $2::uuid, gen_random_uuid()
+		WHERE coalesce((
+			SELECT enabled FROM notifications.notification_preferences
+			WHERE account_id=$1::uuid AND event_type=$3
+		), true)
+		ON CONFLICT (source_event_id, recipient_account_id) DO NOTHING
+	`, recipient, taskID, eventType, title, body)
+	if err != nil {
+		return fmt.Errorf("create task notification: %w", err)
+	}
+	return nil
+}
+
+func notifyTaskCreator(ctx context.Context, tx *sql.Tx, taskID, actor, eventType, title, body string) error {
+	var creator string
+	if err := tx.QueryRowContext(ctx, `SELECT created_by::text FROM tasks.tasks WHERE id=$1::uuid`,
+		taskID).Scan(&creator); err != nil {
+		return fmt.Errorf("load task creator for notification: %w", err)
+	}
+	return notifyTaskRecipient(ctx, tx, creator, actor, taskID, eventType, title, body)
+}
+
+func notifyTaskAssignee(ctx context.Context, tx *sql.Tx, taskID, actor, eventType, title, body string) error {
+	var assignee sql.NullString
+	if err := tx.QueryRowContext(ctx, `
+		SELECT assignee_account_id::text FROM tasks.task_assignments
+		WHERE task_id=$1::uuid AND unassigned_at IS NULL
+	`, taskID).Scan(&assignee); err != nil {
+		return fmt.Errorf("load task assignee for notification: %w", err)
+	}
+	if !assignee.Valid {
+		return nil
+	}
+	return notifyTaskRecipient(ctx, tx, assignee.String, actor, taskID, eventType, title, body)
+}
+
+func notifyTaskParticipants(ctx context.Context, tx *sql.Tx, taskID, actor, eventType, title, body string) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT created_by::text FROM tasks.tasks WHERE id=$1::uuid
+		UNION
+		SELECT assignee_account_id::text FROM tasks.task_assignments
+		WHERE task_id=$1::uuid AND unassigned_at IS NULL
+	`, taskID)
+	if err != nil {
+		return fmt.Errorf("load task participants for notification: %w", err)
+	}
+	var recipients []string
+	for rows.Next() {
+		var recipient string
+		if err := rows.Scan(&recipient); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan task notification recipient: %w", err)
+		}
+		recipients = append(recipients, recipient)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("read task notification recipients: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close task notification recipients: %w", err)
+	}
+	for _, recipient := range recipients {
+		if err := notifyTaskRecipient(ctx, tx, recipient, actor, taskID, eventType, title, body); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func parsePage(values url.Values) (int, int, error) {
 	limit, offset := defaultPageSize, 0
 	for key, entries := range values {
@@ -715,18 +793,37 @@ func (h *Handler) addComment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", requestID(ctx))
 		return
 	}
-	if _, err := h.getVisibleTask(ctx, principal, id); err != nil {
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		h.fail(w, ctx, "begin task comment", err)
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := lockVisibleTask(ctx, tx, principal, id); err != nil {
 		h.fail(w, ctx, "authorize task comment", err)
 		return
 	}
 	var item comment
-	err := h.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO tasks.task_comments (task_id, author_account_id, body)
 		VALUES ($1::uuid, $2::uuid, $3)
 		RETURNING id::text, author_account_id::text, body, created_at
 	`, id, principal.ID, input.Body).Scan(&item.ID, &item.AuthorID, &item.Body, &item.CreatedAt)
 	if err != nil {
 		h.fail(w, ctx, "create task comment", err)
+		return
+	}
+	if err := recordAudit(ctx, tx, principal.ID, id, "task.comment_added"); err != nil {
+		h.fail(w, ctx, "audit task comment", err)
+		return
+	}
+	if err := notifyTaskParticipants(ctx, tx, id, principal.ID,
+		"task.comment_added", "New task comment", "A new comment was added to a task."); err != nil {
+		h.fail(w, ctx, "notify task comment", err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.fail(w, ctx, "commit task comment", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"comment": item})
@@ -920,6 +1017,10 @@ func (h *Handler) assignTask(ctx context.Context, principal Principal, id, assig
 	if err := recordStatusAndAudit(ctx, tx, principal.ID, id, current.Status, "assigned", "task.assigned", ""); err != nil {
 		return task{}, err
 	}
+	if err := notifyTaskRecipient(ctx, tx, assigneeID, principal.ID, id,
+		"task.assigned", "Task assigned", "You have been assigned a task."); err != nil {
+		return task{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return task{}, fmt.Errorf("commit task assignment: %w", err)
 	}
@@ -998,6 +1099,10 @@ func (h *Handler) submitTask(ctx context.Context, principal Principal, id string
 	if err := recordStatusAndAudit(ctx, tx, principal.ID, id, current.Status, "submitted", "task.submitted", ""); err != nil {
 		return task{}, err
 	}
+	if err := notifyTaskCreator(ctx, tx, id, principal.ID,
+		"task.submitted", "Task submitted", "An assigned task has been submitted for review."); err != nil {
+		return task{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return task{}, fmt.Errorf("commit task submission: %w", err)
 	}
@@ -1044,6 +1149,12 @@ func (h *Handler) reviewTask(ctx context.Context, principal Principal, id, decis
 		return task{}, fmt.Errorf("update reviewed task: %w", err)
 	}
 	if err := recordStatusAndAudit(ctx, tx, principal.ID, id, current.Status, decision, "task."+decision, feedback); err != nil {
+		return task{}, err
+	}
+	title := map[string]string{
+		"approved": "Task approved", "changes_requested": "Changes requested", "rejected": "Task rejected",
+	}[decision]
+	if err := notifyTaskAssignee(ctx, tx, id, principal.ID, "task."+decision, title, feedback); err != nil {
 		return task{}, err
 	}
 	if err := tx.Commit(); err != nil {

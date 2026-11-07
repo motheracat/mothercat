@@ -22,7 +22,10 @@ func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
 	tasks := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 	})
-	handler := newRouter(nil, identity, organization, access, audit, tasks)
+	notifications := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
+	handler := newRouter(nil, identity, organization, access, audit, tasks, notifications)
 
 	for _, path := range []string{
 		"/api/v1/staff",
@@ -79,6 +82,15 @@ func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
 		if response.Code != http.StatusCreated {
 			t.Errorf("%s reached status %d; want task handler status %d",
 				path, response.Code, http.StatusCreated)
+		}
+
+		for _, path := range []string{"/api/v1/notifications", "/api/v1/notifications/unread-count", "/api/v1/notifications/preferences"} {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+			if response.Code != http.StatusAccepted {
+				t.Errorf("%s reached status %d; want notifications handler status %d",
+					path, response.Code, http.StatusAccepted)
+			}
 		}
 	}
 }
