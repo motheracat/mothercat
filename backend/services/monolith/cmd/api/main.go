@@ -21,6 +21,7 @@ import (
 	accessstore "github.com/mothercat-enterprise/mothercat/backend/services/access/monolith"
 	audithttp "github.com/mothercat-enterprise/mothercat/backend/services/audit/http"
 	auditstore "github.com/mothercat-enterprise/mothercat/backend/services/audit/monolith"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/tasks"
 	identityapp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/application"
 	identitydomain "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/domain"
 	identityhttp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/http"
@@ -119,7 +120,8 @@ func run(logger *slog.Logger) error {
 	auditHandler := audithttp.NewHandler(
 		auditstore.NewReader(db), auditAuthenticator{service: authService}, logger,
 	)
-	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler)
+	taskHandler := tasks.NewHandler(db, taskAuthenticator{service: authService}, logger)
+	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler, taskHandler)
 	server := &http.Server{
 		Addr: address, Handler: handler, ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
@@ -214,7 +216,7 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func newRouter(db *sql.DB, identity, organization, access, audit http.Handler) http.Handler {
+func newRouter(db *sql.DB, identity, organization, access, audit, tasks http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -243,6 +245,11 @@ func newRouter(db *sql.DB, identity, organization, access, audit http.Handler) h
 	if audit != nil {
 		mux.Handle("/api/v1/audit-events", audit)
 		mux.Handle("/api/v1/audit-events/", audit)
+	}
+	if tasks != nil {
+		mux.Handle("/api/v1/tasks", tasks)
+		mux.Handle("/api/v1/tasks/", tasks)
+		mux.Handle("/api/v1/me/tasks", tasks)
 	}
 	mux.Handle("/api/v1/", identity)
 	mux.Handle("/internal/v1/", identity)
@@ -277,6 +284,21 @@ func (a auditAuthenticator) Authenticate(ctx context.Context, token string) (aud
 		return audithttp.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
 	}
 	return audithttp.Principal{Permissions: account.Permissions}, nil
+}
+
+type taskAuthenticator struct {
+	service *identityapp.Service
+}
+
+func (a taskAuthenticator) Authenticate(ctx context.Context, token string) (tasks.Principal, error) {
+	account, err := a.service.ResolveSession(ctx, token)
+	if err != nil {
+		if errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			return tasks.Principal{}, tasks.ErrUnauthenticated
+		}
+		return tasks.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
+	}
+	return tasks.Principal{ID: account.ID, Permissions: account.Permissions}, nil
 }
 
 type localAuthorizationProvider struct {

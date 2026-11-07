@@ -19,7 +19,10 @@ func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
 	audit := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusPartialContent)
 	})
-	handler := newRouter(nil, identity, organization, access, audit)
+	tasks := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	})
+	handler := newRouter(nil, identity, organization, access, audit, tasks)
 
 	for _, path := range []string{
 		"/api/v1/staff",
@@ -67,6 +70,15 @@ func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
 		if response.Code != http.StatusPartialContent {
 			t.Errorf("%s reached status %d; want audit handler status %d",
 				path, response.Code, http.StatusPartialContent)
+		}
+	}
+
+	for _, path := range []string{"/api/v1/tasks", "/api/v1/tasks/123", "/api/v1/me/tasks"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusCreated {
+			t.Errorf("%s reached status %d; want task handler status %d",
+				path, response.Code, http.StatusCreated)
 		}
 	}
 }

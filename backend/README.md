@@ -1,8 +1,9 @@
 # Backend
 
-The backend is a Go modular monolith with Identity, Organization, Access, and
-Audit domains in one API process. PostgreSQL is the system of record; Supabase
-provides the managed PostgreSQL database. The API does not use MongoDB.
+The backend is a Go modular monolith with Identity, Organization, Access,
+Audit, and Tasks modules in one API process. PostgreSQL is the system of
+record; Supabase provides the managed PostgreSQL database. The API does not use
+MongoDB.
 
 ## Database configuration
 
@@ -26,6 +27,35 @@ deployment guide](docs/DEPLOYMENT-POSTGRES.md) for staging verification and
 cutover steps. Do not deploy the PostgreSQL API against production until the
 import is complete and verified.
 
+## Tasks API
+
+The task workflow is an internal module in the same API server, not a separately
+deployed service. Migration `007_tasks` creates the `tasks` schema and grants the
+task permissions to the built-in Admin and SuperAdmin roles.
+
+Authenticated task routes:
+
+- `GET|POST /api/v1/tasks`
+- `GET|PATCH /api/v1/tasks/{taskId}`
+- `GET /api/v1/me/tasks`
+- `POST /api/v1/tasks/{taskId}/assign`
+- `POST /api/v1/tasks/{taskId}/start`
+- `POST /api/v1/tasks/{taskId}/submit`
+- `POST /api/v1/tasks/{taskId}/approve`
+- `POST /api/v1/tasks/{taskId}/request-changes`
+- `POST /api/v1/tasks/{taskId}/reject`
+- `POST /api/v1/tasks/{taskId}/cancel`
+- `GET /api/v1/tasks/{taskId}/history`
+- `GET|POST /api/v1/tasks/{taskId}/comments`
+
+Task reads are restricted to the creator, active assignee, members of the task
+department with `tasks.read_department`, or users with `tasks.read_all`.
+Assignment requires `tasks.assign`, department membership, and an active staff
+account in that department. Draft edits require the creator and a matching
+`If-Match` version. Task state history and audit events are written in the same
+database transaction as the corresponding change. Cookie-authenticated writes
+require a same-origin `Origin` header.
+
 ## Initial administrator
 
 The one-time `POST /api/v1/auth/bootstrap` endpoint creates the first active
@@ -48,17 +78,18 @@ control.
 
 The database seeds two administrator roles:
 
-- `Admin` is granted all 11 permissions currently in the backend catalogue:
+- `Admin` is granted the current 17 permissions in the backend catalogue:
   staff read/create/update/deactivate/import, department management, role
-  read/management, user-role assignment, audit read, and system settings
-  management.
+  read/management, user-role assignment, audit read, system settings
+  management, and the six task permissions.
 - `SuperAdmin` retains the same current permissions. The initial bootstrap
   account is assigned this role; Admin and SuperAdmin remain distinct system
   roles even though their current permission sets match.
 
-Migration `006_admin_full_permissions` grants the current permission set to
-Admin on both existing and fresh databases. It does not automatically grant
-permissions introduced by future migrations.
+Migration `006_admin_full_permissions` grants the Milestone 1 permission set
+to Admin on existing and fresh databases; migration `007_tasks` grants the six
+task permissions to both administrator roles. Future permissions are not
+automatically granted.
 
 An authenticated `SuperAdmin` can provision an eligible pending staff profile
 directly as an `Admin` through `POST /api/v1/staff/{staffID}/provision-admin`.
