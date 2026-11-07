@@ -86,6 +86,10 @@ All notification reads and updates are scoped to the authenticated account.
 The list, history, and comments endpoints are paginated; notification write
 requests require a same-origin `Origin` header.
 
+Frontend integration details, including the production API URL, session-cookie
+usage, task and notification request/response shapes, and browser-origin
+requirements, are in the [Frontend API Guide](docs/FRONTEND-API-GUIDE.md).
+
 ## Initial administrator
 
 The one-time `POST /api/v1/auth/bootstrap` endpoint creates the first active
