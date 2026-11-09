@@ -894,11 +894,7 @@ func (h *Handler) downloadDocument(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, ctx, "read SIWES application document", err)
 		return
 	}
-	disposition, err := mime.FormatMediaType("attachment", map[string]string{"filename": name})
-	if err != nil {
-		h.fail(w, ctx, "format SIWES document filename", err)
-		return
-	}
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": name})
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", disposition)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
