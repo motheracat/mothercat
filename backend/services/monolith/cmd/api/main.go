@@ -25,7 +25,9 @@ import (
 	identitydomain "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/domain"
 	identityhttp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/http"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/mail"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/notifications"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/persistence"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/tasks"
 	organizationmonolith "github.com/mothercat-enterprise/mothercat/backend/services/organization/monolith"
 )
 
@@ -119,7 +121,11 @@ func run(logger *slog.Logger) error {
 	auditHandler := audithttp.NewHandler(
 		auditstore.NewReader(db), auditAuthenticator{service: authService}, logger,
 	)
-	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler)
+	taskHandler := tasks.NewHandler(db, taskAuthenticator{service: authService}, logger)
+	taskReminderJob := tasks.NewReminderJob(db, logger)
+	notificationHandler := notifications.NewHandler(db, notificationAuthenticator{service: authService}, logger)
+	notificationDispatcher := notifications.NewDispatcher(db, logger)
+	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler, taskHandler, notificationHandler)
 	server := &http.Server{
 		Addr: address, Handler: handler, ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
@@ -129,6 +135,16 @@ func run(logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	dispatcherDone := make(chan struct{})
+	go func() {
+		defer close(dispatcherDone)
+		notificationDispatcher.Run(ctx)
+	}()
+	reminderDone := make(chan struct{})
+	go func() {
+		defer close(reminderDone)
+		taskReminderJob.Run(ctx)
+	}()
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
 	logger.Info("Mothercat API listening", "address", address)
@@ -138,10 +154,17 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			_ = server.Close()
+			<-dispatcherDone
+			<-reminderDone
 			return fmt.Errorf("graceful HTTP shutdown: %w", err)
 		}
+		<-dispatcherDone
+		<-reminderDone
 		return nil
 	case err := <-serverErrors:
+		stop()
+		<-dispatcherDone
+		<-reminderDone
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -214,7 +237,7 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func newRouter(db *sql.DB, identity, organization, access, audit http.Handler) http.Handler {
+func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notifications http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -243,6 +266,15 @@ func newRouter(db *sql.DB, identity, organization, access, audit http.Handler) h
 	if audit != nil {
 		mux.Handle("/api/v1/audit-events", audit)
 		mux.Handle("/api/v1/audit-events/", audit)
+	}
+	if tasks != nil {
+		mux.Handle("/api/v1/tasks", tasks)
+		mux.Handle("/api/v1/tasks/", tasks)
+		mux.Handle("/api/v1/me/tasks", tasks)
+	}
+	if notifications != nil {
+		mux.Handle("/api/v1/notifications", notifications)
+		mux.Handle("/api/v1/notifications/", notifications)
 	}
 	mux.Handle("/api/v1/", identity)
 	mux.Handle("/internal/v1/", identity)
@@ -277,6 +309,36 @@ func (a auditAuthenticator) Authenticate(ctx context.Context, token string) (aud
 		return audithttp.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
 	}
 	return audithttp.Principal{Permissions: account.Permissions}, nil
+}
+
+type taskAuthenticator struct {
+	service *identityapp.Service
+}
+
+func (a taskAuthenticator) Authenticate(ctx context.Context, token string) (tasks.Principal, error) {
+	account, err := a.service.ResolveSession(ctx, token)
+	if err != nil {
+		if errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			return tasks.Principal{}, tasks.ErrUnauthenticated
+		}
+		return tasks.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
+	}
+	return tasks.Principal{ID: account.ID, Permissions: account.Permissions}, nil
+}
+
+type notificationAuthenticator struct {
+	service *identityapp.Service
+}
+
+func (a notificationAuthenticator) Authenticate(ctx context.Context, token string) (notifications.Principal, error) {
+	account, err := a.service.ResolveSession(ctx, token)
+	if err != nil {
+		if errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			return notifications.Principal{}, notifications.ErrUnauthenticated
+		}
+		return notifications.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
+	}
+	return notifications.Principal{ID: account.ID}, nil
 }
 
 type localAuthorizationProvider struct {
