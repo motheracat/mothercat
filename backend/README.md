@@ -90,6 +90,21 @@ Frontend integration details, including the production API URL, session-cookie
 usage, task and notification request/response shapes, and browser-origin
 requirements, are in the [Frontend API Guide](docs/FRONTEND-API-GUIDE.md).
 
+## Opportunities and SIWES applications
+
+Migration `011_opportunities` adds public job/SIWES opportunity listings,
+permission-protected opportunity management, public SIWES application
+submission, private reviewer-only document downloads, and the associated
+permission keys. SIWES application metadata and document bytes are purged after
+365 days by an in-process daily retention job. Public uploads are bounded to a
+10 MiB document and require a healthy, private ClamAV service configured by
+`SIWES_CLAMAV_ADDR` (`host:port`); upload requests fail closed if malware
+scanning is unavailable. Configure additional edge-level rate limits for
+production, because the API's five-per-hour submission limit is process-local.
+The [Frontend API Guide](docs/FRONTEND-API-GUIDE.md) documents the routes,
+permission requirements, status transitions, upload constraints, and proxy
+requirements.
+
 ## Initial administrator
 
 The one-time `POST /api/v1/auth/bootstrap` endpoint creates the first active

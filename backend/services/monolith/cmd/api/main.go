@@ -26,6 +26,7 @@ import (
 	identityhttp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/http"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/mail"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/notifications"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/opportunities"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/persistence"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/tasks"
 	organizationmonolith "github.com/mothercat-enterprise/mothercat/backend/services/organization/monolith"
@@ -125,7 +126,19 @@ func run(logger *slog.Logger) error {
 	taskReminderJob := tasks.NewReminderJob(db, logger)
 	notificationHandler := notifications.NewHandler(db, notificationAuthenticator{service: authService}, logger)
 	notificationDispatcher := notifications.NewDispatcher(db, logger)
-	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler, taskHandler, notificationHandler)
+	var documentScanner opportunities.MalwareScanner
+	if address := strings.TrimSpace(os.Getenv("SIWES_CLAMAV_ADDR")); address != "" {
+		documentScanner, err = opportunities.NewClamAVScanner(address)
+		if err != nil {
+			return fmt.Errorf("configure SIWES malware scanner: %w", err)
+		}
+	}
+	opportunitiesHandler := opportunities.NewHandler(
+		db, opportunityAuthenticator{service: authService}, documentScanner, logger,
+	)
+	applicationRetentionJob := opportunities.NewRetentionJob(db, logger)
+	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler,
+		taskHandler, notificationHandler, opportunitiesHandler)
 	server := &http.Server{
 		Addr: address, Handler: handler, ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
@@ -145,6 +158,11 @@ func run(logger *slog.Logger) error {
 		defer close(reminderDone)
 		taskReminderJob.Run(ctx)
 	}()
+	retentionDone := make(chan struct{})
+	go func() {
+		defer close(retentionDone)
+		applicationRetentionJob.Run(ctx)
+	}()
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
 	logger.Info("Mothercat API listening", "address", address)
@@ -156,15 +174,18 @@ func run(logger *slog.Logger) error {
 			_ = server.Close()
 			<-dispatcherDone
 			<-reminderDone
+			<-retentionDone
 			return fmt.Errorf("graceful HTTP shutdown: %w", err)
 		}
 		<-dispatcherDone
 		<-reminderDone
+		<-retentionDone
 		return nil
 	case err := <-serverErrors:
 		stop()
 		<-dispatcherDone
 		<-reminderDone
+		<-retentionDone
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -237,7 +258,7 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notifications http.Handler) http.Handler {
+func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notifications, opportunities http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -275,6 +296,12 @@ func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notific
 	if notifications != nil {
 		mux.Handle("/api/v1/notifications", notifications)
 		mux.Handle("/api/v1/notifications/", notifications)
+	}
+	if opportunities != nil {
+		mux.Handle("/api/v1/opportunities", opportunities)
+		mux.Handle("/api/v1/opportunities/", opportunities)
+		mux.Handle("/api/v1/siwes-applications", opportunities)
+		mux.Handle("/api/v1/siwes-applications/", opportunities)
 	}
 	mux.Handle("/api/v1/", identity)
 	mux.Handle("/internal/v1/", identity)
@@ -339,6 +366,21 @@ func (a notificationAuthenticator) Authenticate(ctx context.Context, token strin
 		return notifications.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
 	}
 	return notifications.Principal{ID: account.ID}, nil
+}
+
+type opportunityAuthenticator struct {
+	service *identityapp.Service
+}
+
+func (a opportunityAuthenticator) Authenticate(ctx context.Context, token string) (opportunities.Principal, error) {
+	account, err := a.service.ResolveSession(ctx, token)
+	if err != nil {
+		if errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			return opportunities.Principal{}, opportunities.ErrUnauthenticated
+		}
+		return opportunities.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
+	}
+	return opportunities.Principal{ID: account.ID, Permissions: account.Permissions}, nil
 }
 
 type localAuthorizationProvider struct {

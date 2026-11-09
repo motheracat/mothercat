@@ -319,6 +319,105 @@ Submit the full replacement list to update preferences:
 Omitted event preferences revert to the backend default (`enabled: true`).
 Notification writes require the same-origin condition described above.
 
+## Opportunities and SIWES applications
+
+Migration `011_opportunities` adds job/SIWES opportunity management and private
+SIWES application records. All paths below use the same production base URL.
+The frontend should call these through its same-origin `/api` proxy; direct
+cross-origin browser calls are not supported by the current API.
+
+### Public opportunities
+
+| Method and path | Description |
+|---|---|
+| `GET /api/v1/opportunities?type=siwes&limit=20&offset=0` | Public list of published, not-expired opportunities |
+| `GET /api/v1/opportunities/{opportunityId}` | Public detail for an open opportunity; authorized managers can also read drafts/closed records |
+
+`type` can be `job` or `siwes`. Public lists do not return drafts or closed
+opportunities. The API does not return expired opportunities. An opportunity
+contains the fields `id`, `type`, `title`, `location`, `work_mode`, `summary`,
+`description`, `requirements`, `application_deadline`, `status`, `created_at`,
+and `updated_at`. The deadline is a `YYYY-MM-DD` date and can be absent while
+the opportunity is a draft. Lists return `opportunities` and a `page` object.
+
+### Manage opportunities
+
+The management list requires at least one of `opportunities.publish`,
+`applications.review`, or `it_applications.review`; each account only sees
+opportunity types allowed by its permission. Creation, editing, and status
+changes require `opportunities.publish`.
+
+| Method and path | Description |
+|---|---|
+| `GET /api/v1/opportunities/manage?type=siwes&status=draft&limit=25&offset=0` | Authorized management list |
+| `POST /api/v1/opportunities` | Create a draft |
+| `PATCH /api/v1/opportunities/{opportunityId}` | Edit a draft |
+| `POST /api/v1/opportunities/{opportunityId}/publish` | Publish a draft |
+| `POST /api/v1/opportunities/{opportunityId}/unpublish` | Return a published opportunity to draft |
+| `POST /api/v1/opportunities/{opportunityId}/close` | Close a published opportunity |
+
+Creation example:
+
+```json
+{
+  "type": "siwes",
+  "title": "SIWES Industrial Training Placement",
+  "location": "Lagos, Nigeria",
+  "work_mode": "On-site",
+  "summary": "A supervised industrial training placement.",
+  "description": "Full placement details.",
+  "requirements": "Eligibility requirements.",
+  "application_deadline": "2027-02-28"
+}
+```
+
+Limits are title 160, location 120, work mode 80, summary 400, description
+8,000, and requirements 4,000 characters. Publication requires all public
+content fields and a deadline that has not passed. Successful mutations return
+`{"opportunity": ...}`.
+
+### Submit and review SIWES applications
+
+`POST /api/v1/opportunities/{opportunityId}/siwes-applications` is public and
+accepts `multipart/form-data`. Send text fields `full_name`, `email`, `phone`,
+`institution`, `course`, and `matric_number`; `message` is optional. Include
+exactly one file field named `document`. The backend accepts PDF, legacy DOC,
+or DOCX up to 10 MiB and checks file signatures/container structure as well as
+the filename extension. The browser's claimed MIME type is not trusted.
+
+The application is accepted only for an open SIWES opportunity. The document
+is stored privately in PostgreSQL and is never included in a public opportunity
+response. All application metadata and document bytes are deleted after 365
+days. Requests are origin checked and limited to five per IP per hour per API
+process; production deployments should additionally configure edge-level abuse
+controls because process-local limits do not coordinate across replicas.
+
+**Malware scanning is fail-closed.** Configure `SIWES_CLAMAV_ADDR` as a
+private `host:port` for a reachable ClamAV daemon. Without a configured and
+healthy scanner, uploads return `503 document_scanning_unavailable`; infected
+uploads return `422 unsafe_document`. Do not expose the scanner publicly.
+Uploads are not enabled until the frontend proxy has a bounded request-size
+exception for this exact route (10 MiB file plus at most 64 KiB multipart
+overhead).
+
+Review endpoints require `it_applications.review`:
+
+| Method and path | Description |
+|---|---|
+| `GET /api/v1/siwes-applications?opportunity_id={uuid}&status=submitted&limit=25&offset=0` | Paginated reviewer list with private applicant metadata and document metadata |
+| `GET /api/v1/siwes-applications/{applicationId}` | Read one application |
+| `PATCH /api/v1/siwes-applications/{applicationId}` | Update review status and/or reviewer note |
+| `GET /api/v1/siwes-applications/{applicationId}/document` | Download the file after authorization |
+
+Allowed review statuses are `submitted`, `under_review`, `shortlisted`,
+`accepted`, and `rejected`. Transitions are enforced: submitted applications
+can move to under review or rejected; under review can move to shortlisted,
+accepted, or rejected; shortlisted can move to accepted or rejected. A
+reviewer may update `reviewer_note` (up to 2,000 characters) without changing
+status. Applicant email/status notifications and applicant withdrawal are not
+implemented in this contract. Document download is attachment-only, uses
+`Cache-Control: no-store`, and never returns a permanent public URL.
+
 ## Endpoints outside this guide
 
 The API also exposes staff, department, role, permission, and audit routes.

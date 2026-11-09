@@ -25,7 +25,10 @@ func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
 	notifications := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 	})
-	handler := newRouter(nil, identity, organization, access, audit, tasks, notifications)
+	opportunities := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := newRouter(nil, identity, organization, access, audit, tasks, notifications, opportunities)
 
 	for _, path := range []string{
 		"/api/v1/staff",
@@ -91,6 +94,21 @@ func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
 				t.Errorf("%s reached status %d; want notifications handler status %d",
 					path, response.Code, http.StatusAccepted)
 			}
+		}
+	}
+
+	for _, path := range []string{
+		"/api/v1/opportunities",
+		"/api/v1/opportunities/manage",
+		"/api/v1/opportunities/00000000-0000-4000-8000-000000000001",
+		"/api/v1/siwes-applications",
+		"/api/v1/siwes-applications/00000000-0000-4000-8000-000000000001",
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK {
+			t.Errorf("%s reached status %d; want opportunities handler status %d",
+				path, response.Code, http.StatusOK)
 		}
 	}
 }
