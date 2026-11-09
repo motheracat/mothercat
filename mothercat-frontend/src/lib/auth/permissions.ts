@@ -14,6 +14,7 @@ export type PermissionKey =
   | "tasks.create"
   | "tasks.assign"
   | "tasks.review"
+  | "tasks.cancel"
   | "opportunities.publish"
   | "applications.review"
   | "it_applications.review"

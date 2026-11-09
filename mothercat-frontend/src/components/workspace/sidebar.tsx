@@ -7,6 +7,7 @@ import { useCallback, useRef, useState } from "react";
 import {
   Building2,
   Bell,
+  ClipboardList,
   CircleUserRound,
   FileUp,
   Gauge,
@@ -34,6 +35,7 @@ const items: SidebarItem[] = [
   { href: "/staff", label: "Staff directory", icon: UsersRound, permissions: ["staff.read", "*"] },
   { href: "/staff/imports", label: "Staff imports", icon: FileUp, permissions: ["staff.import", "*"] },
   { href: "/departments", label: "Departments", icon: Building2, permissions: ["departments.manage", "staff.read", "*"] },
+  { href: "/tasks", label: "Tasks", icon: ClipboardList },
   { href: "/roles", label: "Roles & permissions", icon: ShieldCheck, permissions: ["roles.read", "roles.manage", "*"] },
   { href: "/audit", label: "Audit log", icon: History, permissions: ["audit.read", "*"] },
   { href: "/notifications", label: "Notifications", icon: Bell },
@@ -60,8 +62,11 @@ export function WorkspaceSidebar({
   const permissions = session?.permissions ?? [];
   const hasNoPermissions = !hasPermission(session, "*") && (permissions.length === 0 || (permissions.length === 1 && permissions[0] === ""));
   const visibleItems = hasNoPermissions
-    ? items.filter((item) => item.href === "/dashboard" || item.href === "/account")
+    ? items.filter((item) => ["/dashboard", "/account", "/tasks", "/notifications"].includes(item.href))
     : items.filter((item) => !item.permissions || hasAnyPermission(session, item.permissions));
+  const activeHref = visibleItems
+    .filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))
+    .reduce<string | null>((current, item) => !current || item.href.length > current.length ? item.href : current, null);
   const primaryItems = mobilePrimaryHrefs
     .map((href) => visibleItems.find((item) => item.href === href))
     .filter((item): item is SidebarItem => item !== undefined);
@@ -85,17 +90,16 @@ export function WorkspaceSidebar({
 
         <nav aria-label="Workspace navigation" className="flex-1 space-y-1 overflow-y-auto p-3">
           {visibleItems.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = item.href === activeHref;
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                aria-current={pathname === item.href ? "page" : undefined}
-                className={`relative flex h-10 items-center rounded-lg px-3 text-sm transition-colors duration-150 ${
-                  active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
+                aria-current={pathname === item.href ? "page" : active ? "location" : undefined}
+                className={`workspace-sidebar-link relative flex h-10 w-full items-center rounded-lg px-3 text-sm transition-all duration-150 ${
+                  active ? "is-active" : "text-white/70 hover:bg-white/5 hover:text-white"
                 }`}
               >
-                {active ? <span aria-hidden="true" className="absolute inset-y-2 left-0 w-[3px] rounded-r bg-[var(--accent)]" /> : null}
                 <span className="pl-1">{item.label}</span>
               </Link>
             );
@@ -112,7 +116,7 @@ export function WorkspaceSidebar({
       <nav aria-label="Workspace navigation" className="workspace-bottom-nav">
         <div className="workspace-bottom-nav-bar">
           {primaryItems.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = item.href === activeHref;
             const Icon = item.icon;
             return (
               <Link

@@ -312,7 +312,7 @@ export function AuditLog({
     <div className="grid gap-4 pb-6">
       <PageHeader
         title="Audit log"
-        description="Review administrative and account activity recorded by the system."
+        description="."
         actions={(
           <button
             type="button"

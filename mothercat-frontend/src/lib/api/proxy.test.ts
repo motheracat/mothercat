@@ -97,6 +97,36 @@ describe("proxyApiRequest", () => {
     expect(new Headers(init.headers).get("origin")).toBe("https://api.example");
   });
 
+  it("forwards the If-Match header required for versioned task updates", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ task: { id: "task-uuid" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", ETag: '"2"' },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await proxyApiRequest(
+      new Request("https://frontend.example/api/v1/tasks/task-uuid", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          cookie: "mothercat_session=session-value",
+          host: "frontend.example",
+          origin: "https://frontend.example",
+          "if-match": '"1"',
+        },
+        body: JSON.stringify({ title: "Updated task" }),
+      }),
+      ["tasks", "task-uuid"],
+      "https://api.example",
+    );
+
+    expect(response.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(new Headers(init.headers).get("if-match")).toBe('"1"');
+  });
+
   it("rejects cross-origin mutations without contacting the backend", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

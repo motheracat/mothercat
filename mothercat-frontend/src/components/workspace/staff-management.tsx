@@ -384,7 +384,7 @@ export function StaffManagement({ permissions }: { permissions: Permissions }) {
     <>
       <PageHeader
         title="Staff directory"
-        description="Manage staff profiles, employment details, and department assignments."
+        description="."
         actions={
           <>
             {permissions.canImport ? <Link href="/staff/imports" className="button-secondary">Import CSV</Link> : null}

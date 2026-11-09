@@ -33,6 +33,21 @@ export const apiRoutes = {
     list: "/audit-events",
     details: (eventId: string) => `/audit-events/${eventId}`,
   },
+  tasks: {
+    list: "/tasks",
+    mine: "/me/tasks",
+    details: (taskId: string) => `/tasks/${taskId}`,
+    assign: (taskId: string) => `/tasks/${taskId}/assign`,
+    action: (taskId: string, action: string) => `/tasks/${taskId}/${action}`,
+    comments: (taskId: string) => `/tasks/${taskId}/comments`,
+  },
+  notifications: {
+    list: "/notifications",
+    unreadCount: "/notifications/unread-count",
+    read: (notificationId: string) => `/notifications/${notificationId}/read`,
+    readAll: "/notifications/read-all",
+    preferences: "/notifications/preferences",
+  },
   settings: "/settings",
 } as const;
 

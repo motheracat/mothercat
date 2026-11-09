@@ -12,6 +12,7 @@ import { listStaff, type StaffMember } from "@/lib/organization/api";
 import { WorkspaceModalMenu } from "@/components/workspace/modal-menu";
 import { WorkspaceSidebar } from "@/components/workspace/sidebar";
 import { WorkspaceContextProvider } from "@/components/workspace/workspace-context";
+import { getUnreadNotificationCount, notificationsUpdatedEvent } from "@/lib/notifications/api";
 
 const profileUpdatedEvent = "mothercat:staff-profile-updated";
 
@@ -23,6 +24,8 @@ const breadcrumbLabels: Record<string, string> = {
   roles: "Roles & permissions",
   audit: "Audit log",
   notifications: "Notifications",
+  tasks: "Tasks",
+  create: "Create task",
   profile: "My profile",
   account: "Password & security",
   settings: "Settings",
@@ -83,7 +86,10 @@ export function WorkspaceShell({
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [profileImage, setProfileImage] = useState<{ staffId: string; url: string | null } | null>(null);
+  const [unreadCount, setUnreadCount] = useState<number | null>(null);
+  const [unreadCountError, setUnreadCountError] = useState(false);
   const staffNumber = session?.staffId;
+  const accountId = session?.userId;
   const profileImageUrl = profileImage && profileImage.staffId === staffNumber ? profileImage.url : null;
   const userMenuButtonRef = useRef<HTMLButtonElement>(null);
   const closeUserMenu = useCallback(() => setUserMenuOpen(false), []);
@@ -119,6 +125,77 @@ export function WorkspaceShell({
     window.addEventListener(profileUpdatedEvent, handleStaffProfileUpdated);
     return () => window.removeEventListener(profileUpdatedEvent, handleStaffProfileUpdated);
   }, [staffNumber]);
+
+  useEffect(() => {
+    if (!accountId || devOpen) return;
+    let active = true;
+    let lastUpdated = 0;
+    const cacheKey = `mothercat:unread-notifications:${accountId}`;
+
+    function saveCount(count: number) {
+      setUnreadCount(count);
+      setUnreadCountError(false);
+      lastUpdated = Date.now();
+      try {
+        window.sessionStorage.setItem(cacheKey, `${count}:${lastUpdated}`);
+      } catch {
+        // The in-memory count remains usable when browser storage is unavailable.
+      }
+    }
+
+    async function refreshCount() {
+      try {
+        const count = await getUnreadNotificationCount();
+        if (active) saveCount(count);
+      } catch {
+        if (active) setUnreadCountError(true);
+      }
+    }
+
+    try {
+      const cached = window.sessionStorage.getItem(cacheKey)?.match(/^(\d+):(\d+)$/);
+      if (cached) {
+        const count = Number(cached[1]);
+        const updatedAt = Number(cached[2]);
+        if (Number.isSafeInteger(count) && Number.isSafeInteger(updatedAt) && updatedAt <= Date.now()) {
+          lastUpdated = updatedAt;
+          window.setTimeout(() => {
+            if (active) {
+              setUnreadCount(count);
+              setUnreadCountError(false);
+            }
+          }, 0);
+        }
+      }
+    } catch {
+      // Browser storage is an optional cache.
+    }
+    if (!lastUpdated || Date.now() - lastUpdated >= 60_000) void refreshCount();
+
+    function handleNotificationsUpdated(event: Event) {
+      const count = (event as CustomEvent<unknown>).detail;
+      if (typeof count === "number" && Number.isSafeInteger(count) && count >= 0) {
+        saveCount(count);
+      } else {
+        void refreshCount();
+      }
+    }
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible" && Date.now() - lastUpdated >= 60_000) {
+        void refreshCount();
+      }
+    }
+
+    window.addEventListener(notificationsUpdatedEvent, handleNotificationsUpdated);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    const interval = window.setInterval(refreshWhenVisible, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener(notificationsUpdatedEvent, handleNotificationsUpdated);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [accountId, devOpen]);
 
   async function handleSignOut() {
     setIsSigningOut(true);
@@ -187,11 +264,14 @@ export function WorkspaceShell({
           <div className="flex shrink-0 items-center gap-3">
             <Link
               href="/notifications"
-              aria-label="Notifications"
+              aria-label={unreadCountError ? "Notifications, unread count unavailable" : unreadCount ? `Notifications, ${unreadCount} unread` : "Notifications"}
+              title={unreadCountError ? "Unread notification count unavailable" : undefined}
               aria-current={pathname === "/notifications" ? "page" : undefined}
               className="relative rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--page-bg)] hover:text-[var(--text)]"
             >
               <Bell size={18} aria-hidden="true" />
+              {unreadCount ? <span className="notification-count-badge" aria-hidden="true">{unreadCount > 99 ? "99+" : unreadCount}</span> : null}
+              {unreadCountError ? <span className="sr-only">Unread notification count could not be loaded.</span> : null}
             </Link>
             {session ? (
               <div className="user-menu">

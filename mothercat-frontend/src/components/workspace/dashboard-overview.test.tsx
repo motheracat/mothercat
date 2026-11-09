@@ -1,8 +1,14 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DashboardOverview } from "@/components/workspace/dashboard-overview";
+import { listAuditEvents } from "@/lib/audit/api";
 import { listDepartments, listStaff, type StaffMember } from "@/lib/organization/api";
+
+vi.mock("@/lib/audit/api", () => ({
+  formatAuditError: (_error: unknown, fallback: string) => fallback,
+  listAuditEvents: vi.fn(),
+}));
 
 vi.mock("@/lib/organization/api", () => ({
   formatOrganizationError: (_error: unknown, fallback: string) => fallback,
@@ -31,6 +37,9 @@ function makeStaff(index: number): StaffMember {
 }
 
 beforeEach(() => {
+  cleanup();
+  vi.mocked(listAuditEvents).mockReset();
+  vi.mocked(listAuditEvents).mockResolvedValue({ events: [], total: 0, limit: 5, offset: 0 });
   vi.mocked(listDepartments).mockReset();
   vi.mocked(listStaff).mockReset();
   vi.mocked(listDepartments).mockResolvedValue([]);
@@ -44,9 +53,14 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => {
+  Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+  vi.restoreAllMocks();
+});
+
 describe("DashboardOverview", () => {
   it("shows a capped, overlapping stack of fetched staff photos instead of the total staff count", async () => {
-    render(<DashboardOverview />);
+    render(<DashboardOverview canReadAudit={false} />);
 
     const peopleLink = await screen.findByRole("link", { name: "Browse staff profiles" });
     await waitFor(() => {
@@ -57,5 +71,48 @@ describe("DashboardOverview", () => {
     expect(screen.queryByText("Total staff")).not.toBeInTheDocument();
     expect(screen.queryByText("23")).not.toBeInTheDocument();
     expect(listStaff).toHaveBeenCalledWith({ limit: 5, offset: 0 });
+  });
+
+  it("shows the latest audit events on the dashboard for readers", async () => {
+    vi.mocked(listAuditEvents).mockResolvedValue({
+      events: [{
+        id: "event-1",
+        actor_type: "user",
+        actor_id: "account-1",
+        actor_name: "Ada Okafor",
+        action: "staff.updated",
+        resource_type: "staff_member",
+        resource_id: "staff-1",
+        resource_name: "Sam Rivera",
+        occurred_at: "2026-11-04T10:00:00Z",
+        details: null,
+      }],
+      total: 1,
+      limit: 5,
+      offset: 0,
+    });
+
+    render(<DashboardOverview canReadAudit />);
+
+    expect(await screen.findByText("Staff Updated")).toBeInTheDocument();
+    expect(screen.getByText("Ada Okafor")).toBeInTheDocument();
+    expect(screen.getByText("Sam Rivera")).toBeInTheDocument();
+    expect(listAuditEvents).toHaveBeenCalledWith({ limit: 5, offset: 0 }, expect.any(AbortSignal));
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.open = true;
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /view details for staff updated by ada okafor/i }));
+    expect(screen.getByRole("dialog", { name: "Audit event details" })).toBeInTheDocument();
+    expect(screen.getByText("Change details")).toBeInTheDocument();
+  });
+
+  it("does not request audit events for accounts without permission", async () => {
+    render(<DashboardOverview canReadAudit={false} />);
+
+    expect(await screen.findByText(/available to accounts with the audit\.read permission/i)).toBeInTheDocument();
+    expect(listAuditEvents).not.toHaveBeenCalled();
   });
 });

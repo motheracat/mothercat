@@ -129,12 +129,14 @@ export async function proxyApiRequest(
   const headers = new Headers();
   const accept = request.headers.get("accept");
   const contentType = request.headers.get("content-type");
+  const ifMatch = request.headers.get("if-match");
   const cookieHeader = request.headers.get("cookie");
   const sessionCookies = cookieHeader?.split(";")
     .map((cookie) => cookie.trim())
     .filter((cookie) => cookie.startsWith("mothercat_session=")) ?? [];
   if (accept) headers.set("accept", accept);
   if (contentType) headers.set("content-type", contentType);
+  if (ifMatch) headers.set("if-match", ifMatch);
   if (sessionCookies.length > 1) return errorResponse(400, "invalid_session_cookie");
   if (sessionCookies.length === 1) headers.set("cookie", sessionCookies[0]);
   if (isMutation) {

@@ -128,7 +128,7 @@ export function StaffImport({ canImport }: { canImport: boolean }) {
     <>
       <PageHeader
         title="Staff imports"
-        description="Validate and import staff profiles using a CSV file."
+        description="."
         actions={<Link href="/staff" className="button-secondary">Back to staff directory</Link>}
       />
       {!canImport ? (

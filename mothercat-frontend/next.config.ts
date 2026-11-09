@@ -44,6 +44,9 @@ const nextConfig: NextConfig = {
   },
   turbopack: {
     rules: {
+      "*.module.css": {
+        type: "css",
+      },
       "*.css": {
         loaders: ["@tailwindcss/turbopack"],
         as: "*.css",
