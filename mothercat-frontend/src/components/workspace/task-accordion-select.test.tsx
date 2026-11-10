@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -27,7 +27,7 @@ function DepartmentSelectHarness({ onSelection }: { onSelection: (value: string)
 }
 
 describe("TaskAccordionSelect", () => {
-  it("expands options inline and closes after selection", () => {
+  it("expands options inline and closes after selection", async () => {
     const onChange = vi.fn();
     render(
       <TaskAccordionSelect
@@ -44,15 +44,17 @@ describe("TaskAccordionSelect", () => {
     );
 
     const trigger = screen.getByRole("button", { name: "Task status" });
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     fireEvent.click(trigger);
-    const options = screen.getByRole("group", { name: "Task status options" });
+    const options = screen.getByRole("listbox", { name: "Task status options" });
     expect(trigger).toHaveAttribute("aria-expanded", "true");
-    expect(options.parentElement).toBe(trigger.parentElement);
+    expect(options.parentElement?.parentElement).toBe(trigger.parentElement);
 
-    fireEvent.click(screen.getByRole("button", { name: "Draft" }));
+    fireEvent.click(screen.getByRole("option", { name: "Draft" }));
     expect(onChange).toHaveBeenCalledWith("draft");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
   it("submits a named selection through a hidden form value", () => {
@@ -60,7 +62,7 @@ describe("TaskAccordionSelect", () => {
     const { container } = render(<DepartmentSelectHarness onSelection={onSelection} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Department" }));
-    fireEvent.click(screen.getByRole("button", { name: "Finance & Accounts" }));
+    fireEvent.click(screen.getByRole("option", { name: "Finance & Accounts" }));
 
     expect(onSelection).toHaveBeenCalledWith("finance");
     expect(container.querySelector<HTMLInputElement>('input[name="department_id"]')?.value).toBe("finance");
@@ -81,7 +83,7 @@ describe("TaskAccordionSelect", () => {
     const trigger = screen.getByRole("button", { name: "Department" });
     fireEvent.click(trigger);
     expect(screen.getByRole("status")).toHaveTextContent("No departments are available.");
-    fireEvent.keyDown(screen.getByRole("group", { name: "Department options" }), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("listbox", { name: "Department options" }), { key: "Escape" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();
   });

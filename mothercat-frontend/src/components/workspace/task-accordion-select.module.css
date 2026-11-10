@@ -64,10 +64,9 @@
 /* Trigger content */
 
 .triggerContent {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  display: block;
   min-width: 0;
+  flex: 1;
 }
 
 .label {
@@ -153,6 +152,21 @@
   box-shadow:
     0 8px 22px rgba(15, 23, 42, 0.08),
     0 2px 6px rgba(15, 23, 42, 0.03);
+  animation: accordion-enter 220ms ease-out both;
+}
+
+@keyframes accordion-enter {
+  from {
+    max-height: 0;
+    opacity: 0;
+    margin-top: 0;
+  }
+
+  to {
+    max-height: 390px;
+    opacity: 1;
+    margin-top: 8px;
+  }
 }
 
 /* Panel header */
@@ -358,6 +372,7 @@
   .panelOpen {
     max-height: 350px;
     border-radius: 12px;
+    animation-name: accordion-enter-mobile;
   }
 
   .options {
@@ -369,6 +384,20 @@
   }
 }
 
+@keyframes accordion-enter-mobile {
+  from {
+    max-height: 0;
+    opacity: 0;
+    margin-top: 0;
+  }
+
+  to {
+    max-height: 350px;
+    opacity: 1;
+    margin-top: 8px;
+  }
+}
+
 /* Reduced motion */
 
 @media (prefers-reduced-motion: reduce) {
@@ -377,5 +406,9 @@
   .panel,
   .option {
     transition: none !important;
+  }
+
+  .panelOpen {
+    animation: none;
   }
 }

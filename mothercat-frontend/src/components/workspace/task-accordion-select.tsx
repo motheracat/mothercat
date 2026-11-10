@@ -196,7 +196,7 @@ export function TaskAccordionSelect({
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls={panelId}
+        aria-controls={open ? panelId : undefined}
         disabled={disabled}
         onClick={() => {
           if (open) {
@@ -207,8 +207,6 @@ export function TaskAccordionSelect({
         }}
       >
         <span className={styles.triggerContent}>
-          <span className={styles.label}>{label}</span>
-
           <span
             className={
               selectedOption
@@ -229,90 +227,88 @@ export function TaskAccordionSelect({
         </span>
       </button>
 
-      <div
-        id={panelId}
-        className={`${styles.panel} ${
-          open ? styles.panelOpen : ""
-        }`}
-        aria-hidden={!open}
-        inert={!open}
-      >
-        <div className={styles.panelHeader}>
-          <div>
-            <span className={styles.panelTitle}>
-              {label}
-            </span>
-            <span className={styles.panelSubtitle}>
-              Select one option
+      {open ? (
+        <div
+          id={panelId}
+          className={`${styles.panel} ${styles.panelOpen}`}
+        >
+          <div className={styles.panelHeader}>
+            <div>
+              <span className={styles.panelTitle}>
+                {label}
+              </span>
+              <span className={styles.panelSubtitle}>
+                Select one option
+              </span>
+            </div>
+
+            <span className={styles.optionCount}>
+              {options.length}
             </span>
           </div>
 
-          <span className={styles.optionCount}>
-            {options.length}
-          </span>
-        </div>
+          <div
+            id={listboxId}
+            className={styles.options}
+            role="listbox"
+            aria-label={`${label} options`}
+          >
+            {options.length > 0 ? (
+              options.map((option, index) => {
+                const selected = value === option.value;
+                const active = activeIndex === index;
 
-        <div
-          id={listboxId}
-          className={styles.options}
-          role="listbox"
-          aria-label={`${label} options`}
-        >
-          {options.length > 0 ? (
-            options.map((option, index) => {
-              const selected = value === option.value;
-              const active = activeIndex === index;
+                return (
+                  <button
+                    key={option.value}
+                    ref={(element) => {
+                      optionRefs.current[index] = element;
+                    }}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    tabIndex={active ? 0 : -1}
+                    className={`${styles.option} ${
+                      selected ? styles.optionSelected : ""
+                    } ${active ? styles.optionActive : ""}`}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => selectOption(option)}
+                  >
+                    <span className={styles.optionText}>
+                      {option.label}
+                    </span>
 
-              return (
-                <button
-                  key={option.value}
-                  ref={(element) => {
-                    optionRefs.current[index] = element;
-                  }}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  tabIndex={active ? 0 : -1}
-                  className={`${styles.option} ${
-                    selected ? styles.optionSelected : ""
-                  } ${active ? styles.optionActive : ""}`}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onClick={() => selectOption(option)}
-                >
-                  <span className={styles.optionText}>
-                    {option.label}
-                  </span>
+                    <span className={styles.optionCheck}>
+                      {selected && (
+                        <Check size={17} strokeWidth={2.5} />
+                      )}
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className={styles.emptyState} role="status">
+                <span className={styles.emptyIcon}>
+                  <Search size={20} />
+                </span>
+                <span className={styles.emptyTitle}>
+                  Nothing to select
+                </span>
+                <span className={styles.emptyMessage}>
+                  {emptyMessage}
+                </span>
+              </div>
+            )}
+          </div>
 
-                  <span className={styles.optionCheck}>
-                    {selected && (
-                      <Check size={17} strokeWidth={2.5} />
-                    )}
-                  </span>
-                </button>
-              );
-            })
-          ) : (
-            <div className={styles.emptyState}>
-              <span className={styles.emptyIcon}>
-                <Search size={20} />
-              </span>
-              <span className={styles.emptyTitle}>
-                Nothing to select
-              </span>
-              <span className={styles.emptyMessage}>
-                {emptyMessage}
-              </span>
+          {options.length > 0 && (
+            <div className={styles.panelFooter}>
+              <span>Use ↑ ↓ to navigate</span>
+              <span>Enter to select</span>
             </div>
           )}
         </div>
-
-        {options.length > 0 && (
-          <div className={styles.panelFooter}>
-            <span>Use ↑ ↓ to navigate</span>
-            <span>Enter to select</span>
-          </div>
-        )}
-      </div>
+      ) : null}
     </div>
   );
 }
