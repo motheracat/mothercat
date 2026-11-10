@@ -2,9 +2,7 @@
 
 import { Check, ChevronDown } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
-
-import styles from "./glass-select.module.css";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 
 export type GlassSelectOption = {
   value: string;
@@ -22,7 +20,7 @@ type Props = {
   disabled?: boolean;
 };
 
-type PopoverPosition = {
+type MenuPosition = {
   top: number;
   left: number;
   width: number;
@@ -31,18 +29,20 @@ type PopoverPosition = {
 
 const viewportGutter = 12;
 
-function getPopoverPosition(trigger: HTMLButtonElement, optionCount: number): PopoverPosition {
+function getMenuPosition(trigger: HTMLButtonElement, optionCount: number): MenuPosition {
   const rect = trigger.getBoundingClientRect();
-  const availableBelow = window.innerHeight - rect.bottom - viewportGutter * 2;
-  const availableAbove = rect.top - viewportGutter * 2;
-  const desiredHeight = Math.min(optionCount * 43 + 14, 320);
+  const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const availableBelow = Math.max(0, viewportHeight - rect.bottom - viewportGutter * 2);
+  const availableAbove = Math.max(0, rect.top - viewportGutter * 2);
+  const desiredHeight = Math.min(Math.max(optionCount, 1) * 46 + 18, 320);
   const opensAbove = availableBelow < Math.min(desiredHeight, 180) && availableAbove > availableBelow;
-  const maxHeight = Math.max(100, Math.min(desiredHeight, opensAbove ? availableAbove : availableBelow));
-  const width = Math.min(rect.width, window.innerWidth - viewportGutter * 2);
-  const left = Math.max(viewportGutter, Math.min(rect.left, window.innerWidth - width - viewportGutter));
+  const maxHeight = Math.max(64, Math.min(desiredHeight, opensAbove ? availableAbove : availableBelow));
+  const width = Math.min(Math.max(rect.width, 220), viewportWidth - viewportGutter * 2);
+  const left = Math.max(viewportGutter, Math.min(rect.left, viewportWidth - width - viewportGutter));
   const top = opensAbove
-    ? Math.max(viewportGutter, rect.top - maxHeight - 7)
-    : Math.min(window.innerHeight - maxHeight - viewportGutter, rect.bottom + 7);
+    ? Math.max(viewportGutter, rect.top - maxHeight - 6)
+    : Math.min(viewportHeight - maxHeight - viewportGutter, rect.bottom + 6);
   return { top, left, width, maxHeight };
 }
 
@@ -57,83 +57,68 @@ export function GlassSelect({
   disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [position, setPosition] = useState<PopoverPosition | null>(null);
+  const [position, setPosition] = useState<MenuPosition | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const id = useId();
+  const listboxId = `${id}-listbox`;
   const selectedOption = options.find((option) => option.value === value);
-  const panelTitleId = `glass-select-title-${name ?? label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
-  const close = useCallback((returnFocus = true) => {
+  const close = useCallback((returnFocus = false) => {
     setOpen(false);
     if (returnFocus) requestAnimationFrame(() => triggerRef.current?.focus());
   }, []);
 
   const openMenu = useCallback(() => {
     if (disabled) return;
-    const mobile = window.matchMedia("(max-width: 767px)").matches;
-    setIsMobile(mobile);
     const index = options.findIndex((option) => option.value === value);
     setActiveIndex(index >= 0 ? index : 0);
-    if (!mobile && triggerRef.current) {
-      setPosition(getPopoverPosition(triggerRef.current, options.length));
-    }
+    if (triggerRef.current) setPosition(getMenuPosition(triggerRef.current, options.length));
     setOpen(true);
   }, [disabled, options, value]);
 
   useEffect(() => {
-    if (!open || !isMobile) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [open, isMobile]);
-
-  useEffect(() => {
     if (!open) return;
 
-    const mediaQuery = window.matchMedia("(max-width: 767px)");
     function updatePosition() {
-      setIsMobile(mediaQuery.matches);
-      if (!mediaQuery.matches && triggerRef.current) {
-        setPosition(getPopoverPosition(triggerRef.current, options.length));
-      }
+      if (triggerRef.current) setPosition(getMenuPosition(triggerRef.current, options.length));
     }
+
     function handleOutsidePointer(event: PointerEvent) {
       if (!(event.target instanceof Node)) return;
       if (triggerRef.current?.contains(event.target) || panelRef.current?.contains(event.target)) return;
       close();
     }
-    function handleKeyDown(event: globalThis.KeyboardEvent) {
+
+    function handleDocumentKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        close();
+        close(true);
       }
     }
 
     updatePosition();
     document.addEventListener("pointerdown", handleOutsidePointer);
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleDocumentKeyDown);
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
-    mediaQuery.addEventListener("change", updatePosition);
+
     const focusedOption = optionRefs.current[activeIndex];
     focusedOption?.focus({ preventScroll: true });
+
     return () => {
       document.removeEventListener("pointerdown", handleOutsidePointer);
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleDocumentKeyDown);
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
-      mediaQuery.removeEventListener("change", updatePosition);
     };
-  }, [open, isMobile, options.length, activeIndex, close]);
+  }, [activeIndex, close, open, options.length]);
 
   function choose(option: GlassSelectOption) {
     onChange(option.value);
-    close();
+    close(true);
   }
 
   function moveFocus(index: number) {
@@ -148,12 +133,12 @@ export function GlassSelect({
       event.preventDefault();
       if (!open) openMenu();
       else moveFocus(activeIndex + (event.key === "ArrowDown" ? 1 : -1));
-    } else if (event.key === "Enter" || event.key === " ") {
+    } else if ((event.key === "Enter" || event.key === " ") && !open) {
       event.preventDefault();
-      if (!open) openMenu();
+      openMenu();
     } else if (event.key === "Escape" && open) {
       event.preventDefault();
-      close();
+      close(true);
     }
   }
 
@@ -173,86 +158,54 @@ export function GlassSelect({
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       choose(options[index]);
-    } else if (event.key === "Escape" || event.key === "Tab") {
+    } else if (event.key === "Escape") {
       event.preventDefault();
+      close(true);
+    } else if (event.key === "Tab") {
       close();
     }
   }
 
-  const panel = open && typeof document !== "undefined"
-    ? isMobile
-      ? createPortal(
-          <>
-            <button type="button" className={styles.backdrop} aria-label={`Close ${label} options`} onClick={() => close()} />
-            <div
-              ref={panelRef}
-              className={styles.sheet}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby={panelTitleId}
+  const menu = open && position && typeof document !== "undefined"
+    ? createPortal(
+        <div
+          ref={panelRef}
+          id={listboxId}
+          className="workspace-modal-panel workspace-select-panel"
+          role="listbox"
+          aria-label={label}
+          style={{
+            position: "fixed",
+            zIndex: 1300,
+            top: position.top,
+            left: position.left,
+            width: position.width,
+            maxHeight: position.maxHeight,
+          }}
+        >
+          {options.length === 0 ? (
+            <p className="workspace-select-empty" role="status">{emptyMessage}</p>
+          ) : options.map((option, index) => (
+            <button
+              key={option.value}
+              ref={(element) => { optionRefs.current[index] = element; }}
+              type="button"
+              role="option"
+              aria-selected={value === option.value}
+              tabIndex={activeIndex === index ? 0 : -1}
+              className="workspace-modal-link workspace-select-option"
+              data-active={value === option.value}
+              onFocus={() => setActiveIndex(index)}
+              onKeyDown={(event) => handleOptionKeyDown(event, index)}
+              onClick={() => choose(option)}
             >
-              <span className={styles.dragHandle} aria-hidden="true" />
-              <h2 id={panelTitleId} className={styles.sheetTitle}>{label}</h2>
-              <div className={styles.sheetList} role="listbox" aria-label={label}>
-                {options.length === 0 ? <p role="status" className={styles.emptyMessage}>{emptyMessage}</p> : options.map((option, index) => (
-                  <button
-                    key={option.value}
-                    ref={(element) => { optionRefs.current[index] = element; }}
-                    type="button"
-                    role="option"
-                    aria-selected={value === option.value}
-                    tabIndex={activeIndex === index ? 0 : -1}
-                    className={`${styles.option}${value === option.value ? ` ${styles.optionSelected}` : ""}`}
-                    onFocus={() => setActiveIndex(index)}
-                    onKeyDown={(event) => handleOptionKeyDown(event, index)}
-                    onClick={() => choose(option)}
-                  >
-                    <span className={styles.optionLabel}>{option.label}</span>
-                    {value === option.value ? <Check size={17} aria-hidden="true" /> : null}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>,
-          getPortalTarget(triggerRef.current),
-        )
-      : position
-        ? createPortal(
-            <div
-              ref={panelRef}
-              className={styles.popover}
-              role="listbox"
-              aria-label={label}
-              style={{
-                position: "fixed",
-                zIndex: 1300,
-                top: position.top,
-                left: position.left,
-                width: position.width,
-                maxHeight: position.maxHeight,
-              }}
-            >
-              {options.length === 0 ? <p role="status" className={styles.emptyMessage}>{emptyMessage}</p> : options.map((option, index) => (
-                <button
-                  key={option.value}
-                  ref={(element) => { optionRefs.current[index] = element; }}
-                  type="button"
-                  role="option"
-                  aria-selected={value === option.value}
-                  tabIndex={activeIndex === index ? 0 : -1}
-                  className={`${styles.option}${value === option.value ? ` ${styles.optionSelected}` : ""}`}
-                  onFocus={() => setActiveIndex(index)}
-                  onKeyDown={(event) => handleOptionKeyDown(event, index)}
-                  onClick={() => choose(option)}
-                >
-                  <span className={styles.optionLabel}>{option.label}</span>
-                  {value === option.value ? <Check size={15} aria-hidden="true" /> : null}
-                </button>
-              ))}
-            </div>,
-            getPortalTarget(triggerRef.current),
-          )
-        : null
+              <span className="workspace-select-label">{option.label}</span>
+              {value === option.value ? <Check size={16} aria-hidden="true" /> : null}
+            </button>
+          ))}
+        </div>,
+        getPortalTarget(triggerRef.current),
+      )
     : null;
 
   return (
@@ -261,20 +214,21 @@ export function GlassSelect({
       <button
         ref={triggerRef}
         type="button"
-        className={styles.trigger}
+        className="form-select workspace-select-trigger"
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
         disabled={disabled}
         onClick={() => open ? close() : openMenu()}
         onKeyDown={handleTriggerKeyDown}
       >
-        <span className={`${styles.triggerText}${selectedOption ? "" : ` ${styles.placeholder}`}`}>
+        <span className={`workspace-select-value${selectedOption ? "" : " is-placeholder"}`}>
           {selectedOption?.label ?? placeholder}
         </span>
-        <ChevronDown size={16} aria-hidden="true" className={`${styles.chevron}${open ? ` ${styles.chevronOpen}` : ""}`} />
+        <ChevronDown size={16} aria-hidden="true" className={`workspace-select-chevron${open ? " is-open" : ""}`} />
       </button>
-      {panel}
+      {menu}
     </>
   );
 }

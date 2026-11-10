@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { PageHeader } from "@/components/workspace/ui";
 import { ProfilePictureUpload } from "@/components/workspace/profile-picture-upload";
+import { GlassSelect } from "@/components/workspace/glass-select";
 import { useWorkspace } from "@/components/workspace/workspace-context";
 import {
   deactivateStaff,
@@ -82,10 +83,16 @@ function StaffProfileForm({
                   </label>
                   <label className="block text-sm font-medium sm:col-span-2">
                     Department
-                    <select className="form-select mt-1" value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>
-                      <option value="">No department</option>
-                      {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-                    </select>
+                    <GlassSelect
+                      label="Department"
+                      value={departmentId}
+                      placeholder="No department"
+                      options={[
+                        { value: "", label: "No department" },
+                        ...departments.map((department) => ({ value: department.id, label: department.name })),
+                      ]}
+                      onChange={setDepartmentId}
+                    />
                   </label>
                 </>
               ) : null}

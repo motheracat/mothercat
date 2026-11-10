@@ -12,6 +12,7 @@ export default async function TasksPage() {
       canAssign={hasPermission(session, "tasks.assign")}
       canReview={hasPermission(session, "tasks.review")}
       canCancel={hasPermission(session, "tasks.cancel")}
+      canUpdateStatus={hasPermission(session, "tasks.update_status")}
     />
   );
 }

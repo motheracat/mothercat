@@ -68,7 +68,7 @@ describe("TaskAccordionSelect", () => {
     expect(container.querySelector<HTMLInputElement>('input[name="department_id"]')?.value).toBe("finance");
   });
 
-  it("explains when there are no options and closes with Escape", () => {
+  it("explains when there are no options and closes with Escape", async () => {
     render(
       <TaskAccordionSelect
         label="Department"
@@ -85,6 +85,6 @@ describe("TaskAccordionSelect", () => {
     expect(screen.getByRole("status")).toHaveTextContent("No departments are available.");
     fireEvent.keyDown(screen.getByRole("listbox", { name: "Department options" }), { key: "Escape" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });

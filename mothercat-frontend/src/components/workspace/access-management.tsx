@@ -18,6 +18,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import type { FormEvent } from "react";
 
 import { Dialog } from "@/components/workspace/dialog";
+import { GlassSelect } from "@/components/workspace/glass-select";
 import { EmptyState, ErrorBanner, PageHeader, StatusPill } from "@/components/workspace/ui";
 import {
   AccessApiError,
@@ -425,23 +426,24 @@ export function AccessManagement({
             />
           </label>
           <label className="access-directory-role-filter">
-            <span className="sr-only">Filter by role</span>
-            <select
-              className="form-select"
+            <GlassSelect
+              label="Filter by role"
               value={peopleRoleFilter}
-              onChange={(event) => {
+              placeholder="All roles"
+              options={[
+                { value: "", label: "All roles" },
+                ...roles.map((role) => ({ value: role.role_id, label: role.name })),
+              ]}
+              onChange={(value) => {
                 setPeopleLoading(true);
                 setError(null);
                 setNotice(null);
-                setPeopleRoleFilter(event.target.value);
+                setPeopleRoleFilter(value);
                 setPeopleOffset(0);
                 setExpandedUserId("");
                 setSelectedAssignment(null);
               }}
-            >
-              <option value="">All roles</option>
-              {roles.map((role) => <option key={role.role_id} value={role.role_id}>{role.name}</option>)}
-            </select>
+            />
           </label>
           <button type="submit" className="button-secondary" disabled={peopleLoading}>
             {peopleLoading ? "Loading…" : "Search"}

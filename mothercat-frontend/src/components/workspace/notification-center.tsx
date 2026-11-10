@@ -5,6 +5,7 @@ import { Bell, Check, CheckCheck, RefreshCw, Settings2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EmptyState, ErrorBanner, PageHeader } from "@/components/workspace/ui";
+import { GlassSelect } from "@/components/workspace/glass-select";
 import {
   formatNotificationError,
   getUnreadNotificationCount,
@@ -198,19 +199,20 @@ export function NotificationCenter() {
           </div>
           <div className="notification-inbox-tools">
             <label>
-              <span className="sr-only">Show notifications</span>
-              <select
-                className="form-select"
+              <GlassSelect
+                label="Show notifications"
                 value={unreadOnly ? "unread" : "all"}
-                onChange={(event) => {
+                placeholder="All notifications"
+                options={[
+                  { value: "all", label: "All notifications" },
+                  { value: "unread", label: "Unread only" },
+                ]}
+                onChange={(value) => {
                   setLoading(true);
-                  setUnreadOnly(event.target.value === "unread");
+                  setUnreadOnly(value === "unread");
                   setOffset(0);
                 }}
-              >
-                <option value="all">All notifications</option>
-                <option value="unread">Unread only</option>
-              </select>
+              />
             </label>
             <button type="button" className="button-secondary" disabled={!unreadCount || saving} onClick={() => void markAllRead()}>
               <CheckCheck size={16} aria-hidden="true" /> Mark all read

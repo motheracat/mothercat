@@ -152,7 +152,7 @@ export function StatusPill({
   tone = "neutral",
 }: {
   label: string;
-  tone?: "success" | "warning" | "danger" | "neutral";
+  tone?: "success" | "warning" | "danger" | "neutral" | "info";
 }) {
   return <span className={`status-pill status-${tone}`}>{label}</span>;
 }

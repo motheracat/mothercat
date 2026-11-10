@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { Dialog } from "@/components/workspace/dialog";
+import { GlassSelect } from "@/components/workspace/glass-select";
 import { EmptyState, ErrorBanner, LoadingTable, PageHeader, StatusPill } from "@/components/workspace/ui";
 import { useWorkspace } from "@/components/workspace/workspace-context";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -60,20 +61,22 @@ function StaffEditor({
   error: string | null;
   onSubmit: (payload: StaffCreatePayload | StaffUpdatePayload) => void;
 }) {
+  const [departmentId, setDepartmentId] = useState(staff?.department_id ?? "");
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const fullName = fieldValue(data, "full_name");
     const email = fieldValue(data, "work_email");
     const title = fieldValue(data, "job_title");
-    const departmentId = fieldValue(data, "department_id");
+    const formDepartmentId = fieldValue(data, "department_id");
 
     if (staff) {
       onSubmit({
         full_name: fullName,
         work_email: email || null,
         job_title: title || null,
-        department_id: departmentId || null,
+        department_id: formDepartmentId || null,
       });
       return;
     }
@@ -83,7 +86,7 @@ function StaffEditor({
       full_name: fullName,
       work_email: email || null,
       job_title: title || null,
-      department_id: departmentId || null,
+      department_id: formDepartmentId || null,
     });
   }
 
@@ -130,13 +133,20 @@ function StaffEditor({
       </label>
       <label className="workspace-field">
         <span className="field-label">Department <span className="text-[var(--muted)]">(optional)</span></span>
-        <select className="form-select" name="department_id" defaultValue={staff?.department_id ?? ""}>
-          <option value="">Unassigned</option>
-          {staff?.department_id && !departments.some((department) => department.id === staff.department_id) ? (
-            <option value={staff.department_id}>Current department</option>
-          ) : null}
-          {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-        </select>
+        <GlassSelect
+          label="Department"
+          name="department_id"
+          value={departmentId}
+          placeholder="Unassigned"
+          options={[
+            { value: "", label: "Unassigned" },
+            ...(staff?.department_id && !departments.some((department) => department.id === staff.department_id)
+              ? [{ value: staff.department_id, label: "Current department" }]
+              : []),
+            ...departments.map((department) => ({ value: department.id, label: department.name })),
+          ]}
+          onChange={setDepartmentId}
+        />
       </label>
       {error ? <p role="alert" className="field-error">{error}</p> : null}
       {!staff ? <p className="text-xs leading-5 text-[var(--muted)]">This creates a pending staff profile only. Account setup and role assignment are separate.</p> : null}
@@ -386,26 +396,35 @@ export function StaffDirectory() {
               />
             </label>
             <label className="w-full sm:w-52">
-              <span className="sr-only">Filter by department</span>
-              <select className="form-select" value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); setPage(0); }}>
-                <option value="">All departments</option>
-                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-              </select>
-            </label>
-            <label className="w-full sm:w-44">
-              <span className="sr-only">Filter by employment status</span>
-              <select className="form-select" value={status} onChange={(event) => {
-                const value = event.target.value;
-                setStatus(value === "" || isStaffStatus(value) ? value : "");
-                setPage(0);
-              }}>
-                <option value="">All statuses</option>
-                <option value="pending">Pending</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="deactivated">Deactivated</option>
-              </select>
-            </label>
+                  <GlassSelect
+                    label="Filter by department"
+                    value={departmentId}
+                    placeholder="All departments"
+                    options={[
+                      { value: "", label: "All departments" },
+                      ...departments.map((department) => ({ value: department.id, label: department.name })),
+                    ]}
+                    onChange={(value) => { setDepartmentId(value); setPage(0); }}
+                  />
+                </label>
+                <label className="w-full sm:w-44">
+                  <GlassSelect
+                    label="Filter by employment status"
+                    value={status}
+                    placeholder="All statuses"
+                    options={[
+                      { value: "", label: "All statuses" },
+                      { value: "pending", label: "Pending" },
+                      { value: "active", label: "Active" },
+                      { value: "inactive", label: "Inactive" },
+                      { value: "deactivated", label: "Deactivated" },
+                    ]}
+                    onChange={(value) => {
+                    setStatus(value === "" || isStaffStatus(value) ? value : "");
+                    setPage(0);
+                  }}
+                  />
+                </label>
             <span className="ml-auto self-center text-sm text-[var(--muted)]">
               {loading ? <span className="skeleton inline-block w-20 align-middle" aria-hidden="true" /> : `${total} ${total === 1 ? "record" : "records"}`}
             </span>

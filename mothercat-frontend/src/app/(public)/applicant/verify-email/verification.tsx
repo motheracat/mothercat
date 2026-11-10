@@ -52,7 +52,7 @@ export default function ApplicantEmailVerification() {
         <p role="status" aria-live="polite" className="mt-5 text-sm leading-6 text-slate-600">
           {message[state]}
         </p>
-        {(state === "ready" || state === "unavailable") && token ? (
+        {(state === "ready" || state === "verifying" || state === "unavailable") && token ? (
           <button
             type="button"
             className="mt-6 min-h-11 rounded-md bg-[#071535] px-5 text-sm font-semibold text-white hover:bg-[#1f5fd0]"

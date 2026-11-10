@@ -54,6 +54,7 @@ func TestTaskEndpointsRequireAuthentication(t *testing.T) {
 		{http.MethodGet, "/api/v1/me/tasks", ""},
 		{http.MethodGet, "/api/v1/tasks/00000000-0000-4000-8000-000000000002/history", ""},
 		{http.MethodPost, "/api/v1/tasks/00000000-0000-4000-8000-000000000002/submit", `{"summary":"done"}`},
+		{http.MethodPatch, "/api/v1/tasks/00000000-0000-4000-8000-000000000002/admin-status", `{"status":"scheduled"}`},
 	} {
 		response := httptest.NewRecorder()
 		taskTestHandler(authenticatorStub{}).ServeHTTP(
@@ -133,6 +134,7 @@ func TestTaskInputValidationPrecedesDatabaseAccess(t *testing.T) {
 		{http.MethodPost, "/api/v1/tasks", `{"title":"","department_id":"invalid"}`},
 		{http.MethodPost, "/api/v1/tasks/00000000-0000-4000-8000-000000000002/submit", `{"summary":"","links":[]}`},
 		{http.MethodGet, "/api/v1/tasks?status=unknown", ""},
+		{http.MethodGet, "/api/v1/tasks?admin_status=unknown", ""},
 		{http.MethodGet, "/api/v1/tasks/invalid", ""},
 	}
 	for _, test := range tests {
@@ -142,6 +144,30 @@ func TestTaskInputValidationPrecedesDatabaseAccess(t *testing.T) {
 			t.Errorf("%s %s status=%d, want %d: %s",
 				test.method, test.path, response.Code, http.StatusBadRequest, response.Body)
 		}
+	}
+}
+
+func TestAdminTaskStatusRequiresPermissionAndValidStatus(t *testing.T) {
+	path := "/api/v1/tasks/00000000-0000-4000-8000-000000000002/admin-status"
+	tests := []struct {
+		name        string
+		permissions []string
+		body        string
+		wantStatus  int
+	}{
+		{"permission required", nil, `{"status":"scheduled"}`, http.StatusForbidden},
+		{"status validated", []string{"tasks.update_status"}, `{"status":"cancelled"}`, http.StatusBadRequest},
+		{"etag required", []string{"tasks.update_status"}, `{"status":"scheduled"}`, http.StatusPreconditionRequired},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			auth := authenticatorStub{principal: Principal{ID: testAccountID, Permissions: test.permissions}}
+			response := httptest.NewRecorder()
+			taskTestHandler(auth).ServeHTTP(response, taskRequest(http.MethodPatch, path, test.body, true))
+			if response.Code != test.wantStatus {
+				t.Fatalf("status=%d, want %d: %s", response.Code, test.wantStatus, response.Body)
+			}
+		})
 	}
 }
 

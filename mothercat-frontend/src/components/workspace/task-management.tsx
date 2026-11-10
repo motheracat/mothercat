@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ClipboardList, MessageSquare, RefreshCw, Send, UserPlus } from "lucide-react";
+import { ArrowLeft, ClipboardList, MessageSquare, RefreshCw, Send, UserPlus } from "lucide-react";
 
 import { Dialog } from "@/components/workspace/dialog";
 import { TaskAccordionSelect } from "@/components/workspace/task-accordion-select";
-import { EmptyState, ErrorBanner, StatusPill } from "@/components/workspace/ui";
+import { EmptyState, ErrorBanner, PageHeader, StatusPill } from "@/components/workspace/ui";
 import {
   formatOrganizationError,
   listDepartments,
@@ -22,13 +22,14 @@ import {
   listTaskComments,
   listTasks,
   performTaskAction,
-  taskStatuses,
+  adminTaskStatuses,
   updateTask,
+  updateTaskAdminStatus,
   type Task,
+  type AdminTaskStatus,
   type TaskAction,
   type TaskComment,
   type TaskPriority,
-  type TaskStatus,
   type TaskVersionedResult,
 } from "@/lib/tasks/api";
 
@@ -38,27 +39,17 @@ type Props = {
   canAssign: boolean;
   canReview: boolean;
   canCancel: boolean;
+  canUpdateStatus: boolean;
 };
 
 const pageSize = 20;
 
-const statusLabels: Record<TaskStatus, string> = {
-  draft: "Draft",
-  assigned: "Assigned",
+const statusLabels: Record<AdminTaskStatus, string> = {
+  open: "Open",
+  scheduled: "Scheduled",
   in_progress: "In progress",
-  submitted: "Submitted",
-  changes_requested: "Changes requested",
-  approved: "Approved",
-  rejected: "Rejected",
-  cancelled: "Cancelled",
+  closed: "Closed (completed)",
 };
-
-function statusTone(status: TaskStatus): "success" | "warning" | "danger" | "neutral" {
-  if (status === "approved") return "success";
-  if (status === "submitted" || status === "changes_requested" || status === "in_progress") return "warning";
-  if (status === "rejected" || status === "cancelled") return "danger";
-  return "neutral";
-}
 
 function formatDate(value: string | null): string {
   if (!value) return "No due date";
@@ -72,13 +63,6 @@ function toLocalDateTime(value: string | null): string {
   if (Number.isNaN(date.getTime())) return "";
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
-}
-
-function priorityTone(priority: TaskPriority): "success" | "warning" | "danger" | "neutral" {
-  if (priority === "urgent") return "danger";
-  if (priority === "high") return "warning";
-  if (priority === "low") return "neutral";
-  return "success";
 }
 
 function TaskFields({
@@ -95,6 +79,7 @@ function TaskFields({
   busy: boolean;
 }) {
   const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? "normal");
+  const [departmentId, setDepartmentId] = useState(task?.department_id ?? "");
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -132,15 +117,21 @@ function TaskFields({
               label: option.charAt(0).toUpperCase() + option.slice(1),
             }))}
             onChange={(value) => setPriority(value as TaskPriority)}
+            disabled={busy}
           />
         </label>
         {!task ? (
           <label className="workspace-field">
             <span className="field-label">Department</span>
-            <select className="form-select" name="department_id" defaultValue="" required>
-              <option value="" disabled>Select a department</option>
-              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-            </select>
+            <TaskAccordionSelect
+              label="Department"
+              name="department_id"
+              value={departmentId}
+              placeholder="Select a department"
+              options={departments.map((department) => ({ value: department.id, label: department.name }))}
+              onChange={setDepartmentId}
+              disabled={busy}
+            />
           </label>
         ) : null}
         <label className="workspace-field">
@@ -153,14 +144,14 @@ function TaskFields({
   );
 }
 
-export function TaskManagement({ currentUserId, canCreate, canAssign, canReview, canCancel }: Props) {
-  const managerView = canCreate || canAssign || canReview || canCancel;
+export function TaskManagement({ currentUserId, canCreate, canAssign, canReview, canCancel, canUpdateStatus }: Props) {
+  const managerView = canCreate || canAssign || canReview || canCancel || canUpdateStatus;
   const [tasks, setTasks] = useState<Task[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [departmentsError, setDepartmentsError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [filterStatus, setFilterStatus] = useState<TaskStatus | "">("");
+  const [filterStatus, setFilterStatus] = useState<AdminTaskStatus | "">("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -176,6 +167,7 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
   const [feedback, setFeedback] = useState("");
   const [assignees, setAssignees] = useState<StaffMember[]>([]);
   const [assigneeId, setAssigneeId] = useState("");
+  const [adminStatusDraft, setAdminStatusDraft] = useState<AdminTaskStatus>("open");
   const [assigneeLoading, setAssigneeLoading] = useState(false);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
@@ -210,7 +202,7 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
     const controller = new AbortController();
     void listTasks({
       mine: !managerView,
-      ...(filterStatus ? { status: filterStatus } : {}),
+      ...(filterStatus ? { adminStatus: filterStatus } : {}),
       limit: pageSize,
       offset,
     }, controller.signal)
@@ -287,11 +279,13 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
     setAssigneeLoading(canAssign);
     setCommentsLoading(true);
     setAssigneeId(task.assignee_account_id ?? "");
+    setAdminStatusDraft(task.admin_status);
     try {
       const current = await getTask(task.id);
       setSelectedTask(current.task);
       setTaskEtag(current.etag);
       setAssigneeId(current.task.assignee_account_id ?? "");
+      setAdminStatusDraft(current.task.admin_status);
     } catch (error) {
       setDetailError(formatTaskError(error, "Unable to load this task."));
     } finally {
@@ -308,6 +302,7 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
       setSelectedTask(current.task);
       setTaskEtag(current.etag);
       setAssigneeId(current.task.assignee_account_id ?? "");
+      setAdminStatusDraft(current.task.admin_status);
       setLoading(true);
       setReloadKey((key) => key + 1);
     } catch (error) {
@@ -320,7 +315,23 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
   function applyUpdatedTask(result: TaskVersionedResult) {
     setSelectedTask(result.task);
     setTaskEtag(result.etag);
+    setAdminStatusDraft(result.task.admin_status);
     setTasks((current) => current.map((task) => task.id === result.task.id ? result.task : task));
+  }
+
+  async function saveAdminStatus() {
+    if (!selectedTask || !taskEtag || !canUpdateStatus) return;
+    setSaving(true);
+    setDetailError(null);
+    try {
+      applyUpdatedTask(await updateTaskAdminStatus(selectedTask.id, taskEtag, adminStatusDraft));
+      setLoading(true);
+      setReloadKey((key) => key + 1);
+    } catch (error) {
+      setDetailError(formatTaskError(error, "Unable to update the task status."));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveTask(values: { title: string; description: string; priority: TaskPriority; department_id: string; due_at: string | null }) {
@@ -437,10 +448,16 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
   return (
     <div className="task-management-page">
 
-      {loadError ? <ErrorBanner message={loadError} onRetry={reload} /> : null}
-      {departmentsError ? <ErrorBanner message={departmentsError} onRetry={reload} /> : null}
-
-      <section className="surface-card task-list-card" aria-label="Task list" aria-busy={loading}>
+      {!selectedTask ? (
+        <>
+          <PageHeader
+            title="Tasks"
+            description="Create, assign, and track work."
+            actions={canCreate ? <Link href="/tasks/create" className="button-primary">Create task</Link> : null}
+          />
+          {loadError ? <ErrorBanner message={loadError} onRetry={reload} /> : null}
+          {departmentsError ? <ErrorBanner message={departmentsError} onRetry={reload} /> : null}
+          <section className="surface-card task-list-card" aria-label="Task list" aria-busy={loading}>
         <div className="task-list-toolbar">
           <label className="workspace-field">
             <span className="field-label">Status</span>
@@ -450,11 +467,11 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
               placeholder="All statuses"
               options={[
                 { value: "", label: "All statuses" },
-                ...taskStatuses.map((status) => ({ value: status, label: statusLabels[status] })),
+                ...adminTaskStatuses.map((status) => ({ value: status, label: statusLabels[status] })),
               ]}
               onChange={(status) => {
                 setLoading(true);
-                setFilterStatus(status as TaskStatus | "");
+                setFilterStatus(status as AdminTaskStatus | "");
                 setOffset(0);
               }}
             />
@@ -476,15 +493,15 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
                     <span>{departmentsById.get(task.department_id) ?? "Department"} · Due {formatDate(task.due_at)}</span>
                   </span>
                   <span className="task-list-meta">
-                    <StatusPill label={statusLabels[task.status]} tone={statusTone(task.status)} />
-                    <StatusPill label={task.priority} tone={priorityTone(task.priority)} />
+                    <StatusPill label={statusLabels[task.admin_status]} tone="info" />
+                    <StatusPill label={`${task.priority} priority`} tone="info" />
                   </span>
                 </button>
               </li>
             ))}
           </ul>
         ) : (
-          <EmptyState action={canCreate ? <Link href="/tasks/create" className="button-primary">Create a task</Link> : null}>
+          <EmptyState>
             {loadError ? "Tasks could not be loaded." : "No tasks match this view."}
           </EmptyState>
         )}
@@ -496,37 +513,46 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
           </div>
         </div>
       </section>
-
-      <Dialog
-        open={selectedTask !== null}
-        title={selectedTask?.title ?? "Task details"}
-        onClose={() => { if (!saving) { setSelectedTask(null); setEditing(false); } }}
-        actions={selectedTask ? (
-          <>
-            {detailError ? <button type="button" className="button-secondary" disabled={detailLoading || saving} onClick={() => void refreshSelectedTask()}>Reload task</button> : null}
-            {canEditDraft && !editing ? <button type="button" className="button-secondary" onClick={() => setEditing(true)}>Edit draft</button> : null}
-            {editing ? (
-              <>
-                <button type="button" className="button-secondary" disabled={saving} onClick={() => setEditing(false)}>Cancel edit</button>
-                <button type="submit" form="task-fields-form" className="button-primary" disabled={saving}>{saving ? "Saving…" : "Save task"}</button>
-              </>
-            ) : null}
-            <button type="button" className="button-secondary" disabled={saving} onClick={() => { setSelectedTask(null); setEditing(false); }}>Close</button>
-          </>
-        ) : null}
-      >
-        {detailLoading ? <p role="status">Loading task…</p> : null}
-        {detailError ? <p role="alert" className="field-error">{detailError}</p> : null}
-        {selectedTask && !detailLoading ? (
-          <div className="task-detail">
+        </>
+      ) : (
+        <>
+          <header className="task-detail-page-header">
+            <button type="button" className="button-secondary" disabled={saving} onClick={() => { setSelectedTask(null); setEditing(false); }}>
+              <ArrowLeft size={16} aria-hidden="true" /> Back to tasks
+            </button>
+            <div className="task-detail-page-title">
+              <h1>{selectedTask.title}</h1>
+              <p>Task details</p>
+            </div>
+            <div className="task-detail-page-actions">
+              {detailError ? <button type="button" className="button-secondary" disabled={detailLoading || saving} onClick={() => void refreshSelectedTask()}>Reload task</button> : null}
+              {canEditDraft && !editing ? <button type="button" className="button-secondary" onClick={() => setEditing(true)}>Edit draft</button> : null}
+              {editing ? (
+                <>
+                  <button type="button" className="button-secondary" disabled={saving} onClick={() => setEditing(false)}>Cancel edit</button>
+                  <button type="submit" form="task-fields-form" className="button-primary" disabled={saving}>{saving ? "Saving…" : "Save task"}</button>
+                </>
+              ) : null}
+            </div>
+          </header>
+          {detailLoading ? <p role="status">Loading task…</p> : null}
+          {detailError ? <p role="alert" className="field-error">{detailError}</p> : null}
+          {!detailLoading ? (
+          <section className="surface-card task-detail-page-card">
+            <div className="task-detail">
             {editing ? (
               <TaskFields task={selectedTask} departments={departments} onSubmit={(values) => void saveTask(values)} submitLabel="Save task" busy={saving} />
             ) : (
               <>
                 <div className="task-detail-badges">
-                  <StatusPill label={statusLabels[selectedTask.status]} tone={statusTone(selectedTask.status)} />
-                  <StatusPill label={`${selectedTask.priority} priority`} tone={priorityTone(selectedTask.priority)} />
+                  <StatusPill label={statusLabels[selectedTask.admin_status]} tone="info" />
+                  <StatusPill label={`${selectedTask.priority} priority`} tone="info" />
                 </div>
+                {selectedTask.admin_status_updated_by ? (
+                  <p className="task-status-updater">
+                    Updated by admin{selectedTask.admin_status_updated_at ? ` · ${formatDate(selectedTask.admin_status_updated_at)}` : ""}
+                  </p>
+                ) : null}
                 <p className="task-detail-description">{selectedTask.description || "No description provided."}</p>
                 <dl className="task-detail-facts">
                   <div><dt>Department</dt><dd>{departmentsById.get(selectedTask.department_id) ?? "Department"}</dd></div>
@@ -545,6 +571,30 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
                 ) : null}
               </>
             )}
+
+            {canUpdateStatus ? (
+              <section className="task-action-section">
+                <h3>Update task status</h3>
+                <div className="task-inline-action">
+                  <TaskAccordionSelect
+                    label="Task status"
+                    value={adminStatusDraft}
+                    placeholder="Select a status"
+                    options={adminTaskStatuses.map((status) => ({ value: status, label: statusLabels[status] }))}
+                    onChange={(status) => setAdminStatusDraft(status as AdminTaskStatus)}
+                    disabled={saving}
+                  />
+                  <button
+                    type="button"
+                    className="button-primary"
+                    disabled={saving || adminStatusDraft === selectedTask.admin_status}
+                    onClick={() => void saveAdminStatus()}
+                  >
+                    {saving ? "Updating…" : "Update status"}
+                  </button>
+                </div>
+              </section>
+            ) : null}
 
             {canAssignSelected ? (
               <section className="task-action-section">
@@ -610,9 +660,11 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
                 <button type="submit" className="button-secondary" disabled={saving || !commentDraft.trim()}><Send size={15} aria-hidden="true" /> Comment</button>
               </form>
             </section>
-          </div>
+            </div>
+          </section>
         ) : null}
-      </Dialog>
+        </>
+      )}
     </div>
   );
 }

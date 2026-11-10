@@ -207,21 +207,21 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
                 disabled={(!canCreate && !previewMode) || departmentsLoading || creating || Boolean(createdTask)}
               />
             </label>
-            <label className="workspace-field">
-              <span className="field-label">Priority</span>
-              <TaskAccordionSelect
-                label="Task priority"
-                name="priority"
-                value={priority}
-                placeholder="Select priority"
-                options={priorities.map((option) => ({
-                  value: option,
-                  label: option.charAt(0).toUpperCase() + option.slice(1),
-                }))}
-                onChange={(value) => setPriority(value as TaskPriority)}
-                disabled={!canCreate || creating || Boolean(createdTask)}
-              />
-            </label>
+          <label className="workspace-field">
+            <span className="field-label">Priority</span>
+            <TaskAccordionSelect
+              label="Task priority"
+              name="priority"
+              value={priority}
+              placeholder="Select priority"
+              options={priorities.map((option) => ({
+                value: option,
+                label: option.charAt(0).toUpperCase() + option.slice(1),
+              }))}
+              onChange={(value) => setPriority(value as TaskPriority)}
+              disabled={!canCreate || creating || Boolean(createdTask)}
+            />
+          </label>
             <label className="workspace-field">
               <span className="field-label">Due date</span>
               <input className="form-input" name="due_at" type="datetime-local" disabled={!canCreate || creating || Boolean(createdTask)} />

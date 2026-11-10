@@ -80,8 +80,9 @@ describe("GlassSelect", () => {
     fireEvent.click(trigger);
     const listbox = await screen.findByRole("listbox", { name: "Status" });
     expect(listbox.parentElement).toBe(document.body);
-    expect(listbox.className).toBeTruthy();
+    expect(listbox).toHaveClass("workspace-modal-panel", "workspace-select-panel");
     expect(listbox).toHaveStyle({ position: "fixed", zIndex: "1300", left: "240px", width: "240px" });
+    expect(screen.getByRole("option", { name: "Draft" })).toHaveClass("workspace-modal-link", "workspace-select-option");
 
     fireEvent.click(screen.getByRole("option", { name: "Draft" }));
     expect(onChange).toHaveBeenCalledWith("draft");
@@ -110,7 +111,8 @@ describe("GlassSelect", () => {
     expect(listbox.parentElement?.tagName).toBe("DIALOG");
   });
 
-  it("opens a mobile bottom sheet, locks page scroll, and closes from the backdrop", async () => {
+  it("uses the profile-menu panel style on mobile and dismisses when clicking outside", async () => {
+    setViewport(390);
     setViewport(390);
     render(
       <GlassSelect
@@ -127,14 +129,11 @@ describe("GlassSelect", () => {
     const trigger = screen.getByRole("button", { name: "Department" });
 
     fireEvent.click(trigger);
-    expect(await screen.findByRole("dialog", { name: "Department" })).toBeInTheDocument();
-    expect(document.body.style.overflow).toBe("hidden");
-    expect(screen.getByRole("listbox", { name: "Department" })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Close Department options" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await waitFor(() => expect(document.body.style.overflow).toBe(""));
-    await waitFor(() => expect(trigger).toHaveFocus());
+    const listbox = await screen.findByRole("listbox", { name: "Department" });
+    expect(listbox).toHaveClass("workspace-modal-panel", "workspace-select-panel");
+    expect(listbox.parentElement).toBe(document.body);
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
   });
 
   it("supports keyboard selection and submits the hidden form value", async () => {

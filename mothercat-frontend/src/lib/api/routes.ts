@@ -37,6 +37,7 @@ export const apiRoutes = {
     list: "/tasks",
     mine: "/me/tasks",
     details: (taskId: string) => `/tasks/${taskId}`,
+    adminStatus: (taskId: string) => `/tasks/${taskId}/admin-status`,
     assign: (taskId: string) => `/tasks/${taskId}/assign`,
     action: (taskId: string, action: string) => `/tasks/${taskId}/${action}`,
     comments: (taskId: string) => `/tasks/${taskId}/comments`,

@@ -20,6 +20,7 @@ import {
   type StaffMember,
 } from "@/lib/organization/api";
 import { EmptyState, PageHeader } from "@/components/workspace/ui";
+import { GlassSelect } from "@/components/workspace/glass-select";
 
 const pageSize = 25;
 
@@ -146,10 +147,16 @@ function StaffForm({
           </label>
           <label className="block text-sm font-medium sm:col-span-2">
             Department
-            <select className="form-select mt-1" value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>
-              <option value="">No department</option>
-              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-            </select>
+            <GlassSelect
+              label="Department"
+              value={departmentId}
+              placeholder="No department"
+              options={[
+                { value: "", label: "No department" },
+                ...departments.map((department) => ({ value: department.id, label: department.name })),
+              ]}
+              onChange={setDepartmentId}
+            />
           </label>
           <div className="flex justify-end gap-2 sm:col-span-2">
             <button type="button" className="button-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
@@ -420,21 +427,31 @@ export function StaffManagement({ permissions }: { permissions: Permissions }) {
           <button type="submit" className="staff-search-submit">Search</button>
         </div>
         <label className="w-full sm:w-48">
-          <span className="sr-only">Filter by department</span>
-          <select className="form-select" value={departmentId} onChange={(event) => { setLoading(true); setLoadError(null); setDepartmentId(event.target.value); setOffset(0); }}>
-            <option value="">All departments</option>
-            {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-          </select>
+          <GlassSelect
+            label="Filter by department"
+            value={departmentId}
+            placeholder="All departments"
+            options={[
+              { value: "", label: "All departments" },
+              ...departments.map((department) => ({ value: department.id, label: department.name })),
+            ]}
+            onChange={(value) => { setLoading(true); setLoadError(null); setDepartmentId(value); setOffset(0); }}
+          />
         </label>
         <label className="w-full sm:w-40">
-          <span className="sr-only">Filter by employment status</span>
-          <select className="form-select" value={status} onChange={(event) => { setLoading(true); setLoadError(null); setStatus(event.target.value as EmploymentStatus | ""); setOffset(0); }}>
-            <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="deactivated">Deactivated</option>
-          </select>
+          <GlassSelect
+            label="Filter by employment status"
+            value={status}
+            placeholder="All statuses"
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "pending", label: "Pending" },
+              { value: "active", label: "Active" },
+              { value: "inactive", label: "Inactive" },
+              { value: "deactivated", label: "Deactivated" },
+            ]}
+            onChange={(value) => { setLoading(true); setLoadError(null); setStatus(value as EmploymentStatus | ""); setOffset(0); }}
+          />
         </label>
         <span className="ml-auto self-center text-sm text-[var(--muted)]" aria-live="polite">
           {total} {total === 1 ? "staff member" : "staff members"}

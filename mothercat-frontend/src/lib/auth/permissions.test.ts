@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AuthSession } from "@/lib/auth/types";
-import { hasPermission } from "@/lib/auth/permissions";
+import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
 
 const session: AuthSession = {
   userId: "user-uuid",
@@ -21,6 +21,19 @@ describe("hasPermission", () => {
 
   it("recognizes a superadmin role in the roles list", () => {
     expect(hasPermission({ ...session, roles: ["super_admin"] }, "departments.manage")).toBe(true);
+  });
+
+  it("recognizes superadmin roles when filtering navigation permission groups", () => {
+    expect(hasAnyPermission({ ...session, role: "Super Admin" }, ["opportunities.publish", "applications.review"])).toBe(true);
+    expect(hasAnyPermission({ ...session, roles: ["super_admin"] }, ["it_applications.review"])).toBe(true);
+  });
+
+  it("allows roles managers to discover opportunity administration", () => {
+    expect(hasAnyPermission({ ...session, permissions: ["roles.manage"] }, ["opportunities.publish", "roles.manage"])).toBe(true);
+  });
+
+  it("does not grant grouped navigation permissions to inactive superadmins", () => {
+    expect(hasAnyPermission({ ...session, role: "Super Admin", isActive: false }, ["opportunities.publish"])).toBe(false);
   });
 
   it("does not grant permissions to inactive superadmins", () => {

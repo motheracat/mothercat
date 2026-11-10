@@ -1,6 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, BriefcaseBusiness } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+
+import { OpportunityListings } from "@/components/public/opportunity-listings";
 
 export default function OpportunitiesPage() {
   return (
@@ -27,23 +29,8 @@ export default function OpportunitiesPage() {
         </div>
       </section>
 
-      <section aria-labelledby="openings-title" className="mx-auto grid max-w-6xl gap-10 px-4 py-14 sm:px-6 sm:py-16 lg:grid-cols-[minmax(0,1fr)_320px] lg:px-8">
-        <div>
-          <p className="text-sm font-semibold uppercase text-slate-500">Current opportunities</p>
-          <h2 id="openings-title" className="mt-3 font-serif text-3xl">Open roles</h2>
-          <div className="mt-6 flex gap-4 border-y border-slate-200 py-7">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-[#1f5fd0]">
-              <BriefcaseBusiness size={20} aria-hidden="true" />
-            </span>
-            <div>
-              <h3 className="font-semibold">No vacancies currently listed</h3>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                Career opportunities will be published here once recruitment is underway. Please check back for future openings.
-              </p>
-            </div>
-          </div>
-        </div>
-
+      <section aria-label="Career opportunities" className="mx-auto grid max-w-6xl gap-10 px-4 py-14 sm:px-6 sm:py-16 lg:grid-cols-[minmax(0,1fr)_320px] lg:px-8">
+        <OpportunityListings />
         <aside className="h-fit border-l-2 border-[#1f5fd0] bg-[#f4f7fc] p-6 sm:p-7">
           <h2 className="font-serif text-2xl">Already part of the team?</h2>
           <p className="mt-3 text-sm leading-6 text-slate-600">Access the staff workspace using your staff ID and password.</p>

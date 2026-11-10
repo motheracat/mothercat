@@ -15,6 +15,7 @@ export type PermissionKey =
   | "tasks.assign"
   | "tasks.review"
   | "tasks.cancel"
+  | "tasks.update_status"
   | "opportunities.publish"
   | "applications.review"
   | "it_applications.review"
@@ -49,6 +50,9 @@ export function hasPermission(session: AuthSession | null, permission: Permissio
 export function hasAnyPermission(session: AuthSession | null, permissions: (PermissionKey | string)[]): boolean {
   if (!session || !session.isActive) {
     return false;
+  }
+  if (isSuperAdmin(session)) {
+    return true;
   }
   const perms = session.permissions ?? [];
   if (perms.includes("*")) {

@@ -13,6 +13,8 @@ export const taskStatuses = [
   "cancelled",
 ] as const;
 export type TaskStatus = (typeof taskStatuses)[number];
+export const adminTaskStatuses = ["open", "scheduled", "in_progress", "closed"] as const;
+export type AdminTaskStatus = (typeof adminTaskStatuses)[number];
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
 export type TaskAction =
   | "start"
@@ -37,6 +39,9 @@ export type Task = {
   description: string;
   priority: TaskPriority;
   status: TaskStatus;
+  admin_status: AdminTaskStatus;
+  admin_status_updated_by: string | null;
+  admin_status_updated_at: string | null;
   created_by: string;
   department_id: string;
   assignee_account_id: string | null;
@@ -63,6 +68,10 @@ export type TaskVersionedResult = { task: Task; etag: string | null };
 
 function isTaskPriority(value: unknown): value is TaskPriority {
   return value === "low" || value === "normal" || value === "high" || value === "urgent";
+}
+
+function isAdminTaskStatus(value: unknown): value is AdminTaskStatus {
+  return adminTaskStatuses.includes(value as AdminTaskStatus);
 }
 
 export class TaskApiError extends Error {
@@ -95,6 +104,9 @@ function parseTask(value: unknown): Task {
     typeof value.version !== "number" ||
     !isTaskPriority(priority) ||
     !taskStatuses.includes(status as TaskStatus) ||
+    !isAdminTaskStatus(value.admin_status) ||
+    (value.admin_status_updated_by !== undefined && value.admin_status_updated_by !== null && typeof value.admin_status_updated_by !== "string") ||
+    (value.admin_status_updated_at !== undefined && value.admin_status_updated_at !== null && typeof value.admin_status_updated_at !== "string") ||
     (value.assignee_account_id !== undefined && value.assignee_account_id !== null && typeof value.assignee_account_id !== "string") ||
     (value.due_at !== undefined && value.due_at !== null && typeof value.due_at !== "string")
   ) {
@@ -132,6 +144,9 @@ function parseTask(value: unknown): Task {
     description: requiredString(value, "description"),
     priority,
     status: status as TaskStatus,
+    admin_status: value.admin_status,
+    admin_status_updated_by: typeof value.admin_status_updated_by === "string" ? value.admin_status_updated_by : null,
+    admin_status_updated_at: typeof value.admin_status_updated_at === "string" ? value.admin_status_updated_at : null,
     created_by: requiredString(value, "created_by"),
     department_id: requiredString(value, "department_id"),
     assignee_account_id: typeof value.assignee_account_id === "string" ? value.assignee_account_id : null,
@@ -195,6 +210,7 @@ export async function listTasks(
   params: {
     mine?: boolean;
     status?: TaskStatus | "";
+    adminStatus?: AdminTaskStatus | "";
     department?: string;
     assignee?: string;
     dueFrom?: string;
@@ -209,6 +225,7 @@ export async function listTasks(
     offset: String(params.offset ?? 0),
   });
   if (params.status) query.set("status", params.status);
+  if (params.adminStatus) query.set("admin_status", params.adminStatus);
   if (params.department) query.set("department", params.department);
   if (params.assignee) query.set("assignee", params.assignee);
   if (params.dueFrom) query.set("due_from", params.dueFrom);
@@ -257,6 +274,20 @@ export async function updateTask(
     method: "PATCH",
     headers: { "If-Match": etag },
     body: JSON.stringify(input),
+  });
+  return { task: parseTaskEnvelope(await jsonResponse(response)), etag: response.headers.get("ETag") };
+}
+
+export async function updateTaskAdminStatus(
+  taskId: string,
+  etag: string,
+  status: AdminTaskStatus,
+): Promise<TaskVersionedResult> {
+  if (!etag) throw new TaskApiError("Reload this task before changing its status.", 428, "if_match_required");
+  const response = await request(apiRoutes.tasks.adminStatus(encodeURIComponent(taskId)), {
+    method: "PATCH",
+    headers: { "If-Match": etag },
+    body: JSON.stringify({ status }),
   });
   return { task: parseTaskEnvelope(await jsonResponse(response)), etag: response.headers.get("ETag") };
 }

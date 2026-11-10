@@ -42,6 +42,10 @@ type Principal struct {
 	Permissions []string
 }
 
+func validAdminStatus(value string) bool {
+	return value == "open" || value == "scheduled" || value == "in_progress" || value == "closed"
+}
+
 func enqueueTaskEvent(ctx context.Context, tx *sql.Tx, actor, taskID, recipient, eventType, title, body string) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO tasks.outbox_events (
@@ -100,6 +104,7 @@ func NewHandler(db *sql.DB, authenticator Authenticator, logger *slog.Logger) ht
 	mux.HandleFunc("GET /api/v1/me/tasks", h.myTasks)
 	mux.HandleFunc("GET /api/v1/tasks/{taskID}", h.get)
 	mux.HandleFunc("PATCH /api/v1/tasks/{taskID}", h.update)
+	mux.HandleFunc("PATCH /api/v1/tasks/{taskID}/admin-status", h.updateAdminStatus)
 	mux.HandleFunc("POST /api/v1/tasks/{taskID}/assign", h.assign)
 	mux.HandleFunc("POST /api/v1/tasks/{taskID}/start", h.start)
 	mux.HandleFunc("POST /api/v1/tasks/{taskID}/submit", h.submit)
@@ -114,19 +119,22 @@ func NewHandler(db *sql.DB, authenticator Authenticator, logger *slog.Logger) ht
 }
 
 type task struct {
-	ID                string      `json:"id"`
-	Title             string      `json:"title"`
-	Description       string      `json:"description"`
-	Priority          string      `json:"priority"`
-	Status            string      `json:"status"`
-	CreatedBy         string      `json:"created_by"`
-	DepartmentID      string      `json:"department_id"`
-	AssigneeAccountID *string     `json:"assignee_account_id,omitempty"`
-	DueAt             *time.Time  `json:"due_at,omitempty"`
-	Version           int         `json:"version"`
-	CreatedAt         time.Time   `json:"created_at"`
-	UpdatedAt         time.Time   `json:"updated_at"`
-	LatestSubmission  *submission `json:"latest_submission,omitempty"`
+	ID                    string      `json:"id"`
+	Title                 string      `json:"title"`
+	Description           string      `json:"description"`
+	Priority              string      `json:"priority"`
+	Status                string      `json:"status"`
+	AdminStatus           string      `json:"admin_status"`
+	AdminStatusUpdatedBy  *string     `json:"admin_status_updated_by"`
+	AdminStatusUpdatedAt  *time.Time  `json:"admin_status_updated_at"`
+	CreatedBy             string      `json:"created_by"`
+	DepartmentID          string      `json:"department_id"`
+	AssigneeAccountID     *string     `json:"assignee_account_id,omitempty"`
+	DueAt                 *time.Time  `json:"due_at,omitempty"`
+	Version               int         `json:"version"`
+	CreatedAt             time.Time   `json:"created_at"`
+	UpdatedAt             time.Time   `json:"updated_at"`
+	LatestSubmission      *submission `json:"latest_submission,omitempty"`
 }
 
 type submission struct {
@@ -156,6 +164,7 @@ type comment struct {
 
 type listFilter struct {
 	Status       string
+	AdminStatus  string
 	AssigneeID   string
 	DepartmentID string
 	DueFrom      *time.Time
@@ -203,6 +212,9 @@ func (h *Handler) listTasks(w http.ResponseWriter, ctx context.Context, principa
 	}
 	if filter.Status != "" {
 		addFilter("t.status = $%d", filter.Status)
+	}
+	if filter.AdminStatus != "" {
+		addFilter("t.admin_status = $%d", filter.AdminStatus)
 	}
 	if filter.AssigneeID != "" {
 		addFilter(`EXISTS (SELECT 1 FROM tasks.task_assignments fa
@@ -434,6 +446,77 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	item, err := h.updateTask(ctx, principal, id, expected, input)
 	if err != nil {
 		h.fail(w, ctx, "update task", err)
+		return
+	}
+	w.Header().Set("ETag", etag(item.Version))
+	writeJSON(w, http.StatusOK, map[string]any{"task": item})
+}
+
+type adminStatusRequest struct {
+	Status string `json:"status"`
+}
+
+func (h *Handler) updateAdminStatus(w http.ResponseWriter, r *http.Request) {
+	principal, ctx, ok := h.authenticatePermission(w, r, "tasks.update_status")
+	if !ok {
+		return
+	}
+	id, ok := h.taskID(w, r, ctx)
+	if !ok {
+		return
+	}
+	expected, valid := parseETag(r.Header.Get("If-Match"))
+	if !valid {
+		writeError(w, http.StatusPreconditionRequired, "if_match_required", requestID(ctx))
+		return
+	}
+	var input adminStatusRequest
+	if !decodeJSON(w, r, &input) || !validAdminStatus(input.Status) {
+		writeError(w, http.StatusBadRequest, "invalid_request", requestID(ctx))
+		return
+	}
+	if h.db == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", requestID(ctx))
+		return
+	}
+
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		h.fail(w, ctx, "begin administrative task status update", err)
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	current, err := lockVisibleTask(ctx, tx, principal, id)
+	if err != nil {
+		h.fail(w, ctx, "authorize administrative task status update", err)
+		return
+	}
+	if current.Version != expected {
+		h.fail(w, ctx, "check administrative task status version", errPrecondition)
+		return
+	}
+	if current.AdminStatus == input.Status {
+		w.Header().Set("ETag", etag(current.Version))
+		writeJSON(w, http.StatusOK, map[string]any{"task": current})
+		return
+	}
+
+	item, err := scanTask(tx.QueryRowContext(ctx, `
+		UPDATE tasks.tasks
+		SET admin_status=$2, admin_status_updated_by=$3::uuid,
+		    admin_status_updated_at=now(), version=version+1, updated_at=now()
+		WHERE id=$1::uuid AND version=$4
+		RETURNING `+taskColumnsBare, id, input.Status, principal.ID, expected))
+	if err != nil {
+		h.fail(w, ctx, "update administrative task status", err)
+		return
+	}
+	if err := recordAudit(ctx, tx, principal.ID, id, "task.admin_status_updated"); err != nil {
+		h.fail(w, ctx, "audit administrative task status update", err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.fail(w, ctx, "commit administrative task status update", err)
 		return
 	}
 	w.Header().Set("ETag", etag(item.Version))
@@ -1099,11 +1182,13 @@ func (h *Handler) reviewTask(ctx context.Context, principal Principal, id, decis
 	return item, nil
 }
 
-const taskColumnsBare = `id::text, title, description, priority, status, created_by::text,
+const taskColumnsBare = `id::text, title, description, priority, status, admin_status,
+	admin_status_updated_by::text, admin_status_updated_at, created_by::text,
 	department_id::text, NULL::text, due_at, version, created_at, updated_at,
 	NULL::text, NULL::integer, NULL::text, NULL::jsonb, NULL::text, NULL::timestamptz`
 
-const taskColumns = `t.id::text, t.title, t.description, t.priority, t.status, t.created_by::text,
+const taskColumns = `t.id::text, t.title, t.description, t.priority, t.status, t.admin_status,
+	t.admin_status_updated_by::text, t.admin_status_updated_at, t.created_by::text,
 	t.department_id::text, active_assignment.assignee_account_id::text, t.due_at, t.version,
 	t.created_at, t.updated_at, latest_submission.id::text, latest_submission.submission_number,
 	latest_submission.summary, latest_submission.links, latest_submission.submitter_account_id::text,
@@ -1115,16 +1200,23 @@ type rowScanner interface {
 
 func scanTask(row rowScanner) (task, error) {
 	var item task
-	var assignee, submissionID, submissionSummary, submitter sql.NullString
-	var dueAt, submittedAt sql.NullTime
+	var adminStatusUpdatedBy, assignee, submissionID, submissionSummary, submitter sql.NullString
+	var adminStatusUpdatedAt, dueAt, submittedAt sql.NullTime
 	var submissionNumber sql.NullInt64
 	var links []byte
 	err := row.Scan(&item.ID, &item.Title, &item.Description, &item.Priority, &item.Status,
-		&item.CreatedBy, &item.DepartmentID, &assignee, &dueAt, &item.Version, &item.CreatedAt,
+		&item.AdminStatus, &adminStatusUpdatedBy, &adminStatusUpdatedAt, &item.CreatedBy,
+		&item.DepartmentID, &assignee, &dueAt, &item.Version, &item.CreatedAt,
 		&item.UpdatedAt, &submissionID, &submissionNumber, &submissionSummary, &links,
 		&submitter, &submittedAt)
 	if err != nil {
 		return task{}, err
+	}
+	if adminStatusUpdatedBy.Valid {
+		item.AdminStatusUpdatedBy = &adminStatusUpdatedBy.String
+	}
+	if adminStatusUpdatedAt.Valid {
+		item.AdminStatusUpdatedAt = &adminStatusUpdatedAt.Time
 	}
 	if assignee.Valid {
 		item.AssigneeAccountID = &assignee.String
@@ -1237,7 +1329,7 @@ func (h *Handler) fail(w http.ResponseWriter, ctx context.Context, operation str
 
 func parseFilter(values url.Values, mine bool) (listFilter, error) {
 	filter := listFilter{Limit: defaultPageSize, Mine: mine}
-	allowed := map[string]bool{"status": true, "assignee": true, "department": true,
+	allowed := map[string]bool{"status": true, "admin_status": true, "assignee": true, "department": true,
 		"due_from": true, "due_to": true, "limit": true, "offset": true}
 	for key, entries := range values {
 		if !allowed[key] || len(entries) != 1 {
@@ -1250,6 +1342,11 @@ func parseFilter(values url.Values, mine bool) (listFilter, error) {
 				return listFilter{}, errors.New("invalid status")
 			}
 			filter.Status = value
+		case "admin_status":
+			if !validAdminStatus(value) {
+				return listFilter{}, errors.New("invalid administrative status")
+			}
+			filter.AdminStatus = value
 		case "assignee":
 			if !validUUID(value) {
 				return listFilter{}, errors.New("invalid assignee")

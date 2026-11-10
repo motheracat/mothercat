@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getTask, listTasks, updateTask } from "@/lib/tasks/api";
+import { getTask, listTasks, updateTask, updateTaskAdminStatus } from "@/lib/tasks/api";
 
 const task = {
   id: "task-uuid",
@@ -8,6 +8,9 @@ const task = {
   description: "",
   priority: "normal",
   status: "draft",
+  admin_status: "open",
+  admin_status_updated_by: null,
+  admin_status_updated_at: null,
   created_by: "account-uuid",
   department_id: "department-uuid",
   assignee_account_id: null,
@@ -68,5 +71,28 @@ describe("task API client", () => {
     expect(options?.method).toBe("PATCH");
     expect(new Headers(options?.headers).get("If-Match")).toBe('"1"');
     expect(options?.body).toBe(JSON.stringify({ title: "Inspect roof" }));
+  });
+
+  it("filters by administrative status and persists an admin status change with the current ETag", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        tasks: [{ ...task, admin_status: "scheduled" }],
+        page: { limit: 20, offset: 0, total: 1 },
+      }))
+      .mockResolvedValueOnce(jsonResponse({ task: { ...task, admin_status: "in_progress", admin_status_updated_by: "admin-id" } }, 200, { ETag: '"2"' }));
+
+    await expect(listTasks({ adminStatus: "scheduled", limit: 20, offset: 0 })).resolves.toMatchObject({
+      tasks: [{ admin_status: "scheduled" }],
+    });
+    const updated = await updateTaskAdminStatus("task-uuid", '"1"', "in_progress");
+
+    expect(updated.task.admin_status).toBe("in_progress");
+    expect(updated.task.admin_status_updated_by).toBe("admin-id");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/tasks?limit=20&offset=0&admin_status=scheduled");
+    const [url, options] = fetchMock.mock.calls[1];
+    expect(url).toBe("/api/v1/tasks/task-uuid/admin-status");
+    expect(options?.method).toBe("PATCH");
+    expect(new Headers(options?.headers).get("If-Match")).toBe('"1"');
+    expect(options?.body).toBe(JSON.stringify({ status: "in_progress" }));
   });
 });

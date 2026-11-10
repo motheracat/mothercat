@@ -7,6 +7,7 @@ import { useCallback, useRef, useState } from "react";
 import {
   Building2,
   Bell,
+  BriefcaseBusiness,
   CircleUserRound,
   ClipboardList,
   FileUp,
@@ -39,6 +40,7 @@ const items: SidebarItem[] = [
   { href: "/roles", label: "Roles & permissions", icon: ShieldCheck, permissions: ["roles.read", "roles.manage", "*"] },
   { href: "/audit", label: "Audit log", icon: History, permissions: ["audit.read", "*"] },
   { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/opportunities/manage", label: "Opportunities & SIWES", icon: BriefcaseBusiness, permissions: ["opportunities.publish", "applications.review", "it_applications.review", "roles.manage", "*"] },
   { href: "/account", label: "Password & security", icon: CircleUserRound },
 ];
 
@@ -77,7 +79,7 @@ export function WorkspaceSidebar({
   return (
     <>
       <aside className="workspace-sidebar">
-        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-white/15 px-5">
+        <div className="flex h-14 shrink-0 items-center gap-3 border-b border-white/15 px-4">
           <Image
             src="/Mothercat%20Logo%20Variations%20Sheet%20(Edited%202).png"
             alt=""
@@ -88,7 +90,7 @@ export function WorkspaceSidebar({
           <span className="text-sm font-semibold tracking-wide text-white">Mothercat</span>
         </div>
 
-        <nav aria-label="Workspace navigation" className="flex-1 space-y-1 overflow-y-auto p-3">
+        <nav aria-label="Workspace navigation" className="workspace-sidebar-navigation flex-1 space-y-0.5 overflow-y-auto p-2">
           {visibleItems.map((item) => {
             const active = item.href === activeHref;
             return (
@@ -96,7 +98,7 @@ export function WorkspaceSidebar({
                 key={item.href}
                 href={item.href}
                 aria-current={pathname === item.href ? "page" : active ? "location" : undefined}
-                className={`workspace-sidebar-link relative flex h-10 w-full items-center rounded-lg px-3 text-sm transition-all duration-150 ${
+                className={`workspace-sidebar-link relative flex h-9 w-full items-center rounded-lg px-3 text-sm transition-all duration-150 ${
                   active ? "is-active" : "text-white/70 hover:bg-white/5 hover:text-white"
                 }`}
               >
@@ -107,7 +109,7 @@ export function WorkspaceSidebar({
           {hasNoPermissions ? <p className="px-3 py-3 text-xs leading-5 text-white/60">Your role has no workspace permissions yet.</p> : null}
         </nav>
 
-        <div className="shrink-0 border-t border-white/15 p-3">
+        <div className="shrink-0 border-t border-white/15 p-2">
           {signOut}
           <p className="mt-3 px-3 text-xs text-white/45">v0.1.0</p>
           {footer}
