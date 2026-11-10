@@ -28,7 +28,10 @@ func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
 	opportunities := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := newRouter(nil, identity, organization, access, audit, tasks, notifications, opportunities)
+	applicants := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
+	handler := newRouter(nil, identity, organization, access, audit, tasks, notifications, opportunities, applicants)
 
 	for _, path := range []string{
 		"/api/v1/staff",
@@ -40,6 +43,20 @@ func TestNewRouterMountsOrganizationEndpoints(t *testing.T) {
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != http.StatusNoContent {
 			t.Errorf("%s reached status %d; want organization handler status %d", path, response.Code, http.StatusNoContent)
+		}
+	}
+
+	for _, path := range []string{
+		"/api/v1/auth/applicant/register",
+		"/api/v1/auth/applicant/verify-email",
+		"/api/v1/auth/applicant/resend-verification",
+		"/api/v1/auth/applicant/login",
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+		if response.Code != http.StatusAccepted {
+			t.Errorf("%s reached status %d; want applicant identity handler status %d",
+				path, response.Code, http.StatusAccepted)
 		}
 	}
 

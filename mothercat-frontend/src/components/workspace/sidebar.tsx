@@ -8,6 +8,7 @@ import {
   Building2,
   Bell,
   CircleUserRound,
+  ClipboardList,
   FileUp,
   Gauge,
   History,
@@ -31,6 +32,7 @@ type SidebarItem = {
 
 const items: SidebarItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
+  { href: "/tasks", label: "Tasks", icon: ClipboardList, permissions: ["tasks.create", "tasks.assign", "tasks.review", "tasks.cancel", "*"] },
   { href: "/staff", label: "Staff directory", icon: UsersRound, permissions: ["staff.read", "*"] },
   { href: "/staff/imports", label: "Staff imports", icon: FileUp, permissions: ["staff.import", "*"] },
   { href: "/departments", label: "Departments", icon: Building2, permissions: ["departments.manage", "staff.read", "*"] },
@@ -40,7 +42,7 @@ const items: SidebarItem[] = [
   { href: "/account", label: "Password & security", icon: CircleUserRound },
 ];
 
-const mobilePrimaryHrefs = ["/dashboard", "/staff", "/departments", "/account"];
+const mobilePrimaryHrefs = ["/dashboard", "/tasks", "/staff", "/departments", "/account"];
 
 export function WorkspaceSidebar({
   session,

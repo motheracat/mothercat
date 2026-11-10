@@ -28,6 +28,7 @@ var allMigrations = []migration{
 	{version: "009_notification_outbox", path: "migrations/009_notification_outbox.sql"},
 	{version: "010_task_reminder_idempotency", path: "migrations/010_task_reminder_idempotency.sql"},
 	{version: "011_opportunities", path: "migrations/011_opportunities.sql"},
+	{version: "012_applicant_identity", path: "migrations/012_applicant_identity.sql"},
 }
 
 func Migrate(ctx context.Context, db *sql.DB) error {

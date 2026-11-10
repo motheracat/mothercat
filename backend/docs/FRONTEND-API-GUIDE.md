@@ -100,6 +100,26 @@ session identifiers, or recovery/activation tokens in local storage. Login and
 recovery endpoints are rate limited; the recovery response is deliberately
 generic to avoid disclosing whether an account exists.
 
+## Applicant identity
+
+Applicant accounts are separate from staff accounts. Do not use the staff
+login endpoint or staff session cookie for applicant sign-in. Applicant
+sessions use the `mothercat_applicant_session` HttpOnly cookie and do not grant
+workspace access.
+
+| Method and path | Request | Success |
+|---|---|---|
+| `POST /api/v1/auth/applicant/register` | `{"email":"...","display_name":"...","password":"..."}` | `202`, generic verification response |
+| `POST /api/v1/auth/applicant/verify-email` | `{"token":"..."}` | `200`, `{"status":"verified"}`; invalid/expired tokens return `400` |
+| `POST /api/v1/auth/applicant/resend-verification` | `{"email":"..."}` | `202`, generic verification response |
+| `POST /api/v1/auth/applicant/login` | `{"email":"...","password":"..."}` | `200`, applicant profile and applicant session cookie |
+
+Verification tokens are single-use and expire after 24 hours. Applicant login
+is refused until the email is verified. Registration and resend responses are
+generic and do not disclose whether an account exists. Public applicant
+requests are rate-limited per client IP and email/account. Passwords must be
+14–72 bytes and contain at least three character classes.
+
 ## Tasks
 
 All task IDs, account IDs, and department IDs are UUIDs. Task timestamps are
@@ -171,7 +191,7 @@ the current account is permitted to see.
 ### Create a task
 
 `POST /api/v1/tasks` requires `tasks.create`. The current user must belong to
-the selected department.
+the selected department unless they also have `tasks.read_all`.
 
 ```json
 {

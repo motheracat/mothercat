@@ -29,6 +29,7 @@ import (
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/opportunities"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/persistence"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/tasks"
+	"github.com/mothercat-enterprise/mothercat/backend/services/monolith/internal/applicantidentity"
 	organizationmonolith "github.com/mothercat-enterprise/mothercat/backend/services/organization/monolith"
 )
 
@@ -136,9 +137,10 @@ func run(logger *slog.Logger) error {
 	opportunitiesHandler := opportunities.NewHandler(
 		db, opportunityAuthenticator{service: authService}, documentScanner, logger,
 	)
+	applicantIdentityHandler := applicantidentity.NewHandler(db, mailer, logger)
 	applicationRetentionJob := opportunities.NewRetentionJob(db, logger)
 	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler,
-		taskHandler, notificationHandler, opportunitiesHandler)
+		taskHandler, notificationHandler, opportunitiesHandler, applicantIdentityHandler)
 	server := &http.Server{
 		Addr: address, Handler: handler, ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
@@ -258,7 +260,7 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notifications, opportunities http.Handler) http.Handler {
+func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notifications, opportunities, applicants http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -302,6 +304,9 @@ func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notific
 		mux.Handle("/api/v1/opportunities/", opportunities)
 		mux.Handle("/api/v1/siwes-applications", opportunities)
 		mux.Handle("/api/v1/siwes-applications/", opportunities)
+	}
+	if applicants != nil {
+		mux.Handle("/api/v1/auth/applicant/", applicants)
 	}
 	mux.Handle("/api/v1/", identity)
 	mux.Handle("/internal/v1/", identity)

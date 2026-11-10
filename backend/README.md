@@ -50,11 +50,14 @@ Authenticated task routes:
 
 Task reads are restricted to the creator, active assignee, members of the task
 department with `tasks.read_department`, or users with `tasks.read_all`.
-Assignment requires `tasks.assign`, department membership, and an active staff
-account in that department. Draft edits require the creator and a matching
-`If-Match` version. Task state history and audit events are written in the same
-database transaction as the corresponding change. Cookie-authenticated writes
-require a same-origin `Origin` header.
+Creating a task requires `tasks.create`; callers with `tasks.read_all` may
+create tasks outside their department memberships, while other creators must
+belong to the selected department. Assignment requires `tasks.assign`,
+department membership, and an active staff account in that department. Draft
+edits require the creator and a matching `If-Match` version. Task state history
+and audit events are written in the same database transaction as the
+corresponding change. Cookie-authenticated writes require a same-origin
+`Origin` header.
 
 ## Notifications API
 
@@ -104,6 +107,31 @@ production, because the API's five-per-hour submission limit is process-local.
 The [Frontend API Guide](docs/FRONTEND-API-GUIDE.md) documents the routes,
 permission requirements, status transitions, upload constraints, and proxy
 requirements.
+
+## Applicant identity
+
+Migration `012_applicant_identity` adds applicant-only accounts, email
+verification tokens, and sessions in separate tables from staff identity.
+Applicant authentication is served by a separate handler and uses the
+`mothercat_applicant_session` cookie; it does not grant staff workspace
+permissions or authenticate staff API routes.
+
+- `POST /api/v1/auth/applicant/register` creates an unverified applicant and
+  sends a verification email. Responses do not disclose whether an email
+  address is already registered.
+- `POST /api/v1/auth/applicant/verify-email` consumes a single-use,
+  time-limited verification token and returns `400` for invalid or expired
+  tokens.
+- `POST /api/v1/auth/applicant/resend-verification` requests another
+  verification email with a generic response.
+- `POST /api/v1/auth/applicant/login` accepts verified applicant credentials
+  and sets the isolated applicant session cookie.
+
+Registration requires a valid email address, display name, and a 14–72 byte
+password containing at least three character classes. Public applicant
+authentication requests are rate limited per client IP and email/account.
+Email delivery uses the configured identity mail provider and fails
+explicitly when unavailable.
 
 ## Initial administrator
 

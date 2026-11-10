@@ -18,6 +18,8 @@ const profileUpdatedEvent = "mothercat:staff-profile-updated";
 
 const breadcrumbLabels: Record<string, string> = {
   dashboard: "Dashboard",
+  tasks: "Tasks",
+  create: "Create task",
   staff: "Staff directory",
   imports: "Staff imports",
   departments: "Departments",

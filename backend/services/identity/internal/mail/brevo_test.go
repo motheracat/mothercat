@@ -84,6 +84,37 @@ func TestSendRecoveryRejectsBrevoFailuresWithoutResponseBody(t *testing.T) {
 	}
 }
 
+func TestSendApplicantVerificationUsesApplicantRoute(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Subject     string `json:"subject"`
+			TextContent string `json:"textContent"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		if payload.Subject != "Verify your email address" ||
+			!strings.Contains(payload.TextContent, "https://app.example.com/applicant/verify-email?token=verification-token") {
+			t.Errorf("unexpected applicant verification email: %+v", payload)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	sender, err := NewBrevo(BrevoConfig{
+		APIKey: "test-api-key", From: "noreply@example.com",
+		PublicBaseURL: "https://app.example.com", Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender.endpoint = server.URL
+	if err := sender.SendRecovery(context.Background(), "applicant@example.com", "applicant_verification", "verification-token"); err != nil {
+		t.Fatalf("SendRecovery() error = %v", err)
+	}
+}
+
 func TestNewBrevoRequiresValidConfiguration(t *testing.T) {
 	_, err := NewBrevo(BrevoConfig{
 		APIKey: "key", From: "noreply@example.com", PublicBaseURL: "http://app.example.com",

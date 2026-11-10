@@ -70,7 +70,10 @@ func (b *Brevo) SendRecovery(ctx context.Context, recipient, purpose, token stri
 	}
 	path := "/reset-password"
 	subject := "Reset your password"
-	if purpose == "activation" {
+	if purpose == "applicant_verification" {
+		path = "/applicant/verify-email"
+		subject = "Verify your email address"
+	} else if purpose == "activation" {
 		path = "/activate"
 		subject = "Activate your account"
 	} else if purpose != "password_reset" {
