@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ClipboardList, MessageSquare, RefreshCw, Send, UserPlus } from "lucide-react";
 
 import { Dialog } from "@/components/workspace/dialog";
-import { GlassSelect } from "@/components/workspace/glass-select";
+import { TaskAccordionSelect } from "@/components/workspace/task-accordion-select";
 import { EmptyState, ErrorBanner, StatusPill } from "@/components/workspace/ui";
 import {
   formatOrganizationError,
@@ -122,7 +122,7 @@ function TaskFields({
       <div className="task-form-grid">
         <label className="workspace-field">
           <span className="field-label">Priority</span>
-          <GlassSelect
+          <TaskAccordionSelect
             label="Task priority"
             name="priority"
             value={priority}
@@ -444,7 +444,7 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
         <div className="task-list-toolbar">
           <label className="workspace-field">
             <span className="field-label">Status</span>
-            <GlassSelect
+            <TaskAccordionSelect
               label="Task status"
               value={filterStatus}
               placeholder="All statuses"
@@ -550,7 +550,7 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
               <section className="task-action-section">
                 <h3><UserPlus size={17} aria-hidden="true" /> Assign task</h3>
                 <div className="task-inline-action">
-                  <GlassSelect
+                  <TaskAccordionSelect
                     label="Assign task to"
                     value={assigneeId}
                     placeholder="Select active department staff"

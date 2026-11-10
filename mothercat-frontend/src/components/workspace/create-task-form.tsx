@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { TaskAccordionSelect } from "@/components/workspace/task-accordion-select";
 import { ErrorBanner } from "@/components/workspace/ui";
-import { GlassSelect } from "@/components/workspace/glass-select";
 import {
   formatOrganizationError,
   listDepartments,
@@ -190,7 +190,7 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
           <div className="task-form-grid">
             <label className="workspace-field">
               <span className="field-label">Department</span>
-              <GlassSelect
+              <TaskAccordionSelect
                 label="Department"
                 name="department_id"
                 value={selectedDepartment}
@@ -209,7 +209,7 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
             </label>
             <label className="workspace-field">
               <span className="field-label">Priority</span>
-              <GlassSelect
+              <TaskAccordionSelect
                 label="Task priority"
                 name="priority"
                 value={priority}
@@ -229,7 +229,7 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
             {canAssign ? (
               <label className="workspace-field">
                 <span className="field-label">Assign to staff or Admin (optional)</span>
-                <GlassSelect
+                <TaskAccordionSelect
                   label="Assign to staff or Admin (optional)"
                   value={assigneeAccountId}
                   placeholder="Create without assigning"
