@@ -94,6 +94,8 @@ function TaskFields({
   submitLabel: string;
   busy: boolean;
 }) {
+  const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? "normal");
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -120,11 +122,17 @@ function TaskFields({
       <div className="task-form-grid">
         <label className="workspace-field">
           <span className="field-label">Priority</span>
-          <select className="form-select" name="priority" defaultValue={task?.priority ?? "normal"}>
-            {(["low", "normal", "high", "urgent"] as const).map((priority) => (
-              <option key={priority} value={priority}>{priority.charAt(0).toUpperCase() + priority.slice(1)}</option>
-            ))}
-          </select>
+          <GlassSelect
+            label="Task priority"
+            name="priority"
+            value={priority}
+            placeholder="Select priority"
+            options={(["low", "normal", "high", "urgent"] as const).map((option) => ({
+              value: option,
+              label: option.charAt(0).toUpperCase() + option.slice(1),
+            }))}
+            onChange={(value) => setPriority(value as TaskPriority)}
+          />
         </label>
         {!task ? (
           <label className="workspace-field">
@@ -542,12 +550,20 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
               <section className="task-action-section">
                 <h3><UserPlus size={17} aria-hidden="true" /> Assign task</h3>
                 <div className="task-inline-action">
-                  <select className="form-select" value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} disabled={assigneeLoading || saving}>
-                    <option value="">{assigneeLoading ? "Loading eligible staff…" : "Select active department staff"}</option>
-                    {assignees.map((member) => (
-                      <option key={member.account_id} value={member.account_id ?? ""}>{member.full_name} · ID {member.staff_id}</option>
-                    ))}
-                  </select>
+                  <GlassSelect
+                    label="Assign task to"
+                    value={assigneeId}
+                    placeholder="Select active department staff"
+                    options={[
+                      { value: "", label: assigneeLoading ? "Loading eligible staff…" : "Select active department staff" },
+                      ...assignees.map((member) => ({
+                        value: member.account_id ?? "",
+                        label: `${member.full_name} · ID ${member.staff_id}`,
+                      })),
+                    ]}
+                    onChange={setAssigneeId}
+                    disabled={assigneeLoading || saving}
+                  />
                   <button type="button" className="button-secondary" disabled={!assigneeId || saving || assigneeId === selectedTask.assignee_account_id} onClick={() => void saveAssignee()}>
                     {saving ? "Saving…" : "Assign"}
                   </button>

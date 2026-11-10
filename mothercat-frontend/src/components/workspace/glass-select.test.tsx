@@ -88,6 +88,28 @@ describe("GlassSelect", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
+  it("keeps its desktop popover inside an open dialog", async () => {
+    setViewport(1366);
+    render(
+      <dialog open>
+        <GlassSelect
+          label="Task priority"
+          value="normal"
+          placeholder="Select priority"
+          options={[
+            { value: "low", label: "Low" },
+            { value: "normal", label: "Normal" },
+          ]}
+          onChange={() => undefined}
+        />
+      </dialog>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Task priority" }));
+    const listbox = await screen.findByRole("listbox", { name: "Task priority" });
+    expect(listbox.parentElement?.tagName).toBe("DIALOG");
+  });
+
   it("opens a mobile bottom sheet, locks page scroll, and closes from the backdrop", async () => {
     setViewport(390);
     render(

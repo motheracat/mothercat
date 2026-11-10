@@ -214,7 +214,7 @@ export function GlassSelect({
               </div>
             </div>
           </>,
-          document.body,
+          getPortalTarget(triggerRef.current),
         )
       : position
         ? createPortal(
@@ -250,7 +250,7 @@ export function GlassSelect({
                 </button>
               ))}
             </div>,
-            document.body,
+            getPortalTarget(triggerRef.current),
           )
         : null
     : null;
@@ -277,4 +277,9 @@ export function GlassSelect({
       {panel}
     </>
   );
+}
+
+function getPortalTarget(trigger: HTMLButtonElement | null): HTMLElement {
+  const dialog = trigger?.closest("dialog");
+  return dialog instanceof HTMLDialogElement && dialog.open ? dialog : document.body;
 }

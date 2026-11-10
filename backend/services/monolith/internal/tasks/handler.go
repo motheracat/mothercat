@@ -325,17 +325,19 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
-	var member bool
-	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS (SELECT 1 FROM organization.department_memberships
-			WHERE department_id=$1::uuid AND account_id=$2::uuid)
-	`, input.DepartmentID, principal.ID).Scan(&member); err != nil {
-		h.fail(w, ctx, "check task department scope", err)
-		return
-	}
-	if !member {
-		writeError(w, http.StatusForbidden, "permission_denied", requestID(ctx))
-		return
+	if !hasPermission(principal, "tasks.read_all") {
+		var member bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (SELECT 1 FROM organization.department_memberships
+				WHERE department_id=$1::uuid AND account_id=$2::uuid)
+		`, input.DepartmentID, principal.ID).Scan(&member); err != nil {
+			h.fail(w, ctx, "check task department scope", err)
+			return
+		}
+		if !member {
+			writeError(w, http.StatusForbidden, "permission_denied", requestID(ctx))
+			return
+		}
 	}
 	item, err := scanTask(tx.QueryRowContext(ctx, `
 		INSERT INTO tasks.tasks (title, description, priority, created_by, department_id, due_at)

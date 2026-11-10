@@ -35,6 +35,7 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
   const [departmentError, setDepartmentError] = useState<string | null>(null);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
   const [selectedDepartment, setSelectedDepartment] = useState("");
+  const [priority, setPriority] = useState<TaskPriority>("normal");
   const [eligibleStaff, setEligibleStaff] = useState<StaffMember[]>([]);
   const [staffLoading, setStaffLoading] = useState(false);
   const [staffError, setStaffError] = useState<string | null>(null);
@@ -208,9 +209,18 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
             </label>
             <label className="workspace-field">
               <span className="field-label">Priority</span>
-              <select className="form-select" name="priority" defaultValue="normal" disabled={!canCreate || creating || Boolean(createdTask)}>
-                {priorities.map((priority) => <option key={priority} value={priority}>{priority.charAt(0).toUpperCase() + priority.slice(1)}</option>)}
-              </select>
+              <GlassSelect
+                label="Task priority"
+                name="priority"
+                value={priority}
+                placeholder="Select priority"
+                options={priorities.map((option) => ({
+                  value: option,
+                  label: option.charAt(0).toUpperCase() + option.slice(1),
+                }))}
+                onChange={(value) => setPriority(value as TaskPriority)}
+                disabled={!canCreate || creating || Boolean(createdTask)}
+              />
             </label>
             <label className="workspace-field">
               <span className="field-label">Due date</span>
@@ -219,21 +229,23 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
             {canAssign ? (
               <label className="workspace-field">
                 <span className="field-label">Assign to staff or Admin (optional)</span>
-                <select
-                  className="form-select"
+                <GlassSelect
+                  label="Assign to staff or Admin (optional)"
                   value={assigneeAccountId}
-                  onChange={(event) => setAssigneeAccountId(event.target.value)}
+                  placeholder="Create without assigning"
+                  options={[
+                    {
+                      value: "",
+                      label: !selectedDepartment ? "Select a department first" : staffLoading ? "Loading eligible staff…" : "Create without assigning",
+                    },
+                    ...eligibleStaff.map((member) => ({
+                      value: member.account_id ?? "",
+                      label: `${member.full_name} · ${member.job_title || `ID ${member.staff_id}`}`,
+                    })),
+                  ]}
+                  onChange={setAssigneeAccountId}
                   disabled={!selectedDepartment || staffLoading || Boolean(staffError) || creating || Boolean(createdTask)}
-                >
-                  <option value="">
-                    {!selectedDepartment ? "Select a department first" : staffLoading ? "Loading eligible staff…" : "Create without assigning"}
-                  </option>
-                  {eligibleStaff.map((member) => (
-                    <option key={member.account_id} value={member.account_id ?? ""}>
-                      {member.full_name} · {member.job_title || `ID ${member.staff_id}`}
-                    </option>
-                  ))}
-                </select>
+                />
               </label>
             ) : null}
             {canAssign ? <p className="task-muted create-task-assignee-hint">Only active, account-linked members of the selected department are eligible. This includes provisioned Admin accounts associated with a staff record.</p> : null}
