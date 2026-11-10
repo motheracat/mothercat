@@ -121,39 +121,38 @@
   background: var(--primary-soft, #eef2ff);
 }
 
-/* Dropdown panel */
+/* Inline accordion panel */
 
 .panel {
-  position: absolute;
-  top: calc(100% + 9px);
-  left: 0;
-  right: 0;
-  z-index: 100;
+  position: relative;
+  width: 100%;
+  max-height: 0;
   overflow: hidden;
-  background: var(--panel-background, #ffffff);
-  border: 1px solid var(--panel-border, #e8e8ef);
-  border-radius: 14px;
-  box-shadow:
-    0 12px 32px rgba(15, 23, 42, 0.10),
-    0 3px 8px rgba(15, 23, 42, 0.04);
-
   opacity: 0;
-  visibility: hidden;
   pointer-events: none;
-  transform: translateY(-7px) scale(0.99);
-  transform-origin: top center;
+  background: var(--panel-background, #ffffff);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  margin-top: 0;
+  box-shadow: none;
 
   transition:
+    max-height 220ms ease,
     opacity 180ms ease,
-    transform 180ms ease,
-    visibility 180ms ease;
+    margin-top 220ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .panelOpen {
+  max-height: 390px;
   opacity: 1;
-  visibility: visible;
   pointer-events: auto;
-  transform: translateY(0) scale(1);
+  border-color: var(--panel-border, #e8e8ef);
+  margin-top: 8px;
+  box-shadow:
+    0 8px 22px rgba(15, 23, 42, 0.08),
+    0 2px 6px rgba(15, 23, 42, 0.03);
 }
 
 /* Panel header */
@@ -356,7 +355,8 @@
     padding: 11px 13px;
   }
 
-  .panel {
+  .panelOpen {
+    max-height: 350px;
     border-radius: 12px;
   }
 
