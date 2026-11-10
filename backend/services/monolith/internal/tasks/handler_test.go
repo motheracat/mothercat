@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
@@ -73,6 +74,52 @@ func TestTaskWritesRequireExplicitPermission(t *testing.T) {
 	))
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status=%d, want %d: %s", response.Code, http.StatusForbidden, response.Body)
+	}
+}
+
+func TestGlobalTaskReaderCanCreateOutsideDepartmentMembership(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	const taskID = "00000000-0000-4000-8000-000000000003"
+	const departmentID = "00000000-0000-4000-8000-000000000002"
+	auth := authenticatorStub{principal: Principal{
+		ID: testAccountID, Permissions: []string{"tasks.create", "tasks.read_all"},
+	}}
+	handler := NewHandler(db, auth, slog.New(slog.NewTextHandler(discardWriter{}, nil)))
+
+	createdAt := time.Now()
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO tasks\.tasks`).
+		WithArgs("Task", "", "normal", testAccountID, departmentID, nil).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "title", "description", "priority", "status", "created_by", "department_id",
+			"assignee_account_id", "due_at", "version", "created_at", "updated_at",
+			"submission_id", "submission_number", "submission_summary", "links",
+			"submitter_account_id", "submitted_at",
+		}).AddRow(taskID, "Task", "", "normal", "draft", testAccountID, departmentID,
+			nil, nil, 1, createdAt, createdAt, nil, nil, nil, nil, nil, nil))
+	mock.ExpectExec(`INSERT INTO tasks\.task_status_history`).
+		WithArgs(taskID, testAccountID, nil, "draft", "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO audit\.audit_events`).
+		WithArgs(testAccountID, "task.created", taskID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, taskRequest(
+		http.MethodPost, "/api/v1/tasks",
+		`{"title":"Task","department_id":"`+departmentID+`"}`, true,
+	))
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d, want %d: %s", response.Code, http.StatusCreated, response.Body)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
