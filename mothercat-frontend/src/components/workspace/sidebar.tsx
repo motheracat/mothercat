@@ -7,7 +7,6 @@ import { useCallback, useRef, useState } from "react";
 import {
   Building2,
   Bell,
-  ClipboardList,
   CircleUserRound,
   FileUp,
   Gauge,
@@ -35,7 +34,6 @@ const items: SidebarItem[] = [
   { href: "/staff", label: "Staff directory", icon: UsersRound, permissions: ["staff.read", "*"] },
   { href: "/staff/imports", label: "Staff imports", icon: FileUp, permissions: ["staff.import", "*"] },
   { href: "/departments", label: "Departments", icon: Building2, permissions: ["departments.manage", "staff.read", "*"] },
-  { href: "/tasks", label: "Tasks", icon: ClipboardList },
   { href: "/roles", label: "Roles & permissions", icon: ShieldCheck, permissions: ["roles.read", "roles.manage", "*"] },
   { href: "/audit", label: "Audit log", icon: History, permissions: ["audit.read", "*"] },
   { href: "/notifications", label: "Notifications", icon: Bell },
@@ -62,7 +60,7 @@ export function WorkspaceSidebar({
   const permissions = session?.permissions ?? [];
   const hasNoPermissions = !hasPermission(session, "*") && (permissions.length === 0 || (permissions.length === 1 && permissions[0] === ""));
   const visibleItems = hasNoPermissions
-    ? items.filter((item) => ["/dashboard", "/account", "/tasks", "/notifications"].includes(item.href))
+    ? items.filter((item) => ["/dashboard", "/account", "/notifications"].includes(item.href))
     : items.filter((item) => !item.permissions || hasAnyPermission(session, item.permissions));
   const activeHref = visibleItems
     .filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))
