@@ -6448,6 +6448,48 @@ img {
 }
 
 @media (max-width: 767px) {
+  .workspace-modal-panel,
+  .staff-actions-menu,
+  .access-account-menu {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    animation: dropdown-mobile-enter 130ms ease-out both;
+  }
+
+  .workspace-modal-panel > .workspace-modal-link,
+  .workspace-modal-panel > .workspace-bottom-more-link,
+  .workspace-modal-panel > .workspace-bottom-more-link:nth-of-type(2),
+  .staff-actions-menu > a,
+  .staff-actions-menu > button,
+  .access-account-menu > button {
+    animation: dropdown-mobile-option 90ms ease-out both;
+    animation-delay: 0ms;
+  }
+
+  @keyframes dropdown-mobile-enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes dropdown-mobile-option {
+    from {
+      opacity: 0;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@media (max-width: 767px) {
   .task-details-dialog {
     width: calc(100vw - 24px);
     max-height: min(90dvh, 900px);

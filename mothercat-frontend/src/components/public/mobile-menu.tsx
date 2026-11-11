@@ -102,12 +102,9 @@ export function MobileMenu({ logoSrc, navItems }: MobileMenuProps) {
           100% { opacity: 1; transform: translateY(0) scale(1); border-radius: 12px; }
         }
         @media (prefers-reduced-motion: no-preference) {
-          .mc-panel { animation: mc-slide-in 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+          .mc-panel { animation: mc-slide-in 160ms cubic-bezier(0.22, 1, 0.36, 1); }
           .mc-backdrop { animation: mc-fade-in 180ms ease-out; }
-          .mc-nav-option { animation: mc-nav-option-pop 420ms cubic-bezier(0.2, 0.85, 0.25, 1) both; }
-          .mc-nav-option:nth-child(2) { animation-delay: 35ms; }
-          .mc-nav-option:nth-child(3) { animation-delay: 65ms; }
-          .mc-nav-option:nth-child(n + 4) { animation-delay: 95ms; }
+          .mc-nav-option { animation: mc-nav-option-pop 130ms ease-out both; }
         }
       `}</style>
 
