@@ -28,6 +28,8 @@ type MenuPosition = {
 };
 
 const viewportGutter = 12;
+const preferredMenuWidth = 352;
+const maximumMenuHeight = 520;
 
 function getMenuPosition(trigger: HTMLButtonElement, optionCount: number): MenuPosition {
   const rect = trigger.getBoundingClientRect();
@@ -35,10 +37,11 @@ function getMenuPosition(trigger: HTMLButtonElement, optionCount: number): MenuP
   const viewportHeight = window.innerHeight;
   const availableBelow = Math.max(0, viewportHeight - rect.bottom - viewportGutter * 2);
   const availableAbove = Math.max(0, rect.top - viewportGutter * 2);
-  const desiredHeight = Math.min(Math.max(optionCount, 1) * 46 + 18, 320);
+  const desiredHeight = Math.min(Math.max(optionCount, 1) * 52 + 16, maximumMenuHeight);
   const opensAbove = availableBelow < Math.min(desiredHeight, 180) && availableAbove > availableBelow;
   const maxHeight = Math.max(64, Math.min(desiredHeight, opensAbove ? availableAbove : availableBelow));
-  const width = Math.min(Math.max(rect.width, 220), viewportWidth - viewportGutter * 2);
+  const availableWidth = Math.max(1, viewportWidth - viewportGutter * 2);
+  const width = Math.min(Math.max(rect.width, preferredMenuWidth), availableWidth);
   const left = Math.max(viewportGutter, Math.min(rect.left, viewportWidth - width - viewportGutter));
   const top = opensAbove
     ? Math.max(viewportGutter, rect.top - maxHeight - 6)
@@ -59,15 +62,19 @@ export function GlassSelect({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [position, setPosition] = useState<MenuPosition | null>(null);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  const [hasOverflow, setHasOverflow] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const typeaheadRef = useRef({ value: "", timeout: 0 });
   const id = useId();
   const listboxId = `${id}-listbox`;
   const selectedOption = options.find((option) => option.value === value);
 
   const close = useCallback((returnFocus = false) => {
     setOpen(false);
+    setPortalTarget(null);
     if (returnFocus) requestAnimationFrame(() => triggerRef.current?.focus());
   }, []);
 
@@ -75,7 +82,10 @@ export function GlassSelect({
     if (disabled) return;
     const index = options.findIndex((option) => option.value === value);
     setActiveIndex(index >= 0 ? index : 0);
-    if (triggerRef.current) setPosition(getMenuPosition(triggerRef.current, options.length));
+    if (triggerRef.current) {
+      setPosition(getMenuPosition(triggerRef.current, options.length));
+      setPortalTarget(getPortalTarget(triggerRef.current));
+    }
     setOpen(true);
   }, [disabled, options, value]);
 
@@ -84,6 +94,7 @@ export function GlassSelect({
 
     function updatePosition() {
       if (triggerRef.current) setPosition(getMenuPosition(triggerRef.current, options.length));
+      if (panelRef.current) setHasOverflow(panelRef.current.scrollHeight > panelRef.current.clientHeight + 1);
     }
 
     function handleOutsidePointer(event: PointerEvent) {
@@ -104,6 +115,10 @@ export function GlassSelect({
     document.addEventListener("keydown", handleDocumentKeyDown);
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
+    const resizeObserver = panelRef.current && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(updatePosition)
+      : null;
+    if (panelRef.current) resizeObserver?.observe(panelRef.current);
 
     const focusedOption = optionRefs.current[activeIndex];
     focusedOption?.focus({ preventScroll: true });
@@ -113,6 +128,7 @@ export function GlassSelect({
       document.removeEventListener("keydown", handleDocumentKeyDown);
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
+      resizeObserver?.disconnect();
     };
   }, [activeIndex, close, open, options.length]);
 
@@ -163,15 +179,35 @@ export function GlassSelect({
       close(true);
     } else if (event.key === "Tab") {
       close();
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      window.clearTimeout(typeaheadRef.current.timeout);
+      typeaheadRef.current.value += event.key.toLocaleLowerCase();
+      typeaheadRef.current.timeout = window.setTimeout(() => {
+        typeaheadRef.current.value = "";
+      }, 500);
+      const startIndex = index + 1;
+      const orderedOptions = [
+        ...options.slice(startIndex),
+        ...options.slice(0, startIndex),
+      ];
+      const match = orderedOptions.find((option) =>
+        option.label.toLocaleLowerCase().startsWith(typeaheadRef.current.value),
+      );
+      if (match) {
+        const matchIndex = options.indexOf(match);
+        setActiveIndex(matchIndex);
+        optionRefs.current[matchIndex]?.focus();
+      }
     }
   }
 
-  const menu = open && position && typeof document !== "undefined"
+  const menu = open && position && portalTarget
     ? createPortal(
         <div
           ref={panelRef}
           id={listboxId}
-          className="workspace-modal-panel workspace-select-panel"
+          className={`workspace-modal-panel workspace-select-panel no-scrollbar${hasOverflow ? " is-scrollable" : ""}`}
           role="listbox"
           aria-label={label}
           style={{
@@ -204,7 +240,7 @@ export function GlassSelect({
             </button>
           ))}
         </div>,
-        getPortalTarget(triggerRef.current),
+        portalTarget,
       )
     : null;
 
@@ -219,6 +255,7 @@ export function GlassSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
+        title={selectedOption?.label ?? placeholder}
         disabled={disabled}
         onClick={() => open ? close() : openMenu()}
         onKeyDown={handleTriggerKeyDown}

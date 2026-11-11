@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { TaskAccordionSelect } from "@/components/workspace/task-accordion-select";
+import { DepartmentSelect } from "@/components/workspace/department-select";
 import { ErrorBanner } from "@/components/workspace/ui";
 import {
   formatOrganizationError,
@@ -190,13 +191,13 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
           <div className="task-form-grid">
             <label className="workspace-field">
               <span className="field-label">Department</span>
-              <TaskAccordionSelect
+              <DepartmentSelect
                 label="Department"
                 name="department_id"
                 value={selectedDepartment}
+                departments={departments}
                 placeholder={departmentsLoading ? "Loading departments…" : "Select a department"}
                 emptyMessage={departmentError ? "Departments could not be loaded. Use the retry action above." : "No departments are available."}
-                options={departments.map((department) => ({ value: department.id, label: department.name }))}
                 onChange={(departmentId) => {
                   setSelectedDepartment(departmentId);
                   setEligibleStaff([]);

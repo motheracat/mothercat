@@ -64,10 +64,14 @@ describe("DashboardOverview", () => {
 
     const peopleLink = await screen.findByRole("link", { name: "Browse staff profiles" });
     await waitFor(() => {
-      expect(peopleLink.querySelectorAll("[data-image-source]")).toHaveLength(5);
+      expect(peopleLink.querySelectorAll(".dashboard-people-stack [data-image-source]")).toHaveLength(5);
     });
 
     expect(peopleLink.querySelector(".dashboard-people-more")).toBeInTheDocument();
+    expect(peopleLink.querySelector(".dashboard-people-background")).toHaveAttribute(
+      "data-image-source",
+      "/images/blueprint-construction-skyline.png",
+    );
     expect(screen.queryByText("Total staff")).not.toBeInTheDocument();
     expect(screen.queryByText("23")).not.toBeInTheDocument();
     expect(listStaff).toHaveBeenCalledWith({ limit: 5, offset: 0 });

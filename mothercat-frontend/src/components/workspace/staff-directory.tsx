@@ -7,6 +7,7 @@ import type { FormEvent } from "react";
 
 import { Dialog } from "@/components/workspace/dialog";
 import { GlassSelect } from "@/components/workspace/glass-select";
+import { DepartmentSelect } from "@/components/workspace/department-select";
 import { EmptyState, ErrorBanner, LoadingTable, PageHeader, StatusPill } from "@/components/workspace/ui";
 import { useWorkspace } from "@/components/workspace/workspace-context";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -133,18 +134,18 @@ function StaffEditor({
       </label>
       <label className="workspace-field">
         <span className="field-label">Department <span className="text-[var(--muted)]">(optional)</span></span>
-        <GlassSelect
+        <DepartmentSelect
           label="Department"
           name="department_id"
           value={departmentId}
+          departments={departments}
           placeholder="Unassigned"
-          options={[
-            { value: "", label: "Unassigned" },
-            ...(staff?.department_id && !departments.some((department) => department.id === staff.department_id)
+          emptyOptionLabel="Unassigned"
+          additionalOptions={
+            staff?.department_id && !departments.some((department) => department.id === staff.department_id)
               ? [{ value: staff.department_id, label: "Current department" }]
-              : []),
-            ...departments.map((department) => ({ value: department.id, label: department.name })),
-          ]}
+              : []
+          }
           onChange={setDepartmentId}
         />
       </label>
@@ -384,7 +385,7 @@ export function StaffDirectory() {
         <>
           {departmentsError ? <p role="alert" className="field-error mb-3">{departmentsError}</p> : null}
           <div className="mb-4 flex flex-wrap items-end gap-3">
-            <label className="relative min-w-[220px] flex-1">
+            <label className="relative min-w-0 flex-1">
               <span className="sr-only">Search staff by number, name, or email</span>
               <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
               <input
@@ -396,14 +397,12 @@ export function StaffDirectory() {
               />
             </label>
             <label className="w-full sm:w-52">
-                  <GlassSelect
+                  <DepartmentSelect
                     label="Filter by department"
                     value={departmentId}
+                    departments={departments}
                     placeholder="All departments"
-                    options={[
-                      { value: "", label: "All departments" },
-                      ...departments.map((department) => ({ value: department.id, label: department.name })),
-                    ]}
+                    emptyOptionLabel="All departments"
                     onChange={(value) => { setDepartmentId(value); setPage(0); }}
                   />
                 </label>
@@ -435,7 +434,7 @@ export function StaffDirectory() {
             {loading ? (
               <LoadingTable columns={6} />
             ) : staff.length > 0 ? (
-              <div className="max-h-[min(60vh,640px)] overflow-auto">
+              <div className="staff-directory-table-wrap">
                 <table className="data-table staff-directory-table">
                   <caption className="sr-only">Staff directory records</caption>
                   <thead><tr>
@@ -449,15 +448,15 @@ export function StaffDirectory() {
                   <tbody>
                     {staff.map((record) => (
                       <tr key={record.id}>
-                        <td className="font-medium">ID:{record.staff_id}</td>
-                        <td>
+                        <td data-label="Staff ID" className="font-medium">ID:{record.staff_id}</td>
+                        <td data-label="Name">
                           <span className="block font-medium">{record.full_name}</span>
                           {record.job_title ? <span className="text-xs text-[var(--muted)]">{record.job_title}</span> : null}
                         </td>
-                        <td>{record.department_id ? departmentsById.get(record.department_id) ?? "Department" : "Unassigned"}</td>
-                        <td>{record.work_email ?? "—"}</td>
-                        <td><StatusPill label={record.employment_status} tone={getStatusTone(record.employment_status)} /></td>
-                        <td><button type="button" className="button-secondary" onClick={() => void openStaff(record.id)}>View</button></td>
+                        <td data-label="Department">{record.department_id ? departmentsById.get(record.department_id) ?? "Department" : "Unassigned"}</td>
+                        <td data-label="Work email">{record.work_email ?? "—"}</td>
+                        <td data-label="Status"><StatusPill label={record.employment_status} tone={getStatusTone(record.employment_status)} /></td>
+                        <td data-label="Actions"><button type="button" className="button-secondary" onClick={() => void openStaff(record.id)}>View</button></td>
                       </tr>
                     ))}
                   </tbody>

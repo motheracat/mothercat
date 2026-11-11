@@ -3,6 +3,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GlassSelect } from "@/components/workspace/glass-select";
+import { DepartmentSelect } from "@/components/workspace/department-select";
 
 afterEach(() => {
   cleanup();
@@ -81,7 +82,7 @@ describe("GlassSelect", () => {
     const listbox = await screen.findByRole("listbox", { name: "Status" });
     expect(listbox.parentElement).toBe(document.body);
     expect(listbox).toHaveClass("workspace-modal-panel", "workspace-select-panel");
-    expect(listbox).toHaveStyle({ position: "fixed", zIndex: "1300", left: "240px", width: "240px" });
+    expect(listbox).toHaveStyle({ position: "fixed", zIndex: "1300", left: "240px", width: "352px" });
     expect(screen.getByRole("option", { name: "Draft" })).toHaveClass("workspace-modal-link", "workspace-select-option");
 
     fireEvent.click(screen.getByRole("option", { name: "Draft" }));
@@ -149,6 +150,95 @@ describe("GlassSelect", () => {
 
     expect(onChange).toHaveBeenCalledWith("finance");
     expect(container.querySelector<HTMLInputElement>('input[name="department_id"]')?.value).toBe("finance");
+  });
+
+  it("supports type-ahead to find a department by its visible name", async () => {
+    setViewport(1366);
+    render(
+      <GlassSelect
+        label="Department"
+        value=""
+        placeholder="All departments"
+        options={[
+          { value: "building", label: "Building & Structural Construction" },
+          { value: "hse", label: "Health, Safety, and Environment (HSE)" },
+        ]}
+        onChange={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Department" }));
+    let activeOption = await screen.findByRole("option", { name: "Building & Structural Construction" });
+    fireEvent.keyDown(activeOption, { key: "h" });
+    activeOption = screen.getByRole("option", { name: "Health, Safety, and Environment (HSE)" });
+    fireEvent.keyDown(activeOption, { key: "e" });
+    expect(screen.getByRole("option", { name: "Health, Safety, and Environment (HSE)" })).toHaveFocus();
+  });
+
+  it("shows all department names through the shared department selector", async () => {
+    setViewport(1440);
+    render(
+      <DepartmentSelect
+        label="Filter by department"
+        value=""
+        departments={[
+          { id: "building", name: "Building & Structural Construction" },
+          { id: "civil", name: "Civil Engineering" },
+          { id: "finance", name: "Finance & Accounts" },
+          { id: "hse", name: "Health, Safety, and Environment (HSE)" },
+          { id: "hr", name: "Human Resources & Administration" },
+          { id: "procurement", name: "Procurement & Logistics" },
+        ]}
+        placeholder="All departments"
+        emptyOptionLabel="All departments"
+        onChange={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Filter by department" }));
+    expect(await screen.findByRole("listbox", { name: "Filter by department" })).toHaveClass("no-scrollbar");
+    for (const name of [
+      "Building & Structural Construction",
+      "Civil Engineering",
+      "Finance & Accounts",
+      "Health, Safety, and Environment (HSE)",
+      "Human Resources & Administration",
+      "Procurement & Logistics",
+    ]) {
+      expect(await screen.findByRole("option", { name })).toBeInTheDocument();
+    }
+  });
+
+  it.each([320, 375, 768, 1024, 1440])("keeps the popover inside a %ipx viewport", async (width) => {
+    setViewport(width);
+    render(
+      <GlassSelect
+        label="Department"
+        value=""
+        placeholder="All departments"
+        options={[{ value: "building", label: "Building & Structural Construction" }]}
+        onChange={() => undefined}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Department" });
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+      x: width - 108,
+      y: 120,
+      top: 120,
+      right: width - 8,
+      bottom: 160,
+      left: width - 108,
+      width: 100,
+      height: 40,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.click(trigger);
+    const listbox = await screen.findByRole("listbox", { name: "Department" });
+    const left = Number.parseFloat(listbox.style.left);
+    const menuWidth = Number.parseFloat(listbox.style.width);
+    expect(left).toBeGreaterThanOrEqual(12);
+    expect(left + menuWidth).toBeLessThanOrEqual(width - 12);
+    cleanup();
   });
 
   it("opens an empty options panel with an explanation instead of appearing unresponsive", async () => {

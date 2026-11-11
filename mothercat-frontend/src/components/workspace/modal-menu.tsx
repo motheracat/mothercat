@@ -71,7 +71,7 @@ export function WorkspaceModalMenu({
     >
       <div
         ref={panelRef}
-        className={`workspace-modal-panel ${placement === "bottom" ? "is-bottom" : "is-top"}`}
+        className={`workspace-modal-panel no-scrollbar ${placement === "bottom" ? "is-bottom" : "is-top"}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

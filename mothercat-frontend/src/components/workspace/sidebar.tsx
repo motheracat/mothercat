@@ -44,7 +44,7 @@ const items: SidebarItem[] = [
   { href: "/account", label: "Password & security", icon: CircleUserRound },
 ];
 
-const mobilePrimaryHrefs = ["/dashboard", "/tasks", "/staff", "/departments", "/account"];
+const mobilePrimaryHrefs = ["/dashboard", "/tasks", "/staff", "/departments"];
 
 export function WorkspaceSidebar({
   session,

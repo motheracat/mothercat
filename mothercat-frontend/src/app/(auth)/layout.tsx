@@ -8,7 +8,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
     <div className="min-h-screen bg-slate-100">
       <div className="grid min-h-screen lg:grid-cols-[1fr_560px]">
         <aside className="relative hidden overflow-hidden lg:block">
-          <Image src="/images/Blueprint%20Construction%20Skyline.png" alt="Mothercat engineering and construction projects" fill priority className="h-full w-full object-cover" sizes="50vw" />
+          <Image src="/images/blueprint-construction-skyline.png" alt="Mothercat engineering and construction projects" fill priority className="h-full w-full object-cover" sizes="50vw" />
           <div className="relative z-10 flex h-full flex-col justify-end p-12 text-white">
             <p className="text-sm uppercase tracking-[0.26em] text-blue-100">Mothercat</p>
             <h1 className="mt-4 max-w-md font-serif text-5xl leading-none">Building a stronger future.</h1>

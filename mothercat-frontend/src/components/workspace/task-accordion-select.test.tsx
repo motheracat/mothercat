@@ -27,7 +27,7 @@ function DepartmentSelectHarness({ onSelection }: { onSelection: (value: string)
 }
 
 describe("TaskAccordionSelect", () => {
-  it("expands options inline and closes after selection", async () => {
+  it("uses the shared portal dropdown and closes after selection", async () => {
     const onChange = vi.fn();
     render(
       <TaskAccordionSelect
@@ -46,9 +46,10 @@ describe("TaskAccordionSelect", () => {
     const trigger = screen.getByRole("button", { name: "Task status" });
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     fireEvent.click(trigger);
-    const options = screen.getByRole("listbox", { name: "Task status options" });
+    const options = screen.getByRole("listbox", { name: "Task status" });
     expect(trigger).toHaveAttribute("aria-expanded", "true");
-    expect(options.parentElement?.parentElement).toBe(trigger.parentElement);
+    expect(options).toHaveClass("no-scrollbar");
+    expect(options.parentElement).toBe(document.body);
 
     fireEvent.click(screen.getByRole("option", { name: "Draft" }));
     expect(onChange).toHaveBeenCalledWith("draft");
@@ -68,6 +69,27 @@ describe("TaskAccordionSelect", () => {
     expect(container.querySelector<HTMLInputElement>('input[name="department_id"]')?.value).toBe("finance");
   });
 
+  it("supports type-ahead selection for long department names", () => {
+    render(
+      <TaskAccordionSelect
+        label="Department"
+        value=""
+        placeholder="Select a department"
+        options={[
+          { value: "building", label: "Building & Structural Construction" },
+          { value: "hse", label: "Health, Safety, and Environment (HSE)" },
+        ]}
+        onChange={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Department" }));
+    fireEvent.keyDown(screen.getByRole("option", { name: "Building & Structural Construction" }), { key: "h" });
+    const hseOption = screen.getByRole("option", { name: "Health, Safety, and Environment (HSE)" });
+    fireEvent.keyDown(hseOption, { key: "e" });
+    expect(hseOption).toHaveFocus();
+  });
+
   it("explains when there are no options and closes with Escape", async () => {
     render(
       <TaskAccordionSelect
@@ -83,7 +105,7 @@ describe("TaskAccordionSelect", () => {
     const trigger = screen.getByRole("button", { name: "Department" });
     fireEvent.click(trigger);
     expect(screen.getByRole("status")).toHaveTextContent("No departments are available.");
-    fireEvent.keyDown(screen.getByRole("listbox", { name: "Department options" }), { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     await waitFor(() => expect(trigger).toHaveFocus());
   });

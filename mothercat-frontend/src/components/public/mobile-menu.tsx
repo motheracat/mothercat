@@ -96,9 +96,18 @@ export function MobileMenu({ logoSrc, navItems }: MobileMenuProps) {
       <style>{`
         @keyframes mc-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
         @keyframes mc-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes mc-nav-option-pop {
+          0% { opacity: 0; transform: translateY(12px) scale(.96); border-radius: 42% 58% 48% 52% / 54% 46% 54% 46%; }
+          65% { opacity: 1; transform: translateY(-2px) scale(1.02); border-radius: 14px 20px 15px 19px; }
+          100% { opacity: 1; transform: translateY(0) scale(1); border-radius: 12px; }
+        }
         @media (prefers-reduced-motion: no-preference) {
           .mc-panel { animation: mc-slide-in 220ms cubic-bezier(0.22, 1, 0.36, 1); }
           .mc-backdrop { animation: mc-fade-in 180ms ease-out; }
+          .mc-nav-option { animation: mc-nav-option-pop 420ms cubic-bezier(0.2, 0.85, 0.25, 1) both; }
+          .mc-nav-option:nth-child(2) { animation-delay: 35ms; }
+          .mc-nav-option:nth-child(3) { animation-delay: 65ms; }
+          .mc-nav-option:nth-child(n + 4) { animation-delay: 95ms; }
         }
       `}</style>
 
@@ -126,7 +135,7 @@ export function MobileMenu({ logoSrc, navItems }: MobileMenuProps) {
             aria-modal="true"
             aria-label="Main menu"
             onClick={(event) => event.stopPropagation()}
-            className="mc-panel ml-auto flex h-dvh w-[85%] max-w-[360px] flex-col overflow-y-auto overscroll-contain bg-[#0a4a8a] shadow-2xl"
+            className="mc-panel no-scrollbar ml-auto flex h-dvh w-[85%] max-w-[360px] flex-col overflow-y-auto overscroll-contain bg-[#0a4a8a] shadow-2xl"
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-white/15 px-4 py-3.5">
@@ -167,7 +176,7 @@ export function MobileMenu({ logoSrc, navItems }: MobileMenuProps) {
                     href={item.href}
                     onClick={() => setOpen(false)}
                     aria-current={isActive ? "page" : undefined}
-                    className={`relative flex min-h-[52px] items-center rounded-xl px-4 text-base font-semibold transition ${ring} ${
+                    className={`mc-nav-option relative flex min-h-[52px] items-center rounded-xl px-4 text-base font-semibold transition ${ring} ${
                       isActive
                         ? "bg-white/15 text-white before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:rounded-full before:bg-white"
                         : "text-white/85 hover:bg-white/10 hover:text-white active:bg-white/15"

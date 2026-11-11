@@ -59,5 +59,7 @@ describe("WorkspaceSidebar opportunity access", () => {
     expect(screen.getByRole("dialog", { name: "More navigation" })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Opportunities & SIWES" })).toHaveLength(2);
     expect(screen.getAllByRole("link", { name: "Opportunities & SIWES" })[1]).toHaveAttribute("href", "/opportunities/manage");
+    expect(screen.getAllByRole("link", { name: "Password & security" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: "Password & security" })[1]).toHaveAttribute("href", "/account");
   });
 });

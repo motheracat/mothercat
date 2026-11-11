@@ -4,10 +4,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
-import { Clock3, Eye } from "lucide-react";
-
-import { Dialog } from "@/components/workspace/dialog";
-import { DataTable, EmptyState, ErrorBanner, LoadingTable, Panel, StatCard } from "@/components/workspace/ui";
+import { EmptyState, ErrorBanner, Panel } from "@/components/workspace/ui";
+import { DashboardAnalytics } from "@/components/workspace/dashboard-analytics";
 import { formatAuditError, listAuditEvents } from "@/lib/audit/api";
 import type { AuditEvent } from "@/lib/audit/api";
 import {
@@ -26,8 +24,6 @@ type DepartmentPreview = {
 
 type DashboardData = {
   totalStaff: number;
-  activeStaff: number;
-  pendingStaff: number;
   staffPreview: StaffMember[];
   departments: DepartmentPreview[];
   departmentCount: number;
@@ -41,6 +37,17 @@ function formatActivityDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unknown time";
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function formatRelativeActivityDate(value: string) {
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return "Unknown time";
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (elapsedSeconds < 60) return "Just now";
+  if (elapsedSeconds < 3600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
+  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3600)}h ago`;
+  if (elapsedSeconds < 604_800) return `${Math.floor(elapsedSeconds / 86_400)}d ago`;
+  return formatActivityDate(value);
 }
 
 function activityLabel(value: string) {
@@ -91,6 +98,15 @@ function DashboardTeamAvatar({ member }: { member: StaffMember }) {
 function DashboardPeoplePreview({ staff, hasMore }: { staff: StaffMember[]; hasMore: boolean }) {
   return (
     <Link href="/staff" className="surface-card dashboard-people-card" aria-label="Browse staff profiles">
+      <Image
+        src="/images/blueprint-construction-skyline.png"
+        alt=""
+        fill
+        priority
+        sizes="(max-width: 600px) 100vw, (max-width: 1023px) 50vw, 25vw"
+        className="dashboard-people-background"
+      />
+      <span className="dashboard-people-overlay" aria-hidden="true" />
       <div className="dashboard-people-stack" aria-hidden="true">
         {staff.slice(0, 5).map((member) => (
           <span className="dashboard-people-avatar" key={member.id} title={member.full_name}>
@@ -112,17 +128,14 @@ export function DashboardOverview({ canReadAudit }: { canReadAudit: boolean }) {
   const [recentEventsError, setRecentEventsError] = useState<string | null>(null);
   const [recentEventsLoading, setRecentEventsLoading] = useState(canReadAudit);
   const [recentEventsReloadKey, setRecentEventsReloadKey] = useState(0);
-  const [selectedRecentEvent, setSelectedRecentEvent] = useState<AuditEvent | null>(null);
 
   useEffect(() => {
     let active = true;
     async function loadDashboard() {
       try {
-        const [allStaff, staffPreview, activeStaff, pendingStaff, allDepartments] = await Promise.all([
+        const [allStaff, staffPreview, allDepartments] = await Promise.all([
           listStaff({ limit: 1, offset: 0 }),
           listStaff({ limit: 5, offset: 0 }),
-          listStaff({ limit: 1, offset: 0, employmentStatus: "active" }),
-          listStaff({ limit: 1, offset: 0, employmentStatus: "pending" }),
           listDepartments(),
         ]);
         const shownDepartments = allDepartments.slice(0, 5);
@@ -135,8 +148,6 @@ export function DashboardOverview({ canReadAudit }: { canReadAudit: boolean }) {
         if (!active) return;
         setData({
           totalStaff: allStaff.total,
-          activeStaff: activeStaff.total,
-          pendingStaff: pendingStaff.total,
           staffPreview: staffPreview.staff.slice(0, 5),
           departments: previews,
           departmentCount: allDepartments.length,
@@ -207,9 +218,7 @@ export function DashboardOverview({ canReadAudit }: { canReadAudit: boolean }) {
         ) : (
           <>
             <DashboardPeoplePreview staff={data?.staffPreview ?? []} hasMore={(data?.totalStaff ?? 0) > (data?.staffPreview.length ?? 0)} />
-            <StatCard label="Departments" value={data ? String(data.departmentCount) : "Unavailable"} href="/departments" />
-            <StatCard label="Active staff" value={data ? String(data.activeStaff) : "Unavailable"} href="/staff" />
-            <StatCard label="Pending staff" value={data ? String(data.pendingStaff) : "Unavailable"} href="/staff" />
+            <DashboardAnalytics />
           </>
         )}
       </section>
@@ -284,7 +293,14 @@ export function DashboardOverview({ canReadAudit }: { canReadAudit: boolean }) {
           {!canReadAudit ? (
             <EmptyState>Recent activity is available to accounts with the audit.read permission.</EmptyState>
           ) : recentEventsLoading ? (
-            <LoadingTable columns={5} rows={5} />
+            <ul className="dashboard-activity-list" role="status" aria-label="Loading recent activity" aria-busy="true">
+              {Array.from({ length: 5 }, (_, index) => (
+                <li className="dashboard-activity-skeleton" key={index}>
+                  <span className="skeleton w-3/4" />
+                  <span className="skeleton w-1/2" />
+                </li>
+              ))}
+            </ul>
           ) : recentEventsError ? (
             <div className="p-4">
               <ErrorBanner
@@ -299,93 +315,35 @@ export function DashboardOverview({ canReadAudit }: { canReadAudit: boolean }) {
           ) : recentEvents.length === 0 ? (
             <EmptyState>No recent activity yet. Administrative changes will appear here.</EmptyState>
           ) : (
-            <DataTable columns={["Actor", "Action", "Resource", "Time", ""]}>
-              {recentEvents.map((event) => (
-                <tr key={event.id}>
-                  <td>
-                    <span className="block max-w-48 truncate font-medium">
-                      {event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}
+            <ul className="dashboard-activity-list" aria-label="Recent activity">
+              {recentEvents.slice(0, 5).map((event) => (
+                <li key={event.id}>
+                  <Link className="dashboard-activity-link" href={`/audit-log/${encodeURIComponent(event.id)}`}>
+                    <span className="dashboard-activity-title">
+                      <span className="dashboard-activity-actor">
+                        {event.actor_name || (event.actor_type === "system" ? "System" : "—")}
+                      </span>
+                      <span aria-hidden="true"> · </span>
+                      <span>{activityLabel(event.action)}</span>
                     </span>
-                    <span className="text-xs text-[var(--muted)]">{activityLabel(event.actor_type)}</span>
-                  </td>
-                  <td><span className="break-words font-medium">{activityLabel(event.action)}</span></td>
-                  <td>
-                    <span className="block">{activityLabel(event.resource_type)}</span>
-                    <span className="block max-w-48 truncate text-xs text-[var(--muted)]">
-                      {event.resource_name || "Name unavailable"}
+                    <span className="dashboard-activity-subtitle">
+                      <span className="dashboard-activity-resource" title={event.resource_name || "—"}>
+                        {event.resource_name || "—"}
+                      </span>
+                      <time dateTime={event.occurred_at} suppressHydrationWarning>{formatRelativeActivityDate(event.occurred_at)}</time>
                     </span>
-                  </td>
-                  <td className="whitespace-nowrap">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Clock3 size={14} className="text-[var(--muted)]" aria-hidden="true" />
-                      <time dateTime={event.occurred_at}>{formatActivityDate(event.occurred_at)}</time>
-                    </span>
-                  </td>
-                  <td className="text-right">
-                    <button
-                      type="button"
-                      className="button-ghost"
-                      aria-label={`View details for ${activityLabel(event.action)} by ${event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}`}
-                      onClick={() => setSelectedRecentEvent(event)}
-                    >
-                      <Eye size={16} aria-hidden="true" />
-                      <span className="hidden sm:inline">Details</span>
-                    </button>
-                  </td>
-                </tr>
+                  </Link>
+                </li>
               ))}
-            </DataTable>
+            </ul>
           )}
+          {canReadAudit && !recentEventsLoading && !recentEventsError && recentEvents.length > 0 ? (
+            <div className="dashboard-activity-footer">
+              <Link href="/audit">View all</Link>
+            </div>
+          ) : null}
         </Panel>
       </div>
-
-      <Dialog
-        open={selectedRecentEvent !== null}
-        title="Audit event details"
-        onClose={() => setSelectedRecentEvent(null)}
-        actions={(
-          <button type="button" className="button-secondary" onClick={() => setSelectedRecentEvent(null)}>
-            Close
-          </button>
-        )}
-      >
-        {selectedRecentEvent ? (
-          <div className="space-y-5">
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <dt className="field-label">Action</dt>
-                <dd className="mt-1 break-words text-sm font-medium text-[var(--text)]">
-                  {activityLabel(selectedRecentEvent.action)}
-                </dd>
-              </div>
-              <div>
-                <dt className="field-label">Time</dt>
-                <dd className="mt-1 text-sm text-[var(--text)]">{formatActivityDate(selectedRecentEvent.occurred_at)}</dd>
-              </div>
-              <div>
-                <dt className="field-label">Actor</dt>
-                <dd className="mt-1 text-sm text-[var(--text)]">
-                  {selectedRecentEvent.actor_name || (selectedRecentEvent.actor_type === "system" ? "System" : "Name unavailable")}
-                  <span className="text-[var(--muted)]"> · {activityLabel(selectedRecentEvent.actor_type)}</span>
-                </dd>
-              </div>
-              <div>
-                <dt className="field-label">Resource</dt>
-                <dd className="mt-1 text-sm text-[var(--text)]">
-                  {selectedRecentEvent.resource_name || "Name unavailable"}
-                  <span className="text-[var(--muted)]"> · {activityLabel(selectedRecentEvent.resource_type)}</span>
-                </dd>
-              </div>
-            </dl>
-            <section aria-labelledby="dashboard-audit-details-title">
-              <h3 id="dashboard-audit-details-title" className="field-label">Change details</h3>
-              <pre className="mt-2 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--page-bg)] p-4 text-sm leading-5 text-[var(--text)]">
-                {JSON.stringify(selectedRecentEvent.details, null, 2) ?? "Not provided"}
-              </pre>
-            </section>
-          </div>
-        ) : null}
-      </Dialog>
 
       {data && data.departmentCount > departmentRows.length ? (
         <p className="dashboard-more-departments">

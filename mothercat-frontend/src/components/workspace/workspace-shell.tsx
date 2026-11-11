@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, ChevronDown, Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-
 import { formatAuthError, logout } from "@/lib/auth/client";
 import type { AuthSession } from "@/lib/auth/types";
 import { listStaff, type StaffMember } from "@/lib/organization/api";
@@ -25,6 +24,7 @@ const breadcrumbLabels: Record<string, string> = {
   departments: "Departments",
   roles: "Roles & permissions",
   audit: "Audit log",
+  "audit-log": "Audit event",
   notifications: "Notifications",
   opportunities: "Opportunities & SIWES",
   profile: "My profile",
@@ -213,8 +213,8 @@ export function WorkspaceShell({
 
   const segments = pathname.split("/").filter(Boolean);
   const pageLabel = segments[0] === "staff" && segments.length > 1
-    ? "Staff directory / Staff profile"
-    : segments.map((segment) => breadcrumbLabels[segment] ?? segment).join(" / ");
+    ? "Staff profile"
+    : segments.map((segment) => breadcrumbLabels[segment] ?? segment).join(" › ");
   const signOutButton = (
     <button
       type="button"
@@ -247,7 +247,7 @@ export function WorkspaceShell({
               <Link href="/dashboard" className="text-[var(--muted)] hover:text-[var(--text)]">Dashboard</Link>
               {pathname !== "/dashboard" ? (
                 <>
-                  <span className="mx-2 text-slate-300">/</span>
+                  <span className="mx-2 text-slate-300" aria-hidden="true">›</span>
                   <span aria-current="page" className="font-medium text-[var(--text)]">{pageLabel}</span>
                 </>
               ) : null}

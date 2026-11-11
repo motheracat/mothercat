@@ -18,7 +18,7 @@ export default function OpportunitiesPage() {
           </div>
           <div className="relative min-h-[220px] overflow-hidden rounded-lg border border-white shadow-[0_12px_30px_rgba(15,27,51,0.12)] sm:min-h-[300px]">
             <Image
-              src="/images/Blueprint%20Construction%20Skyline.png"
+              src="/images/blueprint-construction-skyline.png"
               alt="Mothercat engineering and construction project"
               fill
               priority

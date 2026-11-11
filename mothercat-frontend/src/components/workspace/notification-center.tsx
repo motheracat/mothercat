@@ -233,7 +233,7 @@ export function NotificationCenter() {
                   <time dateTime={notification.created_at}>{notificationTime(notification.created_at)}</time>
                 </div>
                 {notification.resource?.type === "task" ? (
-                  <Link href="/tasks" className="button-ghost notification-resource-link">View task</Link>
+                  <Link href={`/tasks?task=${encodeURIComponent(notification.resource.id)}`} className="button-ghost notification-resource-link">View task</Link>
                 ) : null}
                 {!notification.read_at ? (
                   <button type="button" className="notification-mark-read" aria-label={`Mark ${notification.title} as read`} onClick={() => void markRead(notification)}>

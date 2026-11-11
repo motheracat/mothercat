@@ -7,11 +7,14 @@ export type AuditEvent = {
   actor_type: string;
   actor_id: string;
   actor_name?: string;
+  actor_role?: string;
   action: string;
   resource_type: string;
   resource_id: string;
   resource_name?: string;
   occurred_at: string;
+  ip_address?: string;
+  user_agent?: string;
   details: unknown;
 };
 
@@ -101,11 +104,14 @@ function parseAuditEvent(value: unknown): AuditEvent {
     typeof value.actor_type !== "string" ||
     typeof value.actor_id !== "string" ||
     (value.actor_name !== undefined && typeof value.actor_name !== "string") ||
+    (value.actor_role !== undefined && typeof value.actor_role !== "string") ||
     typeof value.action !== "string" ||
     typeof value.resource_type !== "string" ||
     typeof value.resource_id !== "string" ||
     (value.resource_name !== undefined && typeof value.resource_name !== "string") ||
-    typeof value.occurred_at !== "string"
+    typeof value.occurred_at !== "string" ||
+    (value.ip_address !== undefined && typeof value.ip_address !== "string") ||
+    (value.user_agent !== undefined && typeof value.user_agent !== "string")
   ) {
     throw new AuditApiError("The audit service returned an invalid event.", 502, "invalid_response");
   }
@@ -114,11 +120,14 @@ function parseAuditEvent(value: unknown): AuditEvent {
     actor_type: value.actor_type,
     actor_id: value.actor_id,
     ...(typeof value.actor_name === "string" ? { actor_name: value.actor_name } : {}),
+    ...(typeof value.actor_role === "string" ? { actor_role: value.actor_role } : {}),
     action: value.action,
     resource_type: value.resource_type,
     resource_id: value.resource_id,
     ...(typeof value.resource_name === "string" ? { resource_name: value.resource_name } : {}),
     occurred_at: value.occurred_at,
+    ...(typeof value.ip_address === "string" ? { ip_address: value.ip_address } : {}),
+    ...(typeof value.user_agent === "string" ? { user_agent: value.user_agent } : {}),
     details: value.details,
   };
 }

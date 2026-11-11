@@ -1,10 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Eye,
   FilterX,
   RefreshCw,
   Search,
@@ -12,7 +12,6 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
-import { Dialog } from "@/components/workspace/dialog";
 import {
   DataTable,
   EmptyState,
@@ -23,7 +22,6 @@ import {
 } from "@/components/workspace/ui";
 import {
   formatAuditError,
-  getAuditEvent,
   listAuditEvents,
 } from "@/lib/audit/api";
 import type { AuditEvent, AuditEventFilter } from "@/lib/audit/api";
@@ -69,89 +67,6 @@ function displayLabel(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function AuditValue({ value }: { value: unknown }) {
-  if (value === null || value === undefined) {
-    return <span className="text-[var(--muted)]">Not provided</span>;
-  }
-  if (typeof value === "boolean") return <span>{value ? "Yes" : "No"}</span>;
-  if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-[var(--muted)]">None</span>;
-    return (
-      <ul className="list-inside list-disc space-y-1">
-        {value.map((item, index) => <li key={index}><AuditValue value={item} /></li>)}
-      </ul>
-    );
-  }
-  if (typeof value === "object") {
-    const entries = Object.entries(value);
-    if (entries.length === 0) return <span className="text-[var(--muted)]">None</span>;
-    return (
-      <dl className="grid gap-3 sm:grid-cols-2">
-        {entries.map(([key, item]) => (
-          <div key={key} className="min-w-0">
-            <dt className="text-xs font-medium text-[var(--muted)]">{displayLabel(key)}</dt>
-            <dd className="mt-1 break-words text-sm text-[var(--text)]"><AuditValue value={item} /></dd>
-          </div>
-        ))}
-      </dl>
-    );
-  }
-  return <span className="break-words">{String(value)}</span>;
-}
-
-function AuditEventDetails({
-  event,
-  loading,
-  error,
-  onRetry,
-}: {
-  event: AuditEvent | null;
-  loading: boolean;
-  error: string | null;
-  onRetry: () => void;
-}) {
-  if (loading) {
-    return <p role="status" aria-live="polite" className="text-sm text-[var(--muted)]">Loading event details…</p>;
-  }
-  if (error) return <ErrorBanner message={error} onRetry={onRetry} />;
-  if (!event) return null;
-
-  return (
-    <div className="space-y-5">
-      <dl className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <dt className="field-label">Action</dt>
-          <dd className="mt-1 break-words text-sm font-medium text-[var(--text)]">{displayLabel(event.action)}</dd>
-        </div>
-        <div>
-          <dt className="field-label">Time</dt>
-          <dd className="mt-1 text-sm text-[var(--text)]">{formatDate(event.occurred_at)}</dd>
-        </div>
-        <div>
-          <dt className="field-label">Actor</dt>
-          <dd className="mt-1 text-sm text-[var(--text)]">
-            {event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}
-            <span className="text-[var(--muted)]"> · {displayLabel(event.actor_type)}</span>
-          </dd>
-        </div>
-        <div>
-          <dt className="field-label">Resource</dt>
-          <dd className="mt-1 text-sm text-[var(--text)]">
-            {event.resource_name || "Name unavailable"}
-            <span className="text-[var(--muted)]"> · {displayLabel(event.resource_type)}</span>
-          </dd>
-        </div>
-      </dl>
-      <section aria-labelledby="audit-event-data-title">
-        <h3 id="audit-event-data-title" className="field-label">Change details</h3>
-        <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--page-bg)] p-4 text-sm leading-5 text-[var(--text)]">
-          <AuditValue value={event.details} />
-        </div>
-      </section>
-    </div>
-  );
-}
-
 export function AuditLog({
   canRead,
   developmentOpen = false,
@@ -167,12 +82,15 @@ export function AuditLog({
   const [loading, setLoading] = useState(canRead);
   const [listError, setListError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [detailRefreshKey, setDetailRefreshKey] = useState(0);
   const [filterError, setFilterError] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const update = () => setIsMobile(window.innerWidth < 768);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
 
   const loadEvents = useCallback(async (signal: AbortSignal) => {
     try {
@@ -207,24 +125,6 @@ export function AuditLog({
     void Promise.resolve().then(() => loadEvents(controller.signal));
     return () => controller.abort();
   }, [canRead, loadEvents, refreshKey]);
-
-  useEffect(() => {
-    if (!selectedEventId) return;
-    const controller = new AbortController();
-    void getAuditEvent(selectedEventId, controller.signal)
-      .then((event) => {
-        if (!controller.signal.aborted) setSelectedEvent(event);
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
-          setDetailError(formatAuditError(error, "Unable to load this audit event.", developmentOpen));
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setDetailLoading(false);
-      });
-    return () => controller.abort();
-  }, [developmentOpen, selectedEventId, detailRefreshKey]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -272,26 +172,6 @@ export function AuditLog({
     setLoading(true);
     setListError(null);
     setOffset(nextOffset);
-  }
-
-  function openDetails(eventId: string) {
-    setSelectedEvent(null);
-    setDetailLoading(true);
-    setDetailError(null);
-    setSelectedEventId(eventId);
-  }
-
-  function retryDetails() {
-    setSelectedEvent(null);
-    setDetailLoading(true);
-    setDetailError(null);
-    setDetailRefreshKey((key) => key + 1);
-  }
-
-  function closeDetails() {
-    setSelectedEventId(null);
-    setSelectedEvent(null);
-    setDetailError(null);
   }
 
   if (!canRead) {
@@ -431,9 +311,37 @@ export function AuditLog({
               ? "No audit events match these filters. Try broadening your search."
               : "No audit events are available yet."}
           </EmptyState>
+        ) : isMobile ? (
+          <ul className="audit-summary-list" role="list" aria-label="Recent audit events">
+            {events.map((event) => (
+              <li key={event.id}>
+                <Link
+                  className="audit-summary-link"
+                  href={`/audit-log/${encodeURIComponent(event.id)}`}
+                  aria-label={`View details for ${displayLabel(event.action)} by ${event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}`}
+                >
+                <div className="audit-summary-meta flex items-center justify-between gap-2">
+                  <div>
+                    <span className="block min-w-0 break-words font-medium">
+                      {event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}
+                    </span>
+                    <span className="text-xs text-[var(--muted)]">{displayLabel(event.actor_type)}</span>
+                  </div>
+                  <time dateTime={event.occurred_at} className="shrink-0 text-xs text-[var(--muted)]">
+                    {formatDate(event.occurred_at)}
+                  </time>
+                </div>
+                <span className="block break-words font-medium text-[var(--text)]">{displayLabel(event.action)}</span>
+                <span className="audit-summary-resource">
+                  {displayLabel(event.resource_type)} · {event.resource_name || "Name unavailable"}
+                </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         ) : (
           <>
-            <DataTable columns={["Actor", "Action", "Resource", "Time", ""]}>
+            <DataTable columns={["Actor", "Action", "Resource", "Time", ""]} className="audit-event-table">
               {events.map((event) => (
                 <tr key={event.id}>
                   <td>
@@ -456,15 +364,13 @@ export function AuditLog({
                     </span>
                   </td>
                   <td className="text-right">
-                    <button
-                      type="button"
+                    <Link
                       className="button-ghost"
+                      href={`/audit-log/${encodeURIComponent(event.id)}`}
                       aria-label={`View details for ${displayLabel(event.action)} by ${event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}`}
-                      onClick={() => openDetails(event.id)}
                     >
-                      <Eye size={16} aria-hidden="true" />
-                      <span className="hidden sm:inline">Details</span>
-                    </button>
+                      <span>Details</span>
+                    </Link>
                   </td>
                 </tr>
               ))}
@@ -497,24 +403,6 @@ export function AuditLog({
           </>
         )}
       </Panel>
-
-      <Dialog
-        open={selectedEventId !== null}
-        title="Audit event details"
-        onClose={closeDetails}
-        actions={(
-          <button type="button" className="button-secondary" onClick={closeDetails}>
-            Close
-          </button>
-        )}
-      >
-        <AuditEventDetails
-          event={selectedEvent}
-          loading={detailLoading}
-          error={detailError}
-          onRetry={retryDetails}
-        />
-      </Dialog>
     </div>
   );
 }

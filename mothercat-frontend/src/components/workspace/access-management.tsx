@@ -361,7 +361,7 @@ export function AccessManagement({
 
       <section className="access-control-hero" aria-label="Access control overview">
         <Image
-          src="/images/Blueprint%20Construction%20Skyline.png"
+          src="/images/blueprint-construction-skyline.png"
           alt=""
           fill
           priority
@@ -518,7 +518,7 @@ export function AccessManagement({
                               <Ellipsis size={20} aria-hidden="true" />
                             </button>
                             {menuUserId === person.user_id ? (
-                              <div className="access-account-menu" id={`account-menu-${person.user_id}`} role="menu">
+                              <div className="access-account-menu no-scrollbar" id={`account-menu-${person.user_id}`} role="menu">
                                 <button
                                   type="button"
                                   role="menuitem"

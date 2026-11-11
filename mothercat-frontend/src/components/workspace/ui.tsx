@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Children, cloneElement, isValidElement } from "react";
 import type { ReactNode } from "react";
 
 export function PageHeader({
@@ -162,26 +163,35 @@ export function Toolbar({ children }: { children: ReactNode }) {
 }
 
 export function TableFrame({ children }: { children: ReactNode }) {
-  return <div className="max-h-[min(60vh,640px)] overflow-auto">{children}</div>;
+  return <div className="data-table-frame">{children}</div>;
 }
 
 export function DataTable({
   columns,
   children,
   empty,
+  className = "",
 }: {
   columns: string[];
   children?: ReactNode;
   empty?: ReactNode;
+  className?: string;
 }) {
   return (
     <TableFrame>
-      <table className="data-table">
+      <table className={`data-table ${className}`.trim()}>
         <thead>
           <tr>{columns.map((column) => <th key={column} scope="col" className="h-10">{column}</th>)}</tr>
         </thead>
         <tbody>
-          {children ?? (
+          {children ? Children.map(children, (row) => {
+            if (!isValidElement<{ children?: ReactNode }>(row) || row.type !== "tr") return row;
+            const cells = Children.map(row.props.children, (cell, index) => {
+              if (!isValidElement<{ colSpan?: number; "data-label"?: string }>(cell) || cell.type !== "td" || cell.props.colSpan) return cell;
+              return cloneElement(cell, { "data-label": columns[index] || "Actions" });
+            });
+            return cloneElement(row, undefined, cells);
+          }) : (
             <tr>
               <td colSpan={columns.length} className="!h-auto">
                 {empty}

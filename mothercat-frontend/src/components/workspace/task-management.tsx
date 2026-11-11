@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowLeft, ClipboardList, MessageSquare, RefreshCw, Send, UserPlus } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ClipboardList, MessageSquare, RefreshCw, Send, UserPlus } from "lucide-react";
 
-import { Dialog } from "@/components/workspace/dialog";
 import { TaskAccordionSelect } from "@/components/workspace/task-accordion-select";
+import { DepartmentSelect } from "@/components/workspace/department-select";
+import { TaskDetailsModal } from "@/components/workspace/task-details-modal";
 import { EmptyState, ErrorBanner, PageHeader, StatusPill } from "@/components/workspace/ui";
 import {
   formatOrganizationError,
@@ -123,12 +125,12 @@ function TaskFields({
         {!task ? (
           <label className="workspace-field">
             <span className="field-label">Department</span>
-            <TaskAccordionSelect
+            <DepartmentSelect
               label="Department"
               name="department_id"
               value={departmentId}
+              departments={departments}
               placeholder="Select a department"
-              options={departments.map((department) => ({ value: department.id, label: department.name }))}
               onChange={setDepartmentId}
               disabled={busy}
             />
@@ -145,6 +147,10 @@ function TaskFields({
 }
 
 export function TaskManagement({ currentUserId, canCreate, canAssign, canReview, canCancel, canUpdateStatus }: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const selectedTaskId = searchParams.get("task");
   const managerView = canCreate || canAssign || canReview || canCancel || canUpdateStatus;
   const [tasks, setTasks] = useState<Task[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -159,6 +165,7 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskEtag, setTaskEtag] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailReloadKey, setDetailReloadKey] = useState(0);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -266,35 +273,60 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
     return () => controller.abort();
   }, [selectedTask?.id, reloadKey]);
 
-  async function openTask(task: Task) {
-    setSelectedTask(task);
-    setTaskEtag(null);
-    setDetailError(null);
+  useEffect(() => {
+    if (!selectedTaskId) return;
+
+    const controller = new AbortController();
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return;
+      setTaskEtag(null);
+      setDetailError(null);
+      setEditing(false);
+      setDetailLoading(true);
+      setFeedback("");
+      setSubmissionSummary("");
+      setEvidenceLinks("");
+      setAssignees([]);
+      setAssigneeLoading(canAssign);
+      setCommentsLoading(true);
+      setAssigneeId("");
+      void getTask(selectedTaskId, controller.signal)
+        .then((current) => {
+          if (controller.signal.aborted) return;
+          setSelectedTask(current.task);
+          setTaskEtag(current.etag);
+          setAssigneeId(current.task.assignee_account_id ?? "");
+          setAdminStatusDraft(current.task.admin_status);
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) setDetailError(formatTaskError(error, "Unable to load this task."));
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setDetailLoading(false);
+        });
+    });
+    return () => controller.abort();
+  }, [selectedTaskId, detailReloadKey, canAssign]);
+
+  function openTask(task: Task) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("task", task.id);
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+
+  function closeTaskDetails() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("task");
+    const query = params.toString();
+    router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
     setEditing(false);
-    setDetailLoading(true);
-    setFeedback("");
-    setSubmissionSummary("");
-    setEvidenceLinks("");
-    setAssignees([]);
-    setAssigneeLoading(canAssign);
-    setCommentsLoading(true);
-    setAssigneeId(task.assignee_account_id ?? "");
-    setAdminStatusDraft(task.admin_status);
-    try {
-      const current = await getTask(task.id);
-      setSelectedTask(current.task);
-      setTaskEtag(current.etag);
-      setAssigneeId(current.task.assignee_account_id ?? "");
-      setAdminStatusDraft(current.task.admin_status);
-    } catch (error) {
-      setDetailError(formatTaskError(error, "Unable to load this task."));
-    } finally {
-      setDetailLoading(false);
-    }
   }
 
   async function refreshSelectedTask() {
-    if (!selectedTask) return;
+    if (!selectedTask) {
+      if (selectedTaskId) setDetailReloadKey((key) => key + 1);
+      return;
+    }
     setDetailLoading(true);
     setDetailError(null);
     try {
@@ -447,17 +479,14 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
 
   return (
     <div className="task-management-page">
-
-      {!selectedTask ? (
-        <>
-          <PageHeader
-            title="Tasks"
-            description="Create, assign, and track work."
-            actions={canCreate ? <Link href="/tasks/create" className="button-primary">Create task</Link> : null}
-          />
-          {loadError ? <ErrorBanner message={loadError} onRetry={reload} /> : null}
-          {departmentsError ? <ErrorBanner message={departmentsError} onRetry={reload} /> : null}
-          <section className="surface-card task-list-card" aria-label="Task list" aria-busy={loading}>
+      <PageHeader
+        title="Tasks"
+        description="."
+        actions={canCreate ? <Link href="/tasks/create" className="button-primary">Create task</Link> : null}
+      />
+      {loadError ? <ErrorBanner message={loadError} onRetry={reload} /> : null}
+      {departmentsError ? <ErrorBanner message={departmentsError} onRetry={reload} /> : null}
+      <section className="surface-card task-list-card" aria-label="Task list" aria-busy={loading}>
         <div className="task-list-toolbar">
           <label className="workspace-field">
             <span className="field-label">Status</span>
@@ -486,7 +515,7 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
           <ul className="task-list">
             {tasks.map((task) => (
               <li key={task.id}>
-                <button type="button" className="task-list-item" onClick={() => void openTask(task)}>
+                <button type="button" className="task-list-item" onClick={() => openTask(task)}>
                   <span className="task-list-icon"><ClipboardList size={19} aria-hidden="true" /></span>
                   <span className="task-list-copy">
                     <strong>{task.title}</strong>
@@ -513,41 +542,42 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
           </div>
         </div>
       </section>
-        </>
-      ) : (
-        <>
-          <header className="task-detail-page-header">
-            <button type="button" className="button-secondary" disabled={saving} onClick={() => { setSelectedTask(null); setEditing(false); }}>
-              <ArrowLeft size={16} aria-hidden="true" /> Back to tasks
-            </button>
-            <div className="task-detail-page-title">
-              <h1>{selectedTask.title}</h1>
-              <p>Task details</p>
-            </div>
-            <div className="task-detail-page-actions">
-              {detailError ? <button type="button" className="button-secondary" disabled={detailLoading || saving} onClick={() => void refreshSelectedTask()}>Reload task</button> : null}
-              {canEditDraft && !editing ? <button type="button" className="button-secondary" onClick={() => setEditing(true)}>Edit draft</button> : null}
-              {editing ? (
-                <>
-                  <button type="button" className="button-secondary" disabled={saving} onClick={() => setEditing(false)}>Cancel edit</button>
-                  <button type="submit" form="task-fields-form" className="button-primary" disabled={saving}>{saving ? "Saving…" : "Save task"}</button>
-                </>
-              ) : null}
-            </div>
-          </header>
-          {detailLoading ? <p role="status">Loading task…</p> : null}
-          {detailError ? <p role="alert" className="field-error">{detailError}</p> : null}
-          {!detailLoading ? (
-          <section className="surface-card task-detail-page-card">
-            <div className="task-detail">
+
+      <TaskDetailsModal
+        open={Boolean(selectedTaskId)}
+        title={selectedTask?.title ?? "Task details"}
+        headerMeta={selectedTask ? (
+          <>
+            <StatusPill label={statusLabels[selectedTask.admin_status]} tone="info" />
+            <StatusPill label={`${selectedTask.priority} priority`} tone="info" />
+          </>
+        ) : null}
+        onClose={closeTaskDetails}
+        footer={
+          <>
+            {detailError ? <button type="button" className="button-secondary" disabled={detailLoading || saving} onClick={() => void refreshSelectedTask()}>Reload task</button> : null}
+            {canEditDraft && !editing ? <button type="button" className="button-secondary" onClick={() => setEditing(true)}>Edit draft</button> : null}
+            {editing ? (
+              <>
+                <button type="button" className="button-secondary" disabled={saving} onClick={() => setEditing(false)}>Cancel edit</button>
+                <button type="submit" form="task-fields-form" className="button-primary" disabled={saving}>{saving ? "Saving…" : "Save task"}</button>
+              </>
+            ) : null}
+          </>
+        }
+      >
+        {detailLoading || (Boolean(selectedTaskId) && selectedTask?.id !== selectedTaskId && !detailError) ? (
+          <div className="task-details-skeleton" role="status" aria-busy="true" aria-label="Loading task details">
+            <span /><span /><span /><span />
+          </div>
+        ) : null}
+        {detailError ? <p role="alert" className="field-error">{detailError}</p> : null}
+        {selectedTask && selectedTask.id === selectedTaskId && !detailLoading ? (
+          <div className="task-detail">
             {editing ? (
               <TaskFields task={selectedTask} departments={departments} onSubmit={(values) => void saveTask(values)} submitLabel="Save task" busy={saving} />
             ) : (
               <>
-                <div className="task-detail-badges">
-                  <StatusPill label={statusLabels[selectedTask.admin_status]} tone="info" />
-                  <StatusPill label={`${selectedTask.priority} priority`} tone="info" />
-                </div>
                 {selectedTask.admin_status_updated_by ? (
                   <p className="task-status-updater">
                     Updated by admin{selectedTask.admin_status_updated_at ? ` · ${formatDate(selectedTask.admin_status_updated_at)}` : ""}
@@ -660,11 +690,9 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
                 <button type="submit" className="button-secondary" disabled={saving || !commentDraft.trim()}><Send size={15} aria-hidden="true" /> Comment</button>
               </form>
             </section>
-            </div>
-          </section>
+          </div>
         ) : null}
-        </>
-      )}
+      </TaskDetailsModal>
     </div>
   );
 }

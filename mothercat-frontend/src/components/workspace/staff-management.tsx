@@ -21,6 +21,7 @@ import {
 } from "@/lib/organization/api";
 import { EmptyState, PageHeader } from "@/components/workspace/ui";
 import { GlassSelect } from "@/components/workspace/glass-select";
+import { DepartmentSelect } from "@/components/workspace/department-select";
 
 const pageSize = 25;
 
@@ -147,14 +148,12 @@ function StaffForm({
           </label>
           <label className="block text-sm font-medium sm:col-span-2">
             Department
-            <GlassSelect
+            <DepartmentSelect
               label="Department"
               value={departmentId}
+              departments={departments}
               placeholder="No department"
-              options={[
-                { value: "", label: "No department" },
-                ...departments.map((department) => ({ value: department.id, label: department.name })),
-              ]}
+              emptyOptionLabel="No department"
               onChange={setDepartmentId}
             />
           </label>
@@ -427,14 +426,12 @@ export function StaffManagement({ permissions }: { permissions: Permissions }) {
           <button type="submit" className="staff-search-submit">Search</button>
         </div>
         <label className="w-full sm:w-48">
-          <GlassSelect
+          <DepartmentSelect
             label="Filter by department"
             value={departmentId}
+            departments={departments}
             placeholder="All departments"
-            options={[
-              { value: "", label: "All departments" },
-              ...departments.map((department) => ({ value: department.id, label: department.name })),
-            ]}
+            emptyOptionLabel="All departments"
             onChange={(value) => { setLoading(true); setLoadError(null); setDepartmentId(value); setOffset(0); }}
           />
         </label>
@@ -489,7 +486,7 @@ export function StaffManagement({ permissions }: { permissions: Permissions }) {
                   <StaffAvatar staff={member} />
                   <span className="staff-directory-identity">
                     <span className="staff-directory-name">{member.full_name}</span>
-                    <span className="staff-directory-meta">
+                    <span className="staff-directory-meta" title={member.work_email ?? undefined}>
                       ID:{member.staff_id}{member.work_email ? ` · ${member.work_email}` : ""}
                     </span>
                     <span className="sr-only">{member.employment_status === "active" ? "Active" : "Not active"}</span>
@@ -552,7 +549,7 @@ export function StaffManagement({ permissions }: { permissions: Permissions }) {
                 return (
                   <div
                     ref={menuRef}
-                    className="staff-actions-menu"
+                    className="staff-actions-menu no-scrollbar"
                     role="dialog"
                     aria-modal="true"
                     aria-label={`Actions for ${member.full_name}`}

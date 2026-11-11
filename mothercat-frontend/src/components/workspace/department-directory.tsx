@@ -155,7 +155,7 @@ export function DepartmentDirectory() {
               <LoadingTable columns={canManage ? 3 : 2} />
             ) : departments.length > 0 ? (
               <>
-                <div className="department-directory-table max-h-[min(60vh,640px)] overflow-auto">
+                <div className="department-directory-table">
                   <table className="data-table">
                     <caption className="sr-only">Departments and descriptions</caption>
                     <thead><tr>

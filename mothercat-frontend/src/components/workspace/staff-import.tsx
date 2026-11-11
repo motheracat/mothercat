@@ -171,7 +171,7 @@ export function StaffImport({ canImport }: { canImport: boolean }) {
               <div className="p-5">
                 <p className="text-sm text-[var(--muted)]">Retrieve a previously returned import by its UUID.</p>
                 <form className="mt-4 flex flex-wrap items-end gap-3" onSubmit={(event) => void lookup(event)}>
-                  <label className="min-w-[220px] flex-1 text-sm font-medium">
+                  <label className="min-w-0 flex-[1_1_220px] text-sm font-medium">
                     Import ID
                     <input className="form-input mt-1" value={importId} onChange={(event) => setImportId(event.target.value)} />
                   </label>

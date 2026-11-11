@@ -161,7 +161,7 @@ describe("AccessManagement", () => {
 
     expect(container.querySelector(".access-control-hero-image")).toHaveAttribute(
       "data-image-source",
-      "/images/Blueprint%20Construction%20Skyline.png",
+      "/images/blueprint-construction-skyline.png",
     );
   });
 
