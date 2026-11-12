@@ -25,11 +25,12 @@ import (
 	identitydomain "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/domain"
 	identityhttp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/http"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/mail"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/applicantidentity"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/notifications"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/opportunities"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/persistence"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/systemmonitor"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/tasks"
-	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/applicantidentity"
 	organizationmonolith "github.com/mothercat-enterprise/mothercat/backend/services/organization/monolith"
 )
 
@@ -112,6 +113,10 @@ func run(logger *slog.Logger) error {
 			BootstrapToken:         os.Getenv("IDENTITY_BOOTSTRAP_TOKEN"),
 		},
 	)
+	systemMonitorEngine := systemmonitor.NewEngine()
+	systemMonitorHandler := systemmonitor.NewHandler(
+		db, systemMonitorEngine, systemMonitorAuthenticator{service: authService}, logger,
+	)
 	authenticator := localAuthenticator{service: authService}
 	var profileUploaders []organizationmonolith.ProfileImageUploader
 	if profileUploader != nil {
@@ -136,7 +141,8 @@ func run(logger *slog.Logger) error {
 	applicantIdentityHandler := applicantidentity.NewHandler(db, mailer, logger)
 	applicationRetentionJob := opportunities.NewRetentionJob(db, logger)
 	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler,
-		taskHandler, notificationHandler, opportunitiesHandler, applicantIdentityHandler)
+		taskHandler, notificationHandler, opportunitiesHandler, applicantIdentityHandler,
+		systemMonitorRouterOptions{handler: systemMonitorHandler, engine: systemMonitorEngine})
 	server := &http.Server{
 		Addr: address, Handler: handler, ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
@@ -264,7 +270,13 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notifications, opportunities, applicants http.Handler) http.Handler {
+type systemMonitorRouterOptions struct {
+	handler http.Handler
+	engine  *systemmonitor.Engine
+}
+
+func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notifications, opportunities, applicants http.Handler,
+	systemMonitorOptions ...systemMonitorRouterOptions) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -312,8 +324,14 @@ func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notific
 	if applicants != nil {
 		mux.Handle("/api/v1/auth/applicant/", applicants)
 	}
+	if len(systemMonitorOptions) > 0 && systemMonitorOptions[0].handler != nil {
+		mux.Handle("/api/v1/system-monitor/", systemMonitorOptions[0].handler)
+	}
 	mux.Handle("/api/v1/", identity)
 	mux.Handle("/internal/v1/", identity)
+	if len(systemMonitorOptions) > 0 && systemMonitorOptions[0].engine != nil {
+		return systemMonitorOptions[0].engine.Middleware(mux)
+	}
 	return mux
 }
 
@@ -345,6 +363,21 @@ func (a auditAuthenticator) Authenticate(ctx context.Context, token string) (aud
 		return audithttp.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
 	}
 	return audithttp.Principal{Permissions: account.Permissions}, nil
+}
+
+type systemMonitorAuthenticator struct {
+	service *identityapp.Service
+}
+
+func (a systemMonitorAuthenticator) Authenticate(ctx context.Context, token string) (string, error) {
+	account, err := a.service.ResolveSession(ctx, token)
+	if err != nil {
+		if errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			return "", systemmonitor.ErrUnauthenticated
+		}
+		return "", fmt.Errorf("authentication unavailable: %w", err)
+	}
+	return account.ID, nil
 }
 
 type taskAuthenticator struct {
