@@ -131,7 +131,7 @@ func TestParseListQuery(t *testing.T) {
 }
 
 func TestAnonymousWriteRequiresSameOrigin(t *testing.T) {
-	handler := NewHandler(nil, nil, nil, nil)
+	handler := NewHandler(nil, nil, nil)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/opportunities", strings.NewReader("{}"))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()

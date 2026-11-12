@@ -103,18 +103,11 @@ permission-protected opportunity management, public SIWES application
 submission, private reviewer-only document downloads, and the associated
 permission keys. SIWES application metadata and document bytes are purged after
 365 days by an in-process daily retention job. Public uploads are bounded to a
-10 MiB document and require a healthy ClamAV scanner; upload requests fail
-closed if malware scanning is unavailable. The monolith Docker image starts
-ClamAV and the API in the same container, binds ClamAV to loopback only, and
-sets `SIWES_CLAMAV_ADDR=127.0.0.1:3310`. It downloads virus definitions before
-starting the API and exits if the scanner or definition updater stops. This
-avoids needing a separate private Render service, but increases startup time
-and memory use; confirm the selected instance can run both processes and test
-deploy/restart behavior before accepting real uploads. For other deployments,
-set `SIWES_CLAMAV_ADDR` to a private scanner address (`host:port`) reachable
-only by the backend. Never expose ClamAV's TCP port publicly. Configure
-additional edge-level rate limits for production, because the API's
-five-per-hour submission limit is process-local.
+10 MiB document. The backend validates file extension, content signature, and
+document structure before storing uploaded bytes privately in PostgreSQL;
+malware scanning is not performed. Configure additional edge-level rate limits
+for production, because the API's five-per-hour submission limit is
+process-local.
 The [Frontend API Guide](docs/FRONTEND-API-GUIDE.md) documents the routes,
 permission requirements, status transitions, upload constraints, and proxy
 requirements.

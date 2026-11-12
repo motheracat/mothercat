@@ -53,14 +53,9 @@ type Authenticator interface {
 	Authenticate(context.Context, string) (Principal, error)
 }
 
-type MalwareScanner interface {
-	Scan(context.Context, []byte) error
-}
-
 type Handler struct {
 	db            *sql.DB
 	authenticator Authenticator
-	scanner       MalwareScanner
 	logger        *slog.Logger
 	submissions   *submissionLimiter
 }
@@ -140,12 +135,12 @@ type reviewerPatch struct {
 	ReviewerNote *string `json:"reviewer_note"`
 }
 
-func NewHandler(db *sql.DB, authenticator Authenticator, scanner MalwareScanner, logger *slog.Logger) http.Handler {
+func NewHandler(db *sql.DB, authenticator Authenticator, logger *slog.Logger) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	h := &Handler{
-		db: db, authenticator: authenticator, scanner: scanner,
+		db: db, authenticator: authenticator,
 		logger: logger, submissions: newSubmissionLimiter(),
 	}
 	mux := http.NewServeMux()
@@ -584,10 +579,6 @@ func (h *Handler) submitApplication(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusServiceUnavailable, "service_unavailable")
 		return
 	}
-	if h.scanner == nil {
-		h.writeError(w, http.StatusServiceUnavailable, "document_scanning_unavailable")
-		return
-	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "multipart/form-data" {
 		h.writeError(w, http.StatusUnsupportedMediaType, "content_type_must_be_multipart_form_data")
@@ -636,16 +627,6 @@ func (h *Handler) submitApplication(w http.ResponseWriter, r *http.Request) {
 	documentType, valid := validateDocument(fileHeader.Filename, document)
 	if !valid {
 		h.writeError(w, http.StatusBadRequest, "unsupported_document")
-		return
-	}
-	if err := h.scanner.Scan(r.Context(), document); err != nil {
-		var scanErr *MalwareDetectedError
-		if errors.As(err, &scanErr) {
-			h.writeError(w, http.StatusUnprocessableEntity, "unsafe_document")
-			return
-		}
-		h.logger.ErrorContext(r.Context(), "scan SIWES application document", "request_id", requestID(r.Context()), "error", err)
-		h.writeError(w, http.StatusServiceUnavailable, "document_scanning_unavailable")
 		return
 	}
 	if err := h.checkPublicOrigin(r); err != nil {

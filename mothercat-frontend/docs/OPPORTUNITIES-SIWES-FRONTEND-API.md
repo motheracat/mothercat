@@ -185,10 +185,8 @@ The frontend and backend support editing and the following status actions:
 - The UI allows either a CV or SIWES introduction letter as the supporting
   document.
 - Reject applications for unpublished/closed/expired placements.
-- The backend validates file contents, scans uploads with ClamAV, stores
-  documents privately in PostgreSQL, and applies 365-day retention. Configure
-  `SIWES_CLAMAV_ADDR`; scanner unavailability fails closed with a service
-  error rather than accepting an unscanned file.
+- The backend validates file contents and size, stores documents privately in
+  PostgreSQL, and applies 365-day retention. Malware scanning is not performed.
 - Success: `201 Created`, `{ "application": { ...metadata... } }`. Never return
   the uploaded file contents in JSON.
 

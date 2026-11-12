@@ -127,15 +127,8 @@ func run(logger *slog.Logger) error {
 	taskReminderJob := tasks.NewReminderJob(db, logger)
 	notificationHandler := notifications.NewHandler(db, notificationAuthenticator{service: authService}, logger)
 	notificationDispatcher := notifications.NewDispatcher(db, logger)
-	var documentScanner opportunities.MalwareScanner
-	if address := strings.TrimSpace(os.Getenv("SIWES_CLAMAV_ADDR")); address != "" {
-		documentScanner, err = opportunities.NewClamAVScanner(address)
-		if err != nil {
-			return fmt.Errorf("configure SIWES malware scanner: %w", err)
-		}
-	}
 	opportunitiesHandler := opportunities.NewHandler(
-		db, opportunityAuthenticator{service: authService}, documentScanner, logger,
+		db, opportunityAuthenticator{service: authService}, logger,
 	)
 	applicantIdentityHandler := applicantidentity.NewHandler(db, mailer, logger)
 	applicationRetentionJob := opportunities.NewRetentionJob(db, logger)
