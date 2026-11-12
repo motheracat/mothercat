@@ -31,12 +31,15 @@ import is complete and verified.
 
 The task workflow is an internal module in the same API server, not a separately
 deployed service. Migration `007_tasks` creates the `tasks` schema and grants the
-task permissions to the built-in Admin and SuperAdmin roles.
+initial task permissions to the built-in Admin and SuperAdmin roles. Migration
+`013_admin_task_status` adds administrative task status fields and the
+`tasks.update_status` permission.
 
 Authenticated task routes:
 
 - `GET|POST /api/v1/tasks`
 - `GET|PATCH /api/v1/tasks/{taskId}`
+- `PATCH /api/v1/tasks/{taskId}/admin-status`
 - `GET /api/v1/me/tasks`
 - `POST /api/v1/tasks/{taskId}/assign`
 - `POST /api/v1/tasks/{taskId}/start`
@@ -155,17 +158,18 @@ control.
 
 The database seeds two administrator roles:
 
-- `Admin` is granted the current 17 permissions in the backend catalogue:
+- `Admin` is granted the current 18 permissions in the backend catalogue:
   staff read/create/update/deactivate/import, department management, role
   read/management, user-role assignment, audit read, system settings
-  management, and the six task permissions.
+  management, and task permissions including administrative task status.
 - `SuperAdmin` retains the same current permissions. The initial bootstrap
   account is assigned this role; Admin and SuperAdmin remain distinct system
   roles even though their current permission sets match.
 
 Migration `006_admin_full_permissions` grants the Milestone 1 permission set
-to Admin on existing and fresh databases; migration `007_tasks` grants the six
-task permissions to both administrator roles. Future permissions are not
+to Admin on existing and fresh databases; migration `007_tasks` grants the
+initial task permissions, and migration `013_admin_task_status` grants
+`tasks.update_status`, to both administrator roles. Future permissions are not
 automatically granted.
 
 An authenticated `SuperAdmin` can provision an eligible pending staff profile

@@ -97,12 +97,14 @@ func TestGlobalTaskReaderCanCreateOutsideDepartmentMembership(t *testing.T) {
 	mock.ExpectQuery(`INSERT INTO tasks\.tasks`).
 		WithArgs("Task", "", "normal", testAccountID, departmentID, nil).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "title", "description", "priority", "status", "created_by", "department_id",
+			"id", "title", "description", "priority", "status", "admin_status",
+			"admin_status_updated_by", "admin_status_updated_at", "created_by", "department_id",
 			"assignee_account_id", "due_at", "version", "created_at", "updated_at",
 			"submission_id", "submission_number", "submission_summary", "links",
 			"submitter_account_id", "submitted_at",
-		}).AddRow(taskID, "Task", "", "normal", "draft", testAccountID, departmentID,
-			nil, nil, 1, createdAt, createdAt, nil, nil, nil, nil, nil, nil))
+		}).AddRow(taskID, "Task", "", "normal", "draft", "open", nil, nil,
+			testAccountID, departmentID, nil, nil, 1, createdAt, createdAt,
+			nil, nil, nil, nil, nil, nil))
 	mock.ExpectExec(`INSERT INTO tasks\.task_status_history`).
 		WithArgs(taskID, testAccountID, nil, "draft", "").
 		WillReturnResult(sqlmock.NewResult(0, 1))

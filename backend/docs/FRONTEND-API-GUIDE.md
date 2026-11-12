@@ -138,6 +138,9 @@ Task responses use this shape:
   "description": "",
   "priority": "normal",
   "status": "draft",
+  "admin_status": "open",
+  "admin_status_updated_by": "account-uuid",
+  "admin_status_updated_at": "2026-11-07T12:00:00Z",
   "created_by": "account-uuid",
   "department_id": "department-uuid",
   "assignee_account_id": "account-uuid",
@@ -170,6 +173,7 @@ there is no value. A single-task response is wrapped as `{"task": ...}`.
 Supported list query parameters:
 
 - `status`: one of the task statuses above
+- `admin_status`: `open`, `scheduled`, `in_progress`, or `closed`
 - `assignee`: assignee account UUID
 - `department`: department UUID
 - `due_from`, `due_to`: RFC 3339 timestamps
@@ -187,6 +191,22 @@ The list response is:
 
 Unknown or repeated query parameters are rejected. The API only returns tasks
 the current account is permitted to see.
+
+### Administrative task status
+
+`PATCH /api/v1/tasks/{taskId}/admin-status` requires `tasks.update_status` and
+the current `ETag` in `If-Match`. It updates the separate administrative
+status without changing the task workflow status:
+
+```json
+{ "status": "scheduled" }
+```
+
+Allowed values are `open`, `scheduled`, `in_progress`, and `closed`. The
+response contains the updated task and a new `ETag`; a stale version returns
+`412 version_conflict`. The status, updating account, and update time are
+included in task responses. Migration `013_admin_task_status` must be applied
+before deploying code that reads or updates these fields.
 
 ### Create a task
 
