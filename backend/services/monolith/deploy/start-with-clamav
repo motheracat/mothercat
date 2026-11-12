@@ -1,0 +1,81 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -gt 0 ] && [ "$1" != "/mothercat-api" ]; then
+	if [ "$1" = "/setup-postgres" ]; then
+		exec runuser -u nobody -- "$@"
+	fi
+	exec "$@"
+fi
+
+api_pid=
+clamd_pid=
+freshclam_pid=
+
+stop_children() {
+	trap - INT TERM EXIT
+	for pid in "$api_pid" "$clamd_pid" "$freshclam_pid"; do
+		if [ -n "$pid" ]; then
+			kill "$pid" 2>/dev/null || true
+		fi
+	done
+	for pid in "$api_pid" "$clamd_pid" "$freshclam_pid"; do
+		if [ -n "$pid" ]; then
+			wait "$pid" 2>/dev/null || true
+		fi
+	done
+}
+
+trap stop_children INT TERM EXIT
+
+echo "Updating ClamAV definitions before starting the API"
+runuser -u clamav -- freshclam --config-file=/etc/clamav/freshclam.conf --stdout
+
+runuser -u clamav -- freshclam \
+	--config-file=/etc/clamav/freshclam.conf \
+	--daemon \
+	--foreground \
+	--stdout &
+freshclam_pid=$!
+
+runuser -u clamav -- clamd --config-file=/etc/clamav/clamd.conf &
+clamd_pid=$!
+
+scanner_ready=
+attempt=0
+while [ "$attempt" -lt 120 ]; do
+	if ! kill -0 "$clamd_pid" 2>/dev/null; then
+		echo "ClamAV exited before becoming ready" >&2
+		exit 1
+	fi
+	response="$(printf 'zPING\000' | nc -w 2 127.0.0.1 3310 2>/dev/null || true)"
+	case "$response" in
+		*PONG*)
+			scanner_ready=yes
+			break
+			;;
+	esac
+	attempt=$((attempt + 1))
+	sleep 1
+done
+
+if [ -z "$scanner_ready" ]; then
+	echo "ClamAV did not become ready; refusing to start the API" >&2
+	exit 1
+fi
+
+if [ "$#" -eq 0 ]; then
+	set -- /mothercat-api
+fi
+runuser -u nobody -- "$@" &
+api_pid=$!
+echo "ClamAV is ready; API process started"
+
+while kill -0 "$api_pid" 2>/dev/null \
+	&& kill -0 "$clamd_pid" 2>/dev/null \
+	&& kill -0 "$freshclam_pid" 2>/dev/null; do
+	sleep 2
+done
+
+echo "API or ClamAV process exited; stopping the container" >&2
+exit 1
