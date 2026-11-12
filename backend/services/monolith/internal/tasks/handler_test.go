@@ -233,39 +233,39 @@ func TestTaskInputValidationPrecedesDatabaseAccess(t *testing.T) {
 				test.method, test.path, response.Code, http.StatusBadRequest, response.Body)
 		}
 	}
+}
 
-	func TestTaskCreationRequiresAssigneeAndAssignmentPermission(t *testing.T) {
-		const departmentID = "00000000-0000-4000-8000-000000000002"
-		const assigneeID = "00000000-0000-4000-8000-000000000004"
-		tests := []struct {
-			name        string
-			permissions []string
-			body        string
-			wantStatus  int
-		}{
-			{
-				name:        "assignee required",
-				permissions: []string{"tasks.create", "tasks.assign"},
-				body:        `{"title":"Task","department_id":"` + departmentID + `"}`,
-				wantStatus:  http.StatusBadRequest,
-			},
-			{
-				name:        "assignment permission required",
-				permissions: []string{"tasks.create"},
-				body:        `{"title":"Task","department_id":"` + departmentID + `","assignee_account_id":"` + assigneeID + `"}`,
-				wantStatus:  http.StatusForbidden,
-			},
-		}
-		for _, test := range tests {
-			t.Run(test.name, func(t *testing.T) {
-				auth := authenticatorStub{principal: Principal{ID: testAccountID, Permissions: test.permissions}}
-				response := httptest.NewRecorder()
-				taskTestHandler(auth).ServeHTTP(response, taskRequest(http.MethodPost, "/api/v1/tasks", test.body, true))
-				if response.Code != test.wantStatus {
-					t.Fatalf("status=%d, want %d: %s", response.Code, test.wantStatus, response.Body)
-				}
-			})
-		}
+func TestTaskCreationRequiresAssigneeAndAssignmentPermission(t *testing.T) {
+	const departmentID = "00000000-0000-4000-8000-000000000002"
+	const assigneeID = "00000000-0000-4000-8000-000000000004"
+	tests := []struct {
+		name        string
+		permissions []string
+		body        string
+		wantStatus  int
+	}{
+		{
+			name:        "assignee required",
+			permissions: []string{"tasks.create", "tasks.assign"},
+			body:        `{"title":"Task","department_id":"` + departmentID + `"}`,
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "assignment permission required",
+			permissions: []string{"tasks.create"},
+			body:        `{"title":"Task","department_id":"` + departmentID + `","assignee_account_id":"` + assigneeID + `"}`,
+			wantStatus:  http.StatusForbidden,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			auth := authenticatorStub{principal: Principal{ID: testAccountID, Permissions: test.permissions}}
+			response := httptest.NewRecorder()
+			taskTestHandler(auth).ServeHTTP(response, taskRequest(http.MethodPost, "/api/v1/tasks", test.body, true))
+			if response.Code != test.wantStatus {
+				t.Fatalf("status=%d, want %d: %s", response.Code, test.wantStatus, response.Body)
+			}
+		})
 	}
 }
 

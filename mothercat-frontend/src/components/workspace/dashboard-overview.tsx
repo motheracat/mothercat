@@ -35,13 +35,13 @@ function initials(name: string) {
 
 function formatActivityDate(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unknown time";
+  if (Number.isNaN(date.getTime())) return `Invalid timestamp · ${value || "empty value"}`;
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function formatRelativeActivityDate(value: string) {
   const timestamp = new Date(value).getTime();
-  if (Number.isNaN(timestamp)) return "Unknown time";
+  if (Number.isNaN(timestamp)) return `Invalid timestamp · ${value || "empty value"}`;
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
   if (elapsedSeconds < 60) return "Just now";
   if (elapsedSeconds < 3600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
@@ -51,7 +51,17 @@ function formatRelativeActivityDate(value: string) {
 }
 
 function activityLabel(value: string) {
-  return value.replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return value
+    ? value.replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
+    : "Action unavailable";
+}
+
+function actorLabel(event: AuditEvent) {
+  return event.actor_name || (event.actor_type === "system" ? "System" : event.actor_id || "Actor ID unavailable");
+}
+
+function resourceLabel(event: AuditEvent) {
+  return event.resource_name || event.resource_id || "Resource ID unavailable";
 }
 
 function DashboardAvatarFace({ member }: { member: StaffMember }) {
@@ -321,14 +331,14 @@ export function DashboardOverview({ canReadAudit }: { canReadAudit: boolean }) {
                   <Link className="dashboard-activity-link" href={`/audit-log/${encodeURIComponent(event.id)}`}>
                     <span className="dashboard-activity-title">
                       <span className="dashboard-activity-actor">
-                        {event.actor_name || (event.actor_type === "system" ? "System" : "—")}
+                        {actorLabel(event)}
                       </span>
                       <span aria-hidden="true"> · </span>
                       <span>{activityLabel(event.action)}</span>
                     </span>
                     <span className="dashboard-activity-subtitle">
-                      <span className="dashboard-activity-resource" title={event.resource_name || "—"}>
-                        {event.resource_name || "—"}
+                      <span className="dashboard-activity-resource" title={resourceLabel(event)}>
+                        {resourceLabel(event)}
                       </span>
                       <time dateTime={event.occurred_at} suppressHydrationWarning>{formatRelativeActivityDate(event.occurred_at)}</time>
                     </span>

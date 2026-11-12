@@ -297,12 +297,12 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createRequest struct {
-	Title              string     `json:"title"`
-	Description        string     `json:"description"`
-	Priority           string     `json:"priority"`
-	DepartmentID       string     `json:"department_id"`
-	AssigneeAccountID  string     `json:"assignee_account_id"`
-	DueAt              *time.Time `json:"due_at"`
+	Title             string     `json:"title"`
+	Description       string     `json:"description"`
+	Priority          string     `json:"priority"`
+	DepartmentID      string     `json:"department_id"`
+	AssigneeAccountID string     `json:"assignee_account_id"`
+	DueAt             *time.Time `json:"due_at"`
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {

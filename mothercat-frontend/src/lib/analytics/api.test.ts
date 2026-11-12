@@ -116,6 +116,26 @@ describe("live dashboard analytics", () => {
       offset: 0,
     });
 
+    it("uses recorded actor and department identifiers when activity cannot be mapped to a department", async () => {
+      sourceMocks.listAuditEvents.mockResolvedValue({
+        events: [{
+          ...auditEvent("unmapped", "task.created", dayOffset(1)),
+          actor_id: "account-outside-directory",
+        }],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      });
+
+      const result = await getCompanyActivity("7d");
+
+      expect(result.departments).toEqual([
+        expect.objectContaining({ name: "Account ID account-outside-directory", activities: 1 }),
+        expect.objectContaining({ name: "Construction", activities: 0 }),
+      ]);
+      expect(result.departments.some(({ name }) => /unassigned|unknown/i.test(name))).toBe(false);
+    });
+
     const result = await getCompanyActivity("7d");
 
     expect(result.totalActivities).toBe(1);
@@ -148,7 +168,7 @@ describe("live dashboard analytics", () => {
     expect(result.contributionWeeks).toHaveLength(12);
   });
 
-  it("counts the current pending queue and preserves unassigned items", async () => {
+  it("counts the current pending queue and identifies records without a department", async () => {
     const currentTasks = [
       task("review", "submitted", dayOffset(2)),
       task("overdue", "in_progress", dayOffset(4), dayOffset(2)),
@@ -170,6 +190,6 @@ describe("live dashboard analytics", () => {
     expect(result.totalPending).toBe(result.aging.reduce((sum, item) => sum + item.count, 0));
     expect(result.totalPending).toBe(result.departments.reduce((sum, item) => sum + item.count, 0));
     expect(result.topItems.some((item) => item.title === "Test User" && item.ageDays === null)).toBe(true);
-    expect(result.departments.find((item) => item.name === "Unassigned / unknown")?.count).toBe(1);
+    expect(result.departments.find((item) => item.name === "No department · 10001")?.count).toBe(1);
   });
 });

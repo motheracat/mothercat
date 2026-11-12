@@ -210,7 +210,7 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
                     },
                     ...eligibleStaff.map((member) => ({
                       value: member.account_id ?? "",
-                      label: `${member.full_name} · ${member.job_title || `ID ${member.staff_id}`}`,
+                      label: `${member.full_name || `Staff ID ${member.staff_id}`} · ${member.job_title || `ID ${member.staff_id}`}`,
                     })),
                   ]}
                   onChange={setAssigneeAccountId}

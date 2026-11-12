@@ -81,6 +81,21 @@ describe("AuditLog", () => {
     expect(screen.queryByText(event.id)).not.toBeInTheDocument();
   });
 
+  it("shows stored actor and resource IDs when display names are absent", async () => {
+    auditMocks.listAuditEvents.mockResolvedValue({
+      events: [{ ...event, actor_name: "", resource_name: "" }],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    });
+
+    render(<AuditLog canRead />);
+
+    expect(await screen.findByText("account-1")).toBeInTheDocument();
+    expect(screen.getByText("staff-1")).toBeInTheDocument();
+    expect(screen.queryByText("Name unavailable")).not.toBeInTheDocument();
+  });
+
   it("applies exact filters and resets to the first result page", async () => {
     auditMocks.listAuditEvents
       .mockResolvedValueOnce({ events: [event], total: 40, limit: 25, offset: 0 })

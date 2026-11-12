@@ -384,6 +384,7 @@ export function formatTaskError(error: unknown, fallback: string): string {
   if (error.code === "if_match_required" || error.status === 428) return "The task version is unavailable. Reload the task, then try again.";
   if (error.code === "unauthorized" || error.status === 401) return "Your session expired. Sign in again.";
   if (error.code === "permission_denied" || error.status === 403) return "You don’t have permission to perform this task action.";
+  if (error.code === "invalid_assignee") return "Choose an active staff member in the selected department.";
   if (error.code === "task_conflict" || error.status === 409) return "This task has changed state. Refresh it before trying again.";
   if (error.code === "version_conflict" || error.status === 412) return "This task was updated by someone else. Reload it to get the latest version.";
   if (error.status === 503) return "The task service is temporarily unavailable. Try again later.";
