@@ -483,6 +483,23 @@ func (s *Store) ReplaceUserRoles(
 		return nil, err
 	}
 	keys := uniqueSorted(roleKeys)
+	if contains(keys, "super_admin") {
+		var isActiveSuperAdmin bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM access.user_roles ur
+				JOIN identity.user_accounts a ON a.id = ur.user_id
+				WHERE ur.user_id = $1::uuid AND ur.role_key = 'super_admin'
+				  AND a.is_active AND a.suspended_at IS NULL
+			)
+		`, actorID).Scan(&isActiveSuperAdmin); err != nil {
+			return nil, fmt.Errorf("check SuperAdmin role assignment authority: %w", err)
+		}
+		if !isActiveSuperAdmin {
+			return nil, domain.ErrPermissionDenied
+		}
+	}
 	for _, key := range keys {
 		var exists bool
 		if err := tx.QueryRowContext(ctx, `

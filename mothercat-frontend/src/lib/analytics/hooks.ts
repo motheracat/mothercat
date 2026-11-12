@@ -10,13 +10,12 @@ import type {
   PendingAnalytics,
 } from "@/lib/analytics/types";
 
-type AnalyticsResponse = { range: AnalyticsRange };
-type QueryState<T> = { range: AnalyticsRange; data: T | null; error: string | null } | null;
+type QueryState<T> = { key: string; data: T | null; error: string | null } | null;
 type AnalyticsResult<T> = { data: T | null; isLoading: boolean; error: string | null; retry: () => void };
 
-function useAnalyticsQuery<T extends AnalyticsResponse>(
-  range: AnalyticsRange,
-  load: (selectedRange: AnalyticsRange) => Promise<T>,
+function useAnalyticsQuery<T>(
+  key: string,
+  load: () => Promise<T>,
 ): AnalyticsResult<T> {
   const [queryState, setQueryState] = useState<QueryState<T>>(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -24,49 +23,51 @@ function useAnalyticsQuery<T extends AnalyticsResponse>(
 
   useEffect(() => {
     let active = true;
-    void load(range)
+    void load()
       .then((data) => {
         if (active) {
-          setQueryState({ range, data, error: null });
+          setQueryState({ key, data, error: null });
           setIsRetrying(false);
         }
       })
       .catch((error: unknown) => {
         if (active) {
-          setQueryState((current) => ({
-            range,
-            data: current?.data ?? null,
+          setQueryState({
+            key,
+            data: null,
             error: error instanceof Error && error.message ? error.message : "Unable to load analytics.",
-          }));
+          });
           setIsRetrying(false);
         }
       });
     return () => {
       active = false;
     };
-  }, [range, retryKey, load]);
+  }, [key, retryKey, load]);
 
   const retry = useCallback(() => {
     setIsRetrying(true);
     setRetryKey((current) => current + 1);
   }, []);
-  const hasCurrentRange = queryState?.range === range;
+  const hasCurrentKey = queryState?.key === key;
   return {
-    data: queryState?.data ?? null,
-    isLoading: !hasCurrentRange || isRetrying,
-    error: hasCurrentRange ? queryState.error : null,
+    data: hasCurrentKey ? queryState?.data ?? null : null,
+    isLoading: !hasCurrentKey || isRetrying,
+    error: hasCurrentKey ? queryState?.error ?? null : null,
     retry,
   };
 }
 
 export function useCompanyActivity(range: AnalyticsRange) {
-  return useAnalyticsQuery<CompanyActivityAnalytics>(range, getCompanyActivity);
+  const load = useCallback(() => getCompanyActivity(range), [range]);
+  return useAnalyticsQuery<CompanyActivityAnalytics>(range, load);
 }
 
 export function useMyActivity(range: AnalyticsRange) {
-  return useAnalyticsQuery<MyActivityAnalytics>(range, getMyActivity);
+  const load = useCallback(() => getMyActivity(range), [range]);
+  return useAnalyticsQuery<MyActivityAnalytics>(range, load);
 }
 
-export function usePending(range: AnalyticsRange) {
-  return useAnalyticsQuery<PendingAnalytics>(range, getPending);
+export function usePending() {
+  return useAnalyticsQuery<PendingAnalytics>("current", getPending);
 }

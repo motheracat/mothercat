@@ -25,9 +25,9 @@ The current frontend:
 
 Student submission is SIWES-only. Applicants may provide a CV or SIWES
 introduction letter in PDF, DOC, or DOCX format, up to 10 MiB. Job candidates
-continue through the Contact route. Application status emails are not currently
-sent. No applicant personal information or document is written to browser
-storage.
+continue through the Contact route. Applicants receive email when their
+application is submitted and whenever its review status changes. No applicant
+personal information or document is written to browser storage.
 
 ## Existing frontend routes and permissions
 
@@ -64,7 +64,7 @@ frontend is not an authorization boundary. The permission keys are declared in
 
 ## Opportunity object
 
-Proposed public/admin representation:
+Public/admin representation:
 
 ```json
 {
@@ -83,7 +83,7 @@ Proposed public/admin representation:
 }
 ```
 
-Suggested enums:
+Allowed values:
 
 - `type`: `job`, `siwes`
 - `status`: `draft`, `published`, `closed`
@@ -122,9 +122,6 @@ sections.
   authorization. Public reads should only allow published/open records; admin
   reads may include drafts.
 
-If preferred, one list endpoint can support admin and public views with
-server-side permission-based filtering; confirm its permission behavior.
-
 ### Create opportunity
 
 `POST /api/v1/opportunities` requires `opportunities.publish`.
@@ -142,8 +139,8 @@ server-side permission-based filtering; confirm its permission behavior.
 }
 ```
 
-- Match the frontend field constraints unless backend owners choose different
-  limits: title 160 characters, location 120, work mode 80, summary 400,
+- The frontend field constraints are: title 160 characters, location 120,
+  work mode 80, summary 400,
   description 8,000, requirements 4,000. Deadline is a date (`YYYY-MM-DD`).
 - Creation should default to `draft`; the frontend currently creates drafts
   before publication.
@@ -151,8 +148,7 @@ server-side permission-based filtering; confirm its permission behavior.
 
 ### Edit, publish, unpublish, close
 
-The frontend currently supports publish/unpublish and will need edit support
-when the backend is connected.
+The frontend and backend support editing and the following status actions:
 
 - `PATCH /api/v1/opportunities/{opportunityId}` requires
   `opportunities.publish`; accept one or more editable opportunity fields.
@@ -160,14 +156,11 @@ when the backend is connected.
   `opportunities.publish`.
 - `POST /api/v1/opportunities/{opportunityId}/unpublish` requires
   `opportunities.publish`; returns it to `draft`.
-- Optionally `POST /api/v1/opportunities/{opportunityId}/close` moves a
+- `POST /api/v1/opportunities/{opportunityId}/close` moves a
   published opportunity to `closed`.
 - Return `200 OK`, `{ "opportunity": { ...updated record... } }`.
 - Server must reject publication when required fields are missing or the
   deadline has passed.
-
-Alternatively, status changes may use `PATCH` with a validated `status`; agree
-on a single contract and enforce allowed transitions server-side.
 
 ## SIWES application endpoints
 
@@ -175,8 +168,7 @@ on a single contract and enforce allowed transitions server-side.
 
 `POST /api/v1/opportunities/{opportunityId}/siwes-applications`
 
-- Public/student flow; no staff session is required unless backend product
-  policy changes.
+- Public/student flow; no staff session is required.
 - Accept `multipart/form-data` with these text fields and one file field named
   `document`:
   - `full_name` (required; current UI max 160)
@@ -187,15 +179,18 @@ on a single contract and enforce allowed transitions server-side.
   - `matric_number` (required; current UI max 80)
   - `message` (optional; current UI max 2,000)
   - `document` (required; exactly one file)
-- Current UI accepts PDF, DOC, or DOCX up to 10 MiB. Backend must verify
-  actual file content and size; do not rely only on browser MIME type or
+- The UI accepts PDF, DOC, or DOCX up to 10 MiB. The backend verifies actual
+  file content and size; it does not rely only on browser MIME type or
   filename.
-- SIWES introduction letters are specifically requested by the existing UI;
-  the current upload label also allows a CV. Confirm whether both should be
-  accepted and whether additional student documents are required.
+- The UI allows either a CV or SIWES introduction letter as the supporting
+  document.
 - Reject applications for unpublished/closed/expired placements.
-- Add server-side abuse controls (rate limiting, spam protection, safe
-  filenames, malware scanning, private storage, and retention policy).
+- The backend validates file contents and size, stores documents privately in
+  PostgreSQL, and applies 365-day retention. Malware scanning is not performed.
+- The applicant receives an email when the application is submitted and on
+  every status change (`under_review`, `shortlisted`, `accepted`, or `rejected`).
+  Email delivery is queued transactionally and retried if the provider is
+  temporarily unavailable; configure the backend's Brevo email settings.
 - Success: `201 Created`, `{ "application": { ...metadata... } }`. Never return
   the uploaded file contents in JSON.
 
@@ -231,6 +226,10 @@ opportunity-list response.
 
 ### Review SIWES applications
 
+Reviewers can use the “View document” action to open the protected document
+inside an in-app modal. The browser previews supported formats in place; a
+download link is available in the modal if the browser cannot preview the file.
+
 - `GET /api/v1/siwes-applications?opportunity_id={uuid}&status=submitted&limit=25&offset=0`
   requires `it_applications.review`.
 - `GET /api/v1/siwes-applications/{applicationId}` requires
@@ -241,8 +240,7 @@ opportunity-list response.
   `rejected`, with transitions enforced by the backend. Applicant status emails
   are not currently sent.
 - `GET /api/v1/siwes-applications/{applicationId}/document` requires
-  `it_applications.review` and returns the document as a protected download
-  (or a short-lived signed URL created only after authorization).
+  `it_applications.review` and returns the document as a protected download.
 - Reviewer list responses should include `document` metadata and pagination,
   but must not expose a permanent public document URL.
 

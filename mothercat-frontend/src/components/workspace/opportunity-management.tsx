@@ -8,8 +8,8 @@ import { DataTable, EmptyState, PageHeader, Panel } from "@/components/workspace
 import {
   changeOpportunityStatus,
   createOpportunity,
-  downloadSiwesDocument,
   formatOpportunityError,
+  getSiwesDocument,
   getSiwesApplication,
   listManagedOpportunities,
   listSiwesApplications,
@@ -115,18 +115,6 @@ function toOpportunityInput(form: OpportunityForm): OpportunityInput {
   };
 }
 
-function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const link = window.document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  link.style.display = "none";
-  window.document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-}
-
 export function OpportunityManagement({
   canPublish,
   canReviewApplications,
@@ -159,6 +147,11 @@ export function OpportunityManagement({
   const [reviewStatus, setReviewStatus] = useState<SiwesApplicationStatus>("submitted");
   const [reviewerNote, setReviewerNote] = useState("");
   const [documentLoading, setDocumentLoading] = useState(false);
+  const [documentPreview, setDocumentPreview] = useState<{
+    url: string;
+    fileName: string;
+    contentType: string;
+  } | null>(null);
   const [applicationReloadKey, setApplicationReloadKey] = useState(0);
 
   const opportunityById = useMemo(
@@ -169,6 +162,11 @@ export function OpportunityManagement({
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
   const reviewChanged = Boolean(selectedApplication) &&
     (reviewStatus !== selectedApplication?.status || reviewerNote !== selectedApplication?.reviewer_note);
+
+  useEffect(() => {
+    if (!documentPreview) return;
+    return () => URL.revokeObjectURL(documentPreview.url);
+  }, [documentPreview]);
 
   useEffect(() => {
     let active = true;
@@ -374,15 +372,19 @@ export function OpportunityManagement({
     }
   }
 
-  async function downloadDocument() {
+  async function viewDocument() {
     if (!selectedApplication) return;
     setDocumentLoading(true);
     setApplicationError(null);
     try {
-      const result = await downloadSiwesDocument(selectedApplication.id);
-      downloadBlob(result.blob, result.fileName);
+      const result = await getSiwesDocument(selectedApplication.id);
+      setDocumentPreview({
+        url: URL.createObjectURL(result.blob),
+        fileName: result.fileName,
+        contentType: result.contentType,
+      });
     } catch (error) {
-      setApplicationError(formatOpportunityError(error, "Unable to download the document."));
+      setApplicationError(formatOpportunityError(error, "Unable to view the document."));
     } finally {
       setDocumentLoading(false);
     }
@@ -636,13 +638,14 @@ export function OpportunityManagement({
         onClose={() => {
           setSelectedApplicationId(null);
           setSelectedApplication(null);
+          setDocumentPreview(null);
         }}
         actions={(
           <>
             <button type="button" className="button-secondary" disabled={saving || documentLoading} onClick={() => setSelectedApplicationId(null)}>Close</button>
             {selectedApplication?.document.download_available ? (
-              <button type="button" className="button-secondary" disabled={documentLoading || applicationLoading} onClick={() => void downloadDocument()}>
-                {documentLoading ? "Preparing download…" : "Download document"}
+              <button type="button" className="button-secondary" disabled={documentLoading || applicationLoading} onClick={() => void viewDocument()}>
+                {documentLoading ? "Loading document…" : "View document"}
               </button>
             ) : null}
             <button type="button" className="button-primary" disabled={saving || applicationLoading || !selectedApplication || !reviewChanged} onClick={() => void saveReview()}>
@@ -688,6 +691,27 @@ export function OpportunityManagement({
               <span className="field-label">Reviewer note (optional)</span>
               <textarea className="form-input form-textarea" rows={3} maxLength={2000} value={reviewerNote} onChange={(event) => setReviewerNote(event.target.value)} disabled={saving} />
             </label>
+          </div>
+        ) : null}
+      </Dialog>
+      <Dialog
+        open={Boolean(documentPreview)}
+        title={documentPreview?.fileName ?? "Application document"}
+        onClose={() => setDocumentPreview(null)}
+      >
+        {documentPreview ? (
+          <div className="grid gap-3">
+            <iframe
+              className="h-[65vh] min-h-80 w-full rounded border border-slate-200 bg-white"
+              src={documentPreview.url}
+              title={`Preview of ${documentPreview.fileName}`}
+            />
+            <p className="text-sm text-[var(--muted)]">
+              Preview format: {documentPreview.contentType}. If your browser cannot display it,{" "}
+              <a className="font-medium text-[var(--accent)] underline" href={documentPreview.url} download={documentPreview.fileName}>
+                download the document
+              </a>.
+            </p>
           </div>
         ) : null}
       </Dialog>

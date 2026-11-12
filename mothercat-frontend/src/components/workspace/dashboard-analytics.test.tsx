@@ -2,7 +2,36 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DashboardAnalytics } from "@/components/workspace/dashboard-analytics";
-import { getCompanyActivity, getMyActivity, getPending } from "@/lib/analytics/api";
+
+vi.mock("@/lib/analytics/api", () => ({
+  getCompanyActivity: vi.fn(async (range: "7d" | "30d" | "90d") => ({
+    range,
+    totalActivities: 1,
+    changePercent: 0,
+    timeline: [{ date: "2026-11-12", label: "Nov 12", departments: [{ name: "Construction", value: 1 }] }],
+    departments: [{ name: "Construction", activities: 1, tasksCompleted: 0, activeStaff: 1, trend: "steady" }],
+    activityTypes: [{ name: "Updated", count: 1 }],
+    heatmap: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => ({ day, hours: Array(8).fill(0) })),
+  })),
+  getMyActivity: vi.fn(async (range: "7d" | "30d" | "90d") => ({
+    range,
+    activityScore: 0,
+    scoreLabel: "No activity yet",
+    changePercent: 0,
+    scoreFactors: [],
+    dailyTrend: [],
+    taskBreakdown: [],
+    contributionWeeks: [],
+    achievements: [],
+  })),
+  getPending: vi.fn(async () => ({
+    totalPending: 0,
+    byType: [],
+    aging: [],
+    departments: [],
+    topItems: [],
+  })),
+}));
 
 beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
@@ -27,37 +56,9 @@ afterEach(() => {
 });
 
 describe("dashboard analytics", () => {
-  it("returns deterministic mock responses for each supported range", async () => {
-    const responses = await Promise.all((["7d", "30d", "90d"] as const).map(async (range) => ({
-      company: await getCompanyActivity(range),
-      personal: await getMyActivity(range),
-      pending: await getPending(range),
-    })));
-
-    for (const { company, personal, pending } of responses) {
-      expect(company.departments.reduce((sum, item) => sum + item.activities, 0)).toBe(company.totalActivities);
-      expect(company.timeline.reduce(
-        (sum, point) => sum + point.departments.reduce((pointSum, item) => pointSum + item.value, 0),
-        0,
-      )).toBe(company.totalActivities);
-      expect(company.activityTypes.reduce((sum, item) => sum + item.count, 0)).toBe(company.totalActivities);
-      expect(personal.dailyTrend.reduce((sum, item) => sum + item.value, 0)).toBe(
-        personal.scoreFactors.find((item) => item.name === "Activities performed")?.value,
-      );
-      expect(personal.contributionWeeks).toHaveLength(12);
-      expect(pending.totalPending).toBe(pending.byType.reduce((sum, item) => sum + item.count, 0));
-      expect(pending.totalPending).toBe(pending.aging.reduce((sum, item) => sum + item.count, 0));
-      expect(pending.totalPending).toBe(pending.departments.reduce((sum, item) => sum + item.count, 0));
-    }
-
-    expect(responses[1].company.departments.map((item) => item.name)).toContain("Civil Engineering");
-    expect(responses[0].company.totalActivities).not.toBe(responses[1].company.totalActivities);
-  });
-
   it("opens analytics in the glass modal, switches ranges, and restores card focus", async () => {
     render(<DashboardAnalytics />);
     const card = await screen.findByRole("button", { name: /Department activity/ });
-    expect(screen.queryByText("Demo data")).not.toBeInTheDocument();
     const focusSpy = vi.spyOn(card, "focus");
     fireEvent.click(card);
 

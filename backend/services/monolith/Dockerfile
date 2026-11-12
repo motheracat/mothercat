@@ -18,12 +18,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 		-o /out/setup-postgres \
 		./services/monolith/cmd/setup-postgres
 
-FROM scratch
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+FROM debian:bookworm-slim
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/mothercat-api /mothercat-api
 COPY --from=build /out/setup-postgres /setup-postgres
 
-USER 65532:65532
+USER nobody
 EXPOSE 8080
 STOPSIGNAL SIGTERM
 CMD ["/mothercat-api"]

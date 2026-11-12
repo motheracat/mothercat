@@ -53,14 +53,14 @@ type Authenticator interface {
 	Authenticate(context.Context, string) (Principal, error)
 }
 
-type MalwareScanner interface {
-	Scan(context.Context, []byte) error
+type ApplicationStatusMailer interface {
+	SendApplicationStatus(context.Context, string, string, string, string) error
 }
 
 type Handler struct {
 	db            *sql.DB
 	authenticator Authenticator
-	scanner       MalwareScanner
+	mailer        ApplicationStatusMailer
 	logger        *slog.Logger
 	submissions   *submissionLimiter
 }
@@ -140,12 +140,16 @@ type reviewerPatch struct {
 	ReviewerNote *string `json:"reviewer_note"`
 }
 
-func NewHandler(db *sql.DB, authenticator Authenticator, scanner MalwareScanner, logger *slog.Logger) http.Handler {
+func NewHandler(db *sql.DB, authenticator Authenticator, logger *slog.Logger, mailers ...ApplicationStatusMailer) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	var mailer ApplicationStatusMailer
+	if len(mailers) > 0 {
+		mailer = mailers[0]
+	}
 	h := &Handler{
-		db: db, authenticator: authenticator, scanner: scanner,
+		db: db, authenticator: authenticator, mailer: mailer,
 		logger: logger, submissions: newSubmissionLimiter(),
 	}
 	mux := http.NewServeMux()
@@ -584,10 +588,6 @@ func (h *Handler) submitApplication(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusServiceUnavailable, "service_unavailable")
 		return
 	}
-	if h.scanner == nil {
-		h.writeError(w, http.StatusServiceUnavailable, "document_scanning_unavailable")
-		return
-	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "multipart/form-data" {
 		h.writeError(w, http.StatusUnsupportedMediaType, "content_type_must_be_multipart_form_data")
@@ -638,16 +638,6 @@ func (h *Handler) submitApplication(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, "unsupported_document")
 		return
 	}
-	if err := h.scanner.Scan(r.Context(), document); err != nil {
-		var scanErr *MalwareDetectedError
-		if errors.As(err, &scanErr) {
-			h.writeError(w, http.StatusUnprocessableEntity, "unsafe_document")
-			return
-		}
-		h.logger.ErrorContext(r.Context(), "scan SIWES application document", "request_id", requestID(r.Context()), "error", err)
-		h.writeError(w, http.StatusServiceUnavailable, "document_scanning_unavailable")
-		return
-	}
 	if err := h.checkPublicOrigin(r); err != nil {
 		h.writeError(w, http.StatusForbidden, "origin_not_allowed")
 		return
@@ -693,9 +683,17 @@ func (h *Handler) submitApplication(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r.Context(), "audit SIWES application", err)
 		return
 	}
+	if err := enqueueApplicationEmail(r.Context(), tx, item.ID, item.Status); err != nil {
+		h.fail(w, r.Context(), "queue SIWES application email", err)
+		return
+	}
 	if err := tx.Commit(); err != nil {
 		h.fail(w, r.Context(), "commit SIWES application", err)
 		return
+	}
+	if h.mailer == nil {
+		h.logger.WarnContext(r.Context(), "SIWES applicant email queued but delivery is not configured",
+			"request_id", requestID(r.Context()), "application_id", item.ID)
 	}
 	h.writeJSON(w, http.StatusCreated, map[string]any{"application": item})
 }
@@ -859,9 +857,19 @@ func (h *Handler) patchApplication(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, ctx, "audit SIWES review", err)
 		return
 	}
+	if patch.Status != nil {
+		if err := enqueueApplicationEmail(ctx, tx, item.ID, item.Status); err != nil {
+			h.fail(w, ctx, "queue SIWES review email", err)
+			return
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		h.fail(w, ctx, "commit SIWES review", err)
 		return
+	}
+	if patch.Status != nil && h.mailer == nil {
+		h.logger.WarnContext(ctx, "SIWES applicant email queued but delivery is not configured",
+			"request_id", requestID(ctx), "application_id", item.ID, "status", item.Status)
 	}
 	h.writeJSON(w, http.StatusOK, map[string]any{"application": item})
 }
@@ -894,7 +902,7 @@ func (h *Handler) downloadDocument(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, ctx, "read SIWES application document", err)
 		return
 	}
-	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": name})
+	disposition := mime.FormatMediaType("inline", map[string]string{"filename": name})
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", disposition)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))

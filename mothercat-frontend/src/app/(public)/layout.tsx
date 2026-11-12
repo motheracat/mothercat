@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowRight, BriefcaseBusiness, Building2, House, Info, Layers } from "lucide-react";
+import { ArrowRight, BriefcaseBusiness, Building2, House, Info, Layers, Newspaper } from "lucide-react";
 import { siteContent } from "@/content/site";
 
 const logoSrc = "/Mothercat%20Logo%20Variations%20Sheet%20(Edited%202).png";
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/", label: "Home" },
   { href: "/services", label: "Services" },
   { href: "/projects", label: "Projects" },
+  { href: "/news", label: "News" },
   { href: "/opportunities", label: "Opportunities" },
   { href: "/about", label: "About" },
 ];
@@ -18,8 +19,9 @@ const mobileNavItems = [
   { ...navItems[0], icon: House },
   { ...navItems[1], icon: Building2 },
   { ...navItems[2], icon: Layers },
-  { ...navItems[3], icon: BriefcaseBusiness },
-  { ...navItems[4], icon: Info },
+  { ...navItems[3], icon: Newspaper },
+  { ...navItems[4], icon: BriefcaseBusiness },
+  { ...navItems[5], icon: Info },
 ];
 
 const footerLink =
@@ -92,7 +94,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
         aria-label="Mobile navigation"
         className="public-mobile-navigation fixed inset-x-0 bottom-0 z-50 border-t px-1 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] md:hidden"
       >
-        <ul className="mx-auto grid max-w-lg grid-cols-5">
+        <ul className="mx-auto grid max-w-lg grid-cols-6">
           {mobileNavItems.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
 
@@ -136,6 +138,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
             <ul className="space-y-1 text-sm">
               <li><Link className={`${footerLink} inline-block py-1.5`} href="/about">About</Link></li>
               <li><Link className={`${footerLink} inline-block py-1.5`} href="/projects">Projects</Link></li>
+              <li><Link className={`${footerLink} inline-block py-1.5`} href="/news">News</Link></li>
               <li><Link className={`${footerLink} inline-block py-1.5`} href="/opportunities">Opportunities</Link></li>
               <li><Link className={`${footerLink} inline-block py-1.5`} href="/contact">Contact</Link></li>
             </ul>

@@ -25,11 +25,12 @@ import (
 	identitydomain "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/domain"
 	identityhttp "github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/http"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/internal/mail"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/applicantidentity"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/notifications"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/opportunities"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/persistence"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/systemmonitor"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/tasks"
-	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/applicantidentity"
 	organizationmonolith "github.com/mothercat-enterprise/mothercat/backend/services/organization/monolith"
 )
 
@@ -88,6 +89,7 @@ func run(logger *slog.Logger) error {
 	audit := auditstore.NewRecorder(db)
 	authorizationProvider := localAuthorizationProvider{store: access}
 	var mailer identityapp.Mailer
+	var siwesEmailMailer opportunities.ApplicationStatusMailer
 	brevoConfigured := os.Getenv("BREVO_API_KEY") != "" ||
 		os.Getenv("BREVO_FROM_EMAIL") != "" ||
 		os.Getenv("BREVO_FROM_NAME") != "" ||
@@ -102,6 +104,7 @@ func run(logger *slog.Logger) error {
 			return fmt.Errorf("configure email delivery: %w", err)
 		}
 		mailer = sender
+		siwesEmailMailer = sender
 	}
 	authService := identityapp.NewService(identityRepository, authorizationProvider, mailer, logger)
 	identityHandler := identityhttp.NewAuthHandler(
@@ -109,6 +112,11 @@ func run(logger *slog.Logger) error {
 			OnboardingServiceToken: os.Getenv("IDENTITY_ONBOARDING_TOKEN"),
 			BootstrapToken:         os.Getenv("IDENTITY_BOOTSTRAP_TOKEN"),
 		},
+	)
+	systemMonitorEngine := systemmonitor.NewEngine()
+	systemMonitorEngine.SetControlStore(db, logger)
+	systemMonitorHandler := systemmonitor.NewHandler(
+		db, systemMonitorEngine, systemMonitorAuthenticator{service: authService}, logger,
 	)
 	authenticator := localAuthenticator{service: authService}
 	var profileUploaders []organizationmonolith.ProfileImageUploader
@@ -127,20 +135,15 @@ func run(logger *slog.Logger) error {
 	taskReminderJob := tasks.NewReminderJob(db, logger)
 	notificationHandler := notifications.NewHandler(db, notificationAuthenticator{service: authService}, logger)
 	notificationDispatcher := notifications.NewDispatcher(db, logger)
-	var documentScanner opportunities.MalwareScanner
-	if address := strings.TrimSpace(os.Getenv("SIWES_CLAMAV_ADDR")); address != "" {
-		documentScanner, err = opportunities.NewClamAVScanner(address)
-		if err != nil {
-			return fmt.Errorf("configure SIWES malware scanner: %w", err)
-		}
-	}
+	applicationEmailDispatcher := opportunities.NewApplicationEmailDispatcher(db, siwesEmailMailer, logger)
 	opportunitiesHandler := opportunities.NewHandler(
-		db, opportunityAuthenticator{service: authService}, documentScanner, logger,
+		db, opportunityAuthenticator{service: authService}, logger, siwesEmailMailer,
 	)
 	applicantIdentityHandler := applicantidentity.NewHandler(db, mailer, logger)
 	applicationRetentionJob := opportunities.NewRetentionJob(db, logger)
 	handler := newRouter(db, identityHandler, organizationHandler, accessHandler, auditHandler,
-		taskHandler, notificationHandler, opportunitiesHandler, applicantIdentityHandler)
+		taskHandler, notificationHandler, opportunitiesHandler, applicantIdentityHandler,
+		systemMonitorRouterOptions{handler: systemMonitorHandler, engine: systemMonitorEngine})
 	server := &http.Server{
 		Addr: address, Handler: handler, ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
@@ -150,6 +153,11 @@ func run(logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	endpointControlDone := make(chan struct{})
+	go func() {
+		defer close(endpointControlDone)
+		systemmonitor.RunEndpointControlExpiry(ctx, db, logger)
+	}()
 	dispatcherDone := make(chan struct{})
 	go func() {
 		defer close(dispatcherDone)
@@ -165,6 +173,11 @@ func run(logger *slog.Logger) error {
 		defer close(retentionDone)
 		applicationRetentionJob.Run(ctx)
 	}()
+	applicationEmailDone := make(chan struct{})
+	go func() {
+		defer close(applicationEmailDone)
+		applicationEmailDispatcher.Run(ctx)
+	}()
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
 	logger.Info("Mothercat API listening", "address", address)
@@ -174,20 +187,26 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			_ = server.Close()
+			<-endpointControlDone
 			<-dispatcherDone
 			<-reminderDone
 			<-retentionDone
+			<-applicationEmailDone
 			return fmt.Errorf("graceful HTTP shutdown: %w", err)
 		}
+		<-endpointControlDone
 		<-dispatcherDone
 		<-reminderDone
 		<-retentionDone
+		<-applicationEmailDone
 		return nil
 	case err := <-serverErrors:
 		stop()
+		<-endpointControlDone
 		<-dispatcherDone
 		<-reminderDone
 		<-retentionDone
+		<-applicationEmailDone
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -260,7 +279,13 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notifications, opportunities, applicants http.Handler) http.Handler {
+type systemMonitorRouterOptions struct {
+	handler http.Handler
+	engine  *systemmonitor.Engine
+}
+
+func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notifications, opportunities, applicants http.Handler,
+	systemMonitorOptions ...systemMonitorRouterOptions) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -308,8 +333,14 @@ func newRouter(db *sql.DB, identity, organization, access, audit, tasks, notific
 	if applicants != nil {
 		mux.Handle("/api/v1/auth/applicant/", applicants)
 	}
+	if len(systemMonitorOptions) > 0 && systemMonitorOptions[0].handler != nil {
+		mux.Handle("/api/v1/system-monitor/", systemMonitorOptions[0].handler)
+	}
 	mux.Handle("/api/v1/", identity)
 	mux.Handle("/internal/v1/", identity)
+	if len(systemMonitorOptions) > 0 && systemMonitorOptions[0].engine != nil {
+		return systemMonitorOptions[0].engine.Middleware(mux)
+	}
 	return mux
 }
 
@@ -341,6 +372,21 @@ func (a auditAuthenticator) Authenticate(ctx context.Context, token string) (aud
 		return audithttp.Principal{}, fmt.Errorf("authentication unavailable: %w", err)
 	}
 	return audithttp.Principal{Permissions: account.Permissions}, nil
+}
+
+type systemMonitorAuthenticator struct {
+	service *identityapp.Service
+}
+
+func (a systemMonitorAuthenticator) Authenticate(ctx context.Context, token string) (string, error) {
+	account, err := a.service.ResolveSession(ctx, token)
+	if err != nil {
+		if errors.Is(err, identitydomain.ErrInvalidCredentials) {
+			return "", systemmonitor.ErrUnauthenticated
+		}
+		return "", fmt.Errorf("authentication unavailable: %w", err)
+	}
+	return account.ID, nil
 }
 
 type taskAuthenticator struct {

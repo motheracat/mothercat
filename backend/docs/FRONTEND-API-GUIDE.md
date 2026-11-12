@@ -210,8 +210,12 @@ before deploying code that reads or updates these fields.
 
 ### Create a task
 
-`POST /api/v1/tasks` requires `tasks.create`. The current user must belong to
-the selected department unless they also have `tasks.read_all`.
+`POST /api/v1/tasks` requires both `tasks.create` and `tasks.assign`. The
+current user must belong to the selected department unless they also have
+`tasks.read_all`. Every new task must be assigned at creation to an active,
+account-linked staff member in the selected department. The task and
+assignment are created together; an invalid assignee rejects the request
+without creating a task. New tasks start in the `assigned` status.
 
 ```json
 {
@@ -219,14 +223,16 @@ the selected department unless they also have `tasks.read_all`.
   "description": "Complete the pre-work inspection.",
   "priority": "normal",
   "department_id": "department-uuid",
+  "assignee_account_id": "active-staff-account-uuid",
   "due_at": "2026-11-08T12:00:00Z"
 }
 ```
 
 `title` is required (1–200 characters), `description` is at most 20,000
-characters, and `department_id` is required. `priority` defaults to `normal`;
-`due_at` is optional and may be `null`. Success is `201 Created`, wrapped as
-`{"task": ...}`, with an `ETag` response header.
+characters, and `department_id` and `assignee_account_id` are required.
+`priority` defaults to `normal`; `due_at` is optional and may be `null`.
+Success is `201 Created`, wrapped as `{"task": ...}`, with an `ETag` response
+header. The assignee notification is queued in the same transaction.
 
 ### Edit a task
 

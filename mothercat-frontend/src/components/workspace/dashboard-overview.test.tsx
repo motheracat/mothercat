@@ -96,6 +96,31 @@ describe("DashboardOverview", () => {
       offset: 0,
     });
 
+    it("uses actor and resource IDs when dashboard audit display names are absent", async () => {
+      vi.mocked(listAuditEvents).mockResolvedValue({
+        events: [{
+          id: "event-missing-names",
+          actor_type: "user",
+          actor_id: "account-recorded",
+          actor_name: "",
+          action: "staff.updated",
+          resource_type: "staff_member",
+          resource_id: "staff-recorded",
+          resource_name: "",
+          occurred_at: "2026-11-04T10:00:00Z",
+          details: null,
+        }],
+        total: 1,
+        limit: 5,
+        offset: 0,
+      });
+
+      render(<DashboardOverview canReadAudit />);
+
+      expect(await screen.findByText("account-recorded")).toBeInTheDocument();
+      expect(screen.getByText("staff-recorded")).toBeInTheDocument();
+    });
+
     render(<DashboardOverview canReadAudit />);
 
     expect(await screen.findByText("Staff Updated")).toBeInTheDocument();

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getTask, listTasks, updateTask, updateTaskAdminStatus } from "@/lib/tasks/api";
+import { createTask, getTask, listTasks, updateTask, updateTaskAdminStatus } from "@/lib/tasks/api";
 
 const task = {
   id: "task-uuid",
@@ -53,6 +53,28 @@ describe("task API client", () => {
       "/api/v1/me/tasks?limit=20&offset=0",
       expect.objectContaining({ credentials: "include", cache: "no-store" }),
     );
+  });
+
+  it("includes the required assignee in task creation", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ task: { ...task, status: "assigned", assignee_account_id: "assignee-uuid" } }));
+
+    await createTask({
+      title: "Inspect site",
+      description: "",
+      priority: "normal",
+      department_id: "department-uuid",
+      assignee_account_id: "assignee-uuid",
+      due_at: null,
+    });
+
+    expect(fetchMock.mock.calls[0][1]?.body).toBe(JSON.stringify({
+      title: "Inspect site",
+      description: "",
+      priority: "normal",
+      department_id: "department-uuid",
+      assignee_account_id: "assignee-uuid",
+      due_at: null,
+    }));
   });
 
   it("reads a versioned task and forwards its ETag on edits", async () => {

@@ -54,11 +54,23 @@ function toApiDateTime(value: string) {
 
 function formatDate(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unknown time";
+  if (Number.isNaN(date.getTime())) return `Invalid timestamp · ${value || "empty value"}`;
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function actorLabel(event: AuditEvent) {
+  return event.actor_name || (event.actor_type === "system" ? "System" : event.actor_id || "Actor ID unavailable");
+}
+
+function actorTypeLabel(event: AuditEvent) {
+  return displayLabel(event.actor_type) || "Actor type unavailable";
+}
+
+function resourceLabel(event: AuditEvent) {
+  return event.resource_name || event.resource_id || "Resource ID unavailable";
 }
 
 function displayLabel(value: string) {
@@ -318,14 +330,14 @@ export function AuditLog({
                 <Link
                   className="audit-summary-link"
                   href={`/audit-log/${encodeURIComponent(event.id)}`}
-                  aria-label={`View details for ${displayLabel(event.action)} by ${event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}`}
+                  aria-label={`View details for ${displayLabel(event.action)} by ${actorLabel(event)}`}
                 >
                 <div className="audit-summary-meta flex items-center justify-between gap-2">
                   <div>
                     <span className="block min-w-0 break-words font-medium">
-                      {event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}
+                      {actorLabel(event)}
                     </span>
-                    <span className="text-xs text-[var(--muted)]">{displayLabel(event.actor_type)}</span>
+                    <span className="text-xs text-[var(--muted)]">{actorTypeLabel(event)}</span>
                   </div>
                   <time dateTime={event.occurred_at} className="shrink-0 text-xs text-[var(--muted)]">
                     {formatDate(event.occurred_at)}
@@ -333,7 +345,7 @@ export function AuditLog({
                 </div>
                 <span className="block break-words font-medium text-[var(--text)]">{displayLabel(event.action)}</span>
                 <span className="audit-summary-resource">
-                  {displayLabel(event.resource_type)} · {event.resource_name || "Name unavailable"}
+                  {displayLabel(event.resource_type)} · {resourceLabel(event)}
                 </span>
                 </Link>
               </li>
@@ -346,15 +358,15 @@ export function AuditLog({
                 <tr key={event.id}>
                   <td>
                     <span className="block max-w-48 truncate font-medium">
-                      {event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}
+                      {actorLabel(event)}
                     </span>
-                    <span className="text-xs text-[var(--muted)]">{displayLabel(event.actor_type)}</span>
+                    <span className="text-xs text-[var(--muted)]">{actorTypeLabel(event)}</span>
                   </td>
                   <td><span className="break-words font-medium">{displayLabel(event.action)}</span></td>
                   <td>
                     <span className="block">{displayLabel(event.resource_type)}</span>
                     <span className="block max-w-48 truncate text-xs text-[var(--muted)]">
-                      {event.resource_name || "Name unavailable"}
+                      {resourceLabel(event)}
                     </span>
                   </td>
                   <td className="whitespace-nowrap">
@@ -367,7 +379,7 @@ export function AuditLog({
                     <Link
                       className="button-ghost"
                       href={`/audit-log/${encodeURIComponent(event.id)}`}
-                      aria-label={`View details for ${displayLabel(event.action)} by ${event.actor_name || (event.actor_type === "system" ? "System" : "Name unavailable")}`}
+                      aria-label={`View details for ${displayLabel(event.action)} by ${actorLabel(event)}`}
                     >
                       <span>Details</span>
                     </Link>

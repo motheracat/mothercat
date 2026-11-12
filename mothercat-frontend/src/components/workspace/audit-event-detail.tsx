@@ -41,7 +41,7 @@ function AuditValue({ value }: { value: unknown }) {
 
 function formatDate(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unknown time";
+  if (Number.isNaN(date.getTime())) return `Invalid timestamp · ${value || "empty value"}`;
   return new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "long" }).format(date);
 }
 
@@ -101,13 +101,13 @@ export function AuditEventDetail({
       {!loading && event ? (
         <Panel title="Event details" className="audit-event-detail-panel">
           <dl className="audit-event-detail-grid">
-            <div><dt>Actor</dt><dd>{event.actor_name || (event.actor_type === "system" ? "System" : "—")}</dd></div>
-            <div><dt>Role</dt><dd>{event.actor_role || stringDetail(event.details, "actor_role") || displayLabel(event.actor_type)}</dd></div>
-            <div><dt>Actor ID</dt><dd>{event.actor_id}</dd></div>
+            <div><dt>Actor</dt><dd>{event.actor_name || (event.actor_type === "system" ? "System" : event.actor_id || "Actor ID unavailable")}</dd></div>
+            <div><dt>Role</dt><dd>{event.actor_role || stringDetail(event.details, "actor_role") || displayLabel(event.actor_type) || "Actor type unavailable"}</dd></div>
+            <div><dt>Actor ID</dt><dd>{event.actor_id || "Actor ID unavailable"}</dd></div>
             <div><dt>Action</dt><dd>{displayLabel(event.action)}</dd></div>
             <div><dt>Resource type</dt><dd>{displayLabel(event.resource_type)}</dd></div>
-            <div><dt>Resource name</dt><dd>{event.resource_name || "—"}</dd></div>
-            <div><dt>Resource ID</dt><dd>{event.resource_id || "—"}</dd></div>
+            <div><dt>Resource name</dt><dd>{event.resource_name || event.resource_id || "Resource ID unavailable"}</dd></div>
+            <div><dt>Resource ID</dt><dd>{event.resource_id || "Resource ID unavailable"}</dd></div>
             <div><dt>Timestamp</dt><dd>{formatDate(event.occurred_at)}</dd></div>
             {event.ip_address || stringDetail(event.details, "ip_address") ? (
               <div><dt>IP address</dt><dd>{event.ip_address || stringDetail(event.details, "ip_address")}</dd></div>

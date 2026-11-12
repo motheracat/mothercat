@@ -531,7 +531,7 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
                   <span className="task-list-icon"><ClipboardList size={19} aria-hidden="true" /></span>
                   <span className="task-list-copy">
                     <strong>{task.title}</strong>
-                    <span>{departmentsById.get(task.department_id) ?? "Department"} · Due {formatDate(task.due_at)}</span>
+                    <span>{departmentsById.get(task.department_id) ?? `Department ID ${task.department_id}`} · Due {formatDate(task.due_at)}</span>
                   </span>
                   <span className="task-list-meta">
                     <StatusPill label={taskStatusLabels[task.status]} tone="info" />
@@ -601,7 +601,8 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
                 <dl className="task-detail-facts">
                   <div><dt>Work status</dt><dd>{taskStatusLabels[selectedTask.status]}</dd></div>
                   <div><dt>Administrative status</dt><dd>{statusLabels[selectedTask.admin_status]}</dd></div>
-                  <div><dt>Department</dt><dd>{departmentsById.get(selectedTask.department_id) ?? "Department"}</dd></div>
+                  <div><dt>Department</dt><dd>{departmentsById.get(selectedTask.department_id) ?? `Department ID ${selectedTask.department_id}`}</dd></div>
+                  <div><dt>Assignee</dt><dd>{selectedTask.assignee_account_id ?? `Assignment required · task ID ${selectedTask.id}`}</dd></div>
                   <div><dt>Due</dt><dd>{formatDate(selectedTask.due_at)}</dd></div>
                   <div><dt>Created</dt><dd>{formatDate(selectedTask.created_at)}</dd></div>
                   <div><dt>Version</dt><dd>{selectedTask.version}</dd></div>
@@ -654,7 +655,7 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
                       { value: "", label: assigneeLoading ? "Loading eligible staff…" : "Select active department staff" },
                       ...assignees.map((member) => ({
                         value: member.account_id ?? "",
-                        label: `${member.full_name} · ID ${member.staff_id}`,
+                        label: `${member.full_name || `Staff ID ${member.staff_id}`} · ID ${member.staff_id}`,
                       })),
                     ]}
                     onChange={setAssigneeId}

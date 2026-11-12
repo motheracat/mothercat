@@ -103,10 +103,15 @@ permission-protected opportunity management, public SIWES application
 submission, private reviewer-only document downloads, and the associated
 permission keys. SIWES application metadata and document bytes are purged after
 365 days by an in-process daily retention job. Public uploads are bounded to a
-10 MiB document and require a healthy, private ClamAV service configured by
-`SIWES_CLAMAV_ADDR` (`host:port`); upload requests fail closed if malware
-scanning is unavailable. Configure additional edge-level rate limits for
-production, because the API's five-per-hour submission limit is process-local.
+10 MiB document. The backend validates file extension, content signature, and
+document structure before storing uploaded bytes privately in PostgreSQL;
+malware scanning is not performed. Configure additional edge-level rate limits
+for production, because the API's five-per-hour submission limit is
+process-local. Submission confirmations and status-change emails are queued
+transactionally and delivered with retry through the configured Brevo sender
+(`BREVO_API_KEY`, `BREVO_FROM_EMAIL`, and `PUBLIC_BASE_URL`). If email delivery
+is not configured, queued messages remain pending until it is configured and
+the API restarts.
 The [Frontend API Guide](docs/FRONTEND-API-GUIDE.md) documents the routes,
 permission requirements, status transitions, upload constraints, and proxy
 requirements.
@@ -178,6 +183,101 @@ The workflow sends the standard activation invitation. The ID in the path is
 the staff profile UUID. This endpoint requires `roles.manage` and a matching
 Origin; the regular `/provision` endpoint continues to provision a Staff
 account.
+
+## Independent System Monitor access
+
+System Monitor access is not an Access role or permission. Neither `Admin` nor
+`SuperAdmin` receives it by virtue of their role, and the regular role and
+user-role APIs cannot create or revoke monitor grants. Migration
+`015_system_monitor_access` stores separate, expiring grants. Apply it through
+the controlled migration process before using the operator command. Every
+grant and revocation is written to the audit log in the same transaction. An
+account must be active and unsuspended, and a grant expires within 30 days.
+
+Only a trusted database operator should use the dedicated `monitor-access`
+command after the organization's independent approval process has authorized
+the change. Configure `SYSTEM_MONITOR_AUTHORIZATION_DATABASE_URL` only in that
+operator environment, using a distinct TLS-required database login. Do not
+reuse the API or migration credential. The database login should be limited to
+reading eligible Identity accounts, managing rows in
+`system_monitor.access_grants`, and inserting audit events. The API runtime
+login needs read access to `system_monitor.access_grants` before any monitor
+handler is enabled. Keep the operator login out of API/CI runtime environments.
+
+Grant access for a maximum of 30 days:
+
+```sh
+go run ./services/monolith/cmd/monitor-access grant \
+  --account-id ACCOUNT_UUID \
+  --operator OPERATOR_ID \
+  --reason "Approved change CHG-123" \
+  --expires-at 2026-11-20T12:00:00Z
+```
+
+Revoke all active grants for an account:
+
+```sh
+go run ./services/monolith/cmd/monitor-access revoke \
+  --account-id ACCOUNT_UUID \
+  --operator OPERATOR_ID \
+  --reason "Access no longer required; CHG-124"
+```
+
+The operator identifier and approval reference are recorded as supplied; the
+command does not independently authenticate the named operator or validate an
+approval ticket. The security boundary is the restricted authorization
+database credential and the out-of-band approval process. Do not use the CLI
+until those controls and database grants are provisioned. System Monitor
+read-only endpoints require both a staff session and an active independent
+grant. The System Monitor endpoint APIs are:
+
+- `GET /api/v1/system-monitor/overview`
+- `GET /api/v1/system-monitor/endpoints`
+- `GET /api/v1/system-monitor/events?limit=50`
+- `GET /api/v1/system-monitor/endpoints/history?limit=50`
+- `POST /api/v1/system-monitor/endpoints/pause`
+- `POST /api/v1/system-monitor/endpoints/resume`
+
+Migration `016_system_monitor_endpoint_controls` stores current pause state and
+append-only pause/resume/expiry history. Apply it after migration 015 and grant
+the API runtime database role `USAGE` on the `system_monitor` schema,
+`SELECT`, `INSERT`, `UPDATE`, and `DELETE` on
+`system_monitor.endpoint_controls`, and `SELECT`/`INSERT` on
+`system_monitor.endpoint_control_history` before deploying endpoint controls.
+Keep the migration and runtime credentials distinct.
+
+Pause requests identify a catalogued HTTP method and route template, require a
+reason and an expiration (maximum 30 days), and may set a custom HTTP status
+from 400 through 599 and a response message up to 500 characters. A missing
+status defaults to 503; a missing/blank message uses the standard maintenance
+message. For example:
+
+```json
+{
+  "method": "GET",
+  "route": "/api/v1/tasks/{taskID}",
+  "reason": "Approved change CHG-123",
+  "response_status": 503,
+  "response_message": "Tasks are temporarily unavailable.",
+  "expires_at": "2026-11-20T12:00:00Z"
+}
+```
+
+Send the JSON body to the pause route with the `mothercat_session` cookie,
+`Content-Type: application/json`, and `X-System-Monitor-Action: confirm`.
+Resume accepts `method`, `route`, and a reason. The API enforces pauses in
+server-side middleware and returns a bounded JSON maintenance response with
+`Retry-After`; the database is authoritative and cache refresh between API
+replicas is bounded to one second. A control-store read failure fails closed
+for pausable application routes.
+
+Health checks, authentication and applicant identity routes, internal
+provisioning routes, and all System Monitor routes are explicitly non-pausable
+to avoid locking out access or disabling recovery. Unknown/unregistered routes
+are not controllable. A background expiry job runs every 15 seconds and writes
+an `expired` history record; the expiration timestamp is also checked in the
+request middleware, so an endpoint becomes available at its expiry even if the
+job is delayed. There is no frontend control page yet.
 
 ## Account suspension and authentication safeguards
 
