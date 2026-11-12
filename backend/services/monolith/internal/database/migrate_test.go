@@ -49,6 +49,31 @@ func TestSystemMonitorEndpointControlsMigrationIsRegisteredAfterAccessGrants(t *
 		})
 }
 
+func TestSystemMonitorEndpointAnalyticsMigrationIsRegisteredAfterEndpointControls(t *testing.T) {
+	assertMigrationRegisteredAfter(t, "017_system_monitor_endpoint_analytics",
+		"migrations/017_system_monitor_endpoint_analytics.sql", "016_system_monitor_endpoint_controls", []string{
+			"CREATE TABLE system_monitor.endpoint_analytics",
+			"bucket_start timestamptz NOT NULL",
+			"latency_total_ms bigint NOT NULL",
+			"latency_lt_10ms bigint NOT NULL",
+			"latency_gte_1000ms bigint NOT NULL",
+			"status_counts jsonb NOT NULL",
+			"CREATE FUNCTION system_monitor.add_jsonb_counters",
+		})
+}
+
+func TestSystemMonitorSecurityMigrationIsRegisteredAfterAnalytics(t *testing.T) {
+	assertMigrationRegisteredAfter(t, "018_system_monitor_security",
+		"migrations/018_system_monitor_security.sql", "017_system_monitor_endpoint_analytics", []string{
+			"CREATE TABLE system_monitor.mfa_credentials",
+			"secret_ciphertext bytea NOT NULL",
+			"last_used_step bigint NOT NULL",
+			"CREATE TABLE system_monitor.mfa_enrollment_challenges",
+			"CREATE TABLE system_monitor.security_events",
+			"system_monitor_security_events_recent_idx",
+		})
+}
+
 func assertMigrationRegisteredAfter(t *testing.T, version, path, previousVersion string, expected []string) {
 	t.Helper()
 	previousIndex := -1

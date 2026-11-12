@@ -176,9 +176,93 @@ func TestHandlerDeniesUnprivilegedIdentityAndCancelsAuthorizationContext(t *test
 	}
 }
 
+func TestSecurityConsoleUsesOneMFAProofForConsolidatedSnapshot(t *testing.T) {
+	db, mock, err := newMockDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(`(?s)SELECT EXISTS \(.*system_monitor\.access_grants`).
+		WithArgs("00000000-0000-4000-8000-000000000001").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	verifyCalls := 0
+	handler := NewHandler(db, NewEngine(), testAuthenticator{}, nil, testSecurityManager{
+		verifyCalls: &verifyCalls,
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/system-monitor/security/console", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "opaque-session"})
+	request.Header.Set("X-System-Monitor-MFA", "123456")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want OK: %s", response.Code, response.Body.String())
+	}
+	if verifyCalls != 1 {
+		t.Fatalf("MFA verification calls = %d, want 1", verifyCalls)
+	}
+	for _, field := range []string{`"security"`, `"sessions"`, `"events"`, `"alerts"`, `"audit"`, `"grants"`} {
+		if !strings.Contains(response.Body.String(), field) {
+			t.Errorf("consolidated response is missing %s: %s", field, response.Body.String())
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type testAuthenticator struct {
 	err             error
 	capturedContext *context.Context
+}
+
+type testSecurityManager struct {
+	verifyError error
+	verifyCalls *int
+}
+
+func (s testSecurityManager) Status(context.Context, string) (SecurityStatus, error) {
+	return SecurityStatus{MFAEnabled: true}, nil
+}
+
+func (s testSecurityManager) BeginMFAEnrollment(context.Context, string) (MFAEnrollment, error) {
+	return MFAEnrollment{}, nil
+}
+
+func (s testSecurityManager) ConfirmMFAEnrollment(context.Context, string, string) error {
+	return nil
+}
+
+func (s testSecurityManager) DisableMFA(context.Context, string, string) error { return nil }
+
+func (s testSecurityManager) VerifyMFA(context.Context, string, string) error {
+	if s.verifyCalls != nil {
+		(*s.verifyCalls)++
+	}
+	return s.verifyError
+}
+
+func (s testSecurityManager) ListSessions(context.Context, string, string) ([]MonitorSession, error) {
+	return nil, nil
+}
+
+func (s testSecurityManager) RevokeSession(context.Context, string, string, string, string) error {
+	return nil
+}
+
+func (s testSecurityManager) Events(context.Context, int) ([]SecurityEvent, error) {
+	return nil, nil
+}
+
+func (s testSecurityManager) Alerts(context.Context, int) ([]SecurityAlert, error) {
+	return nil, nil
+}
+
+func (s testSecurityManager) AuditEvents(context.Context, int) ([]SecurityAuditEvent, error) {
+	return nil, nil
+}
+
+func (s testSecurityManager) ActiveGrants(context.Context, int) ([]MonitorAccessGrant, error) {
+	return nil, nil
 }
 
 func (a testAuthenticator) Authenticate(ctx context.Context, _ string) (string, error) {

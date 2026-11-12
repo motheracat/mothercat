@@ -10,6 +10,7 @@ import {
   BriefcaseBusiness,
   CircleUserRound,
   ClipboardList,
+  Command,
   FileUp,
   Gauge,
   History,
@@ -39,6 +40,7 @@ const items: SidebarItem[] = [
   { href: "/departments", label: "Departments", icon: Building2, permissions: ["departments.manage", "staff.read", "*"] },
   { href: "/roles", label: "Roles & permissions", icon: ShieldCheck, permissions: ["roles.read", "roles.manage", "*"] },
   { href: "/audit", label: "Audit log", icon: History, permissions: ["audit.read", "*"] },
+  { href: "/system-monitor", label: "System Monitor", icon: Command },
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/opportunities/manage", label: "Opportunities & SIWES", icon: BriefcaseBusiness, permissions: ["opportunities.publish", "applications.review", "it_applications.review", "roles.manage", "*"] },
   { href: "/account", label: "Password & security", icon: CircleUserRound },
@@ -64,7 +66,7 @@ export function WorkspaceSidebar({
   const permissions = session?.permissions ?? [];
   const hasNoPermissions = !hasPermission(session, "*") && (permissions.length === 0 || (permissions.length === 1 && permissions[0] === ""));
   const visibleItems = hasNoPermissions
-    ? items.filter((item) => ["/dashboard", "/account", "/notifications"].includes(item.href))
+    ? items.filter((item) => ["/dashboard", "/account", "/notifications", "/system-monitor"].includes(item.href))
     : items.filter((item) => !item.permissions || hasAnyPermission(session, item.permissions));
   const activeHref = visibleItems
     .filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))

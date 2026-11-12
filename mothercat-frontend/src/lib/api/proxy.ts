@@ -131,6 +131,8 @@ export async function proxyApiRequest(
   const accept = request.headers.get("accept");
   const contentType = request.headers.get("content-type");
   const ifMatch = request.headers.get("if-match");
+  const monitorMFA = request.headers.get("x-system-monitor-mfa");
+  const monitorAction = request.headers.get("x-system-monitor-action");
   const cookieHeader = request.headers.get("cookie");
   const sessionCookies = cookieHeader?.split(";")
     .map((cookie) => cookie.trim())
@@ -138,6 +140,8 @@ export async function proxyApiRequest(
   if (accept) headers.set("accept", accept);
   if (contentType) headers.set("content-type", contentType);
   if (ifMatch) headers.set("if-match", ifMatch);
+  if (monitorMFA && /^[0-9]{6}$/.test(monitorMFA)) headers.set("x-system-monitor-mfa", monitorMFA);
+  if (monitorAction === "confirm") headers.set("x-system-monitor-action", "confirm");
   if (sessionCookies.length > 1) return errorResponse(400, "invalid_session_cookie");
   if (sessionCookies.length === 1) headers.set("cookie", sessionCookies[0]);
   if (isMutation) {

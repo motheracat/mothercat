@@ -115,8 +115,22 @@ func run(logger *slog.Logger) error {
 	)
 	systemMonitorEngine := systemmonitor.NewEngine()
 	systemMonitorEngine.SetControlStore(db, logger)
+	var systemMonitorSecurity *systemmonitor.SecurityService
+	if encryptionKey := strings.TrimSpace(os.Getenv("SYSTEM_MONITOR_MFA_ENCRYPTION_KEY")); encryptionKey != "" {
+		systemMonitorSecurity, err = systemmonitor.NewSecurityService(db, encryptionKey)
+		if err != nil {
+			return fmt.Errorf("configure System Monitor security: %w", err)
+		}
+	} else {
+		logger.Warn("System Monitor security features are unavailable; configure SYSTEM_MONITOR_MFA_ENCRYPTION_KEY")
+	}
+	var systemMonitorSecurityManagers []systemmonitor.SecurityManager
+	if systemMonitorSecurity != nil {
+		systemMonitorSecurityManagers = append(systemMonitorSecurityManagers, systemMonitorSecurity)
+	}
 	systemMonitorHandler := systemmonitor.NewHandler(
 		db, systemMonitorEngine, systemMonitorAuthenticator{service: authService}, logger,
+		systemMonitorSecurityManagers...,
 	)
 	authenticator := localAuthenticator{service: authService}
 	var profileUploaders []organizationmonolith.ProfileImageUploader
@@ -158,6 +172,13 @@ func run(logger *slog.Logger) error {
 		defer close(endpointControlDone)
 		systemmonitor.RunEndpointControlExpiry(ctx, db, logger)
 	}()
+	analyticsCtx, cancelAnalytics := context.WithCancel(context.Background())
+	defer cancelAnalytics()
+	analyticsFlusherDone := make(chan struct{})
+	go func() {
+		defer close(analyticsFlusherDone)
+		systemmonitor.RunAnalyticsFlusher(analyticsCtx, db, systemMonitorEngine, logger)
+	}()
 	dispatcherDone := make(chan struct{})
 	go func() {
 		defer close(dispatcherDone)
@@ -187,6 +208,8 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			_ = server.Close()
+			cancelAnalytics()
+			<-analyticsFlusherDone
 			<-endpointControlDone
 			<-dispatcherDone
 			<-reminderDone
@@ -194,6 +217,8 @@ func run(logger *slog.Logger) error {
 			<-applicationEmailDone
 			return fmt.Errorf("graceful HTTP shutdown: %w", err)
 		}
+		cancelAnalytics()
+		<-analyticsFlusherDone
 		<-endpointControlDone
 		<-dispatcherDone
 		<-reminderDone
@@ -202,6 +227,8 @@ func run(logger *slog.Logger) error {
 		return nil
 	case err := <-serverErrors:
 		stop()
+		cancelAnalytics()
+		<-analyticsFlusherDone
 		<-endpointControlDone
 		<-dispatcherDone
 		<-reminderDone
@@ -387,6 +414,14 @@ func (a systemMonitorAuthenticator) Authenticate(ctx context.Context, token stri
 		return "", fmt.Errorf("authentication unavailable: %w", err)
 	}
 	return account.ID, nil
+}
+
+func (a systemMonitorAuthenticator) VerifyPassword(ctx context.Context, accountID, password string) error {
+	err := a.service.VerifyPassword(ctx, accountID, password)
+	if errors.Is(err, identityapp.ErrInvalidCurrentPassword) {
+		return systemmonitor.ErrPasswordVerificationFailed
+	}
+	return err
 }
 
 type taskAuthenticator struct {

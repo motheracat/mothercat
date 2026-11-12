@@ -243,12 +243,13 @@ func TestPauseHandlerRequiresIndependentMonitorGrantAndRecordsActor(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewHandler(db, NewEngine(), testAuthenticator{}, nil)
+	handler := NewHandler(db, NewEngine(), testAuthenticator{}, nil, testSecurityManager{})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/system-monitor/endpoints/pause",
 		strings.NewReader(string(payload)))
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "opaque-session"})
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-System-Monitor-Action", "confirm")
+	request.Header.Set("X-System-Monitor-MFA", "123456")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -268,11 +269,12 @@ func TestPauseHandlerRequiresExplicitActionHeader(t *testing.T) {
 	mock.ExpectQuery(`(?s)SELECT EXISTS \(.*system_monitor\.access_grants`).
 		WithArgs(testMonitorActorID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	handler := NewHandler(db, NewEngine(), testAuthenticator{}, nil)
+	handler := NewHandler(db, NewEngine(), testAuthenticator{}, nil, testSecurityManager{})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/system-monitor/endpoints/pause",
 		strings.NewReader(`{}`))
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "opaque-session"})
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-System-Monitor-MFA", "123456")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusUnsupportedMediaType {

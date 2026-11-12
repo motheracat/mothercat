@@ -127,6 +127,36 @@ describe("proxyApiRequest", () => {
     expect(new Headers(init.headers).get("if-match")).toBe('"1"');
   });
 
+  it("forwards only valid System Monitor verification headers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const request = (mfa: string, action: string) => new Request(
+      "https://frontend.example/api/v1/system-monitor/endpoints/pause",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: "mothercat_session=session-value",
+          host: "frontend.example",
+          origin: "https://frontend.example",
+          "x-system-monitor-mfa": mfa,
+          "x-system-monitor-action": action,
+        },
+        body: JSON.stringify({ method: "GET", route: "/api/v1/example" }),
+      },
+    );
+
+    await proxyApiRequest(request("123456", "confirm"), ["system-monitor", "endpoints", "pause"], "https://api.example");
+    const [, validInit] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(new Headers(validInit.headers).get("x-system-monitor-mfa")).toBe("123456");
+    expect(new Headers(validInit.headers).get("x-system-monitor-action")).toBe("confirm");
+
+    await proxyApiRequest(request("12345x", "arbitrary"), ["system-monitor", "endpoints", "pause"], "https://api.example");
+    const [, invalidInit] = fetchMock.mock.calls[1] as [URL, RequestInit];
+    expect(new Headers(invalidInit.headers).has("x-system-monitor-mfa")).toBe(false);
+    expect(new Headers(invalidInit.headers).has("x-system-monitor-action")).toBe(false);
+  });
+
   it("allows only the bounded SIWES application upload route to exceed the JSON body limit", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ application: {} }), { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);

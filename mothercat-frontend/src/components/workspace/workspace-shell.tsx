@@ -25,6 +25,7 @@ const breadcrumbLabels: Record<string, string> = {
   roles: "Roles & permissions",
   audit: "Audit log",
   "audit-log": "Audit event",
+  "system-monitor": "System Monitor",
   notifications: "Notifications",
   opportunities: "Opportunities & SIWES",
   profile: "My profile",

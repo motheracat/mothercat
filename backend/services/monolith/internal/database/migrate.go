@@ -33,6 +33,8 @@ var allMigrations = []migration{
 	{version: "014_siwes_email_outbox", path: "migrations/014_siwes_email_outbox.sql"},
 	{version: "015_system_monitor_access", path: "migrations/015_system_monitor_access.sql"},
 	{version: "016_system_monitor_endpoint_controls", path: "migrations/016_system_monitor_endpoint_controls.sql"},
+	{version: "017_system_monitor_endpoint_analytics", path: "migrations/017_system_monitor_endpoint_analytics.sql"},
+	{version: "018_system_monitor_security", path: "migrations/018_system_monitor_security.sql"},
 }
 
 func Migrate(ctx context.Context, db *sql.DB) error {

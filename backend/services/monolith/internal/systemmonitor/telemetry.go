@@ -72,6 +72,8 @@ type Overview struct {
 	DatabaseStatus string          `json:"database_status"`
 	Database       databaseMetrics `json:"database"`
 	EndpointCount  int             `json:"endpoint_count"`
+	AnalyticsPendingBuckets int    `json:"analytics_pending_buckets"`
+	AnalyticsDroppedRequests uint64 `json:"analytics_dropped_requests"`
 }
 
 type databaseMetrics struct {
@@ -104,12 +106,15 @@ type Engine struct {
 	catalog   *endpointCatalog
 	mu        sync.RWMutex
 	metrics   map[string]*endpointMetric
+	analytics map[analyticsKey]*analyticsDelta
 	controlMu  sync.Mutex
 	controlDB  *sql.DB
 	logger     *slog.Logger
 	controls   map[string]EndpointControl
 	controlErr error
 	controlAt  time.Time
+	analyticsDropped uint64
+	analyticsBufferAlerted bool
 	events    [eventCapacity]Event
 	eventHead int
 	eventSize int
@@ -120,6 +125,7 @@ func NewEngine() *Engine {
 		startedAt: time.Now().UTC(),
 		catalog:   newEndpointCatalog(),
 		metrics:   make(map[string]*endpointMetric),
+		analytics: make(map[analyticsKey]*analyticsDelta),
 	}
 }
 
@@ -334,6 +340,10 @@ func (e *Engine) Overview(ctx context.Context, db *sql.DB) Overview {
 		DatabaseStatus: "unavailable",
 	}
 	if db == nil {
+		e.mu.RLock()
+		result.AnalyticsPendingBuckets = len(e.analytics)
+		result.AnalyticsDroppedRequests = e.analyticsDropped
+		e.mu.RUnlock()
 		return result
 	}
 	stats := db.Stats()
@@ -349,6 +359,10 @@ func (e *Engine) Overview(ctx context.Context, db *sql.DB) Overview {
 	if db.PingContext(pingCtx) == nil {
 		result.DatabaseStatus = "ready"
 	}
+	e.mu.RLock()
+	result.AnalyticsPendingBuckets = len(e.analytics)
+	result.AnalyticsDroppedRequests = e.analyticsDropped
+	e.mu.RUnlock()
 	return result
 }
 
@@ -394,6 +408,16 @@ func (e *Engine) record(endpoint Endpoint, status int, duration time.Duration, n
 	}
 	if status >= http.StatusInternalServerError {
 		metric.recent[recentIndex].serverErrors++
+	}
+	if !e.addAnalytics(endpoint, status, duration, now) && !e.analyticsBufferAlerted {
+		e.analyticsBufferAlerted = true
+		e.appendEvent(Event{
+			OccurredAt: now,
+			Type:       "analytics_buffer_full",
+			Method:     endpoint.Method,
+			Route:      endpoint.Route,
+			Status:     status,
+		})
 	}
 	e.appendEvent(Event{
 		OccurredAt: now,

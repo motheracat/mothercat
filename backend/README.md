@@ -235,8 +235,64 @@ grant. The System Monitor endpoint APIs are:
 - `GET /api/v1/system-monitor/endpoints`
 - `GET /api/v1/system-monitor/events?limit=50`
 - `GET /api/v1/system-monitor/endpoints/history?limit=50`
+- `GET /api/v1/system-monitor/analytics?method=GET&route=%2Fapi%2Fv1%2Ftasks%2F%7BtaskID%7D&interval=hour`
 - `POST /api/v1/system-monitor/endpoints/pause`
 - `POST /api/v1/system-monitor/endpoints/resume`
+- `GET /api/v1/system-monitor/security/status`
+- `POST /api/v1/system-monitor/security/mfa/enroll`
+- `POST /api/v1/system-monitor/security/mfa/confirm`
+- `POST /api/v1/system-monitor/security/mfa/disable`
+- `GET /api/v1/system-monitor/security/sessions`
+- `POST /api/v1/system-monitor/security/sessions/revoke`
+- `GET /api/v1/system-monitor/security/events?limit=50`
+- `GET /api/v1/system-monitor/security/alerts?limit=50`
+- `GET /api/v1/system-monitor/security/audit?limit=50`
+- `GET /api/v1/system-monitor/security/grants?limit=50`
+
+## System Monitor security centre
+
+Migration `018_system_monitor_security` adds encrypted TOTP credential storage,
+short-lived enrollment challenges, and a bounded security-event history.
+Configure `SYSTEM_MONITOR_MFA_ENCRYPTION_KEY` in the API secret manager as
+base64-encoded random 32-byte key material before enabling Security Centre
+operations. Keep it separate from database credentials and retain a protected
+backup for recovery; rotating it requires a planned MFA-secret re-encryption
+migration. Without the key, Security Centre endpoints fail closed while
+existing non-security Monitor reads remain available. A malformed configured
+key prevents the API from starting.
+
+Monitor users enroll with their current account password at the MFA enrollment
+endpoint, then confirm a six-digit RFC 6238 TOTP code from an authenticator
+app. The one-time enrollment response contains the secret/otpauth URI and is
+`Cache-Control: no-store`; never log, screenshot, or retain it. Enrollment
+challenges expire after ten minutes. Codes allow a one-step clock skew and
+cannot be reused; failed verification attempts are persisted and limited to
+ten per account per 15 minutes. A fresh code must be sent in
+`X-System-Monitor-MFA` on each MFA-protected request. Endpoint pause/resume,
+MFA disable, session listing/revocation, alerts, event history, audit history,
+and active-grant listing all require MFA as well as an active Monitor grant.
+MFA enrollment/confirmation and the status view require a staff session and an
+active Monitor grant; enrollment additionally requires password reauthentication.
+
+Session management only reports session ID, creation/expiry timestamps, and
+which session is current. The Identity schema has no device, IP, or user-agent
+metadata, so those details are intentionally not invented or captured here.
+The current session cannot be revoked through this API, preventing accidental
+self-lockout; revoke a different session with an explicit reason. MFA secrets
+and raw session tokens are never returned or written to audit records.
+
+Security alerts combine bursts of failed identity authentications (five or
+more in the preceding 24 hours, grouped by account/event type) with recent
+Monitor warning/critical events. Privileged actions are recorded in the
+existing audit log in the same transaction as the change; the security event
+view provides MFA failures and other Monitor events, while the audit endpoint
+includes grant, endpoint-control, MFA, and session-control changes. Privileged
+grant issuance remains an out-of-band trusted operator process, not an
+administrator-facing grant API. Grant the runtime API role access to the
+new MFA challenge/credential/security-event tables, `identity.sessions`,
+`identity.authentication_events`, and scoped reads from `audit.audit_events`.
+Restrict session updates to the revocation operation and audit inserts to the
+documented security mutations; do not grant the API role schema ownership.
 
 Migration `016_system_monitor_endpoint_controls` stores current pause state and
 append-only pause/resume/expiry history. Apply it after migration 015 and grant
@@ -278,6 +334,34 @@ are not controllable. A background expiry job runs every 15 seconds and writes
 an `expired` history record; the expiration timestamp is also checked in the
 request middleware, so an endpoint becomes available at its expiry even if the
 job is delayed. There is no frontend control page yet.
+
+Migration `017_system_monitor_endpoint_analytics` adds per-endpoint, per-minute
+historical aggregates for request and success/error counts, status-code
+distribution, average and maximum latency, and fixed latency buckets.
+Middleware queues only the method and route template, response status, elapsed
+time, and minute bucket; it does not persist request paths with IDs, query
+strings, headers, bodies, or response contents. A background worker batches
+updates every five seconds and at graceful shutdown. Pending aggregates remain
+in process memory until a successful flush, so an abrupt process or host failure
+can lose the most recent unflushed interval. Completed historical aggregates
+are retained for 90 days and pruned daily.
+The pending buffer is capped at 10,000 endpoint/minute buckets. If database
+outage or load reaches that cap, additional distinct-bucket requests are
+counted as dropped in the System Monitor overview and emit a bounded
+`analytics_buffer_full` event; this keeps telemetry from exhausting API memory.
+
+The analytics API requires `method` and the exact catalog `route` template. It
+accepts optional RFC3339 `from` and `to` timestamps (default: the last 24
+hours), and `interval=minute|hour|day` (default: `hour`). The selected range
+must be at most 90 days and produce at most 2,000 chart points. Empty buckets
+are returned as zeroes; each point contains counts, error rate, average and
+approximate p95 latency, status-code counts, and latency histogram counts.
+Percentiles are estimates from the fixed latency buckets, not request-level
+latency samples. Grant the API runtime database role `SELECT`, `INSERT`,
+`UPDATE`, and `DELETE` on `system_monitor.endpoint_analytics`, and `EXECUTE` on
+`system_monitor.add_jsonb_counters`, in addition to the endpoint-control table
+privileges above. Analytics are currently exposed by API only; no frontend
+charts or live alert stream are included.
 
 ## Account suspension and authentication safeguards
 

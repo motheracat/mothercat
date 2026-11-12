@@ -195,6 +195,23 @@ func (s *Service) Logout(ctx context.Context, sessionToken string) error {
 	return s.repository.RevokeSession(ctx, sessionToken)
 }
 
+func (s *Service) VerifyPassword(ctx context.Context, accountID, password string) error {
+	if s == nil || s.repository == nil || strings.TrimSpace(accountID) == "" || password == "" {
+		return ErrInvalidCurrentPassword
+	}
+	account, err := s.repository.FindByAccountID(ctx, accountID)
+	if err != nil {
+		if errors.Is(err, ErrAccountNotFound) {
+			return ErrInvalidCurrentPassword
+		}
+		return fmt.Errorf("load account for password verification: %w", err)
+	}
+	if !account.IsActive || verifyPasswordHash(account.PasswordHash, password) != nil {
+		return ErrInvalidCurrentPassword
+	}
+	return nil
+}
+
 // empty comment
 func (s *Service) RequestPasswordReset(ctx context.Context, staffID string) error {
 	if s == nil || s.repository == nil {
