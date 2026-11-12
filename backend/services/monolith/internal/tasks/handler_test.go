@@ -175,7 +175,7 @@ func TestGlobalTaskManagerCanAssignOutsideDepartmentMembership(t *testing.T) {
 			nil, nil, nil, nil, nil, nil,
 		))
 	mock.ExpectExec(`INSERT INTO tasks\.task_status_history`).
-		WithArgs(taskID, testAccountID, "draft", "assigned", "task.assigned", "").
+		WithArgs(taskID, testAccountID, "draft", "assigned", "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO audit\.audit_events`).
 		WithArgs(testAccountID, "task.assigned", taskID).
