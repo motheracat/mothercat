@@ -206,6 +206,11 @@ function parseTaskEnvelope(payload: unknown): Task {
   return parseTask(payload.task);
 }
 
+function taskEtag(response: Response, task: Task): string {
+  const responseEtag = response.headers.get("ETag");
+  return responseEtag && /^"[1-9]\d*"$/.test(responseEtag) ? responseEtag : `"${task.version}"`;
+}
+
 export async function listTasks(
   params: {
     mine?: boolean;
@@ -250,7 +255,8 @@ export async function listTasks(
 
 export async function getTask(taskId: string, signal?: AbortSignal): Promise<TaskVersionedResult> {
   const response = await request(apiRoutes.tasks.details(encodeURIComponent(taskId)), { signal });
-  return { task: parseTaskEnvelope(await jsonResponse(response)), etag: response.headers.get("ETag") };
+  const task = parseTaskEnvelope(await jsonResponse(response));
+  return { task, etag: taskEtag(response, task) };
 }
 
 export async function createTask(input: {
@@ -261,7 +267,8 @@ export async function createTask(input: {
   due_at: string | null;
 }): Promise<TaskVersionedResult> {
   const response = await request(apiRoutes.tasks.list, { method: "POST", body: JSON.stringify(input) });
-  return { task: parseTaskEnvelope(await jsonResponse(response)), etag: response.headers.get("ETag") };
+  const task = parseTaskEnvelope(await jsonResponse(response));
+  return { task, etag: taskEtag(response, task) };
 }
 
 export async function updateTask(
@@ -275,7 +282,8 @@ export async function updateTask(
     headers: { "If-Match": etag },
     body: JSON.stringify(input),
   });
-  return { task: parseTaskEnvelope(await jsonResponse(response)), etag: response.headers.get("ETag") };
+  const task = parseTaskEnvelope(await jsonResponse(response));
+  return { task, etag: taskEtag(response, task) };
 }
 
 export async function updateTaskAdminStatus(
@@ -289,7 +297,8 @@ export async function updateTaskAdminStatus(
     headers: { "If-Match": etag },
     body: JSON.stringify({ status }),
   });
-  return { task: parseTaskEnvelope(await jsonResponse(response)), etag: response.headers.get("ETag") };
+  const task = parseTaskEnvelope(await jsonResponse(response));
+  return { task, etag: taskEtag(response, task) };
 }
 
 export async function assignTask(taskId: string, accountId: string): Promise<TaskVersionedResult> {
@@ -297,7 +306,8 @@ export async function assignTask(taskId: string, accountId: string): Promise<Tas
     method: "POST",
     body: JSON.stringify({ assignee_account_id: accountId }),
   });
-  return { task: parseTaskEnvelope(await jsonResponse(response)), etag: response.headers.get("ETag") };
+  const task = parseTaskEnvelope(await jsonResponse(response));
+  return { task, etag: taskEtag(response, task) };
 }
 
 export async function performTaskAction(
@@ -309,7 +319,8 @@ export async function performTaskAction(
     method: "POST",
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  return { task: parseTaskEnvelope(await jsonResponse(response)), etag: response.headers.get("ETag") };
+  const task = parseTaskEnvelope(await jsonResponse(response));
+  return { task, etag: taskEtag(response, task) };
 }
 
 export async function listTaskComments(taskId: string, signal?: AbortSignal): Promise<TaskComment[]> {
@@ -369,6 +380,7 @@ export function formatTaskError(error: unknown, fallback: string): string {
   if (error.code === "origin_not_allowed" || error.code === "invalid_origin") {
     return "This action was blocked by the site security check. Refresh the page and try again.";
   }
+  if (error.code === "if_match_required" || error.status === 428) return "The task version is unavailable. Reload the task, then try again.";
   if (error.code === "unauthorized" || error.status === 401) return "Your session expired. Sign in again.";
   if (error.code === "permission_denied" || error.status === 403) return "You don’t have permission to perform this task action.";
   if (error.code === "task_conflict" || error.status === 409) return "This task has changed state. Refresh it before trying again.";

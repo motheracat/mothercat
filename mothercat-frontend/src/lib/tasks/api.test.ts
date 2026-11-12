@@ -73,6 +73,19 @@ describe("task API client", () => {
     expect(options?.body).toBe(JSON.stringify({ title: "Inspect roof" }));
   });
 
+  it("uses the task version when an intermediary omits the ETag response header", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ task }))
+      .mockResolvedValueOnce(jsonResponse({ task: { ...task, admin_status: "scheduled", version: 2 } }));
+
+    const current = await getTask("task-uuid");
+    expect(current.etag).toBe('"1"');
+    const updated = await updateTaskAdminStatus(current.task.id, current.etag!, "scheduled");
+
+    expect(updated.etag).toBe('"2"');
+    expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get("If-Match")).toBe('"1"');
+  });
+
   it("filters by administrative status and persists an admin status change with the current ETag", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({
