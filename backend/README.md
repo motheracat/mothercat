@@ -196,18 +196,24 @@ account must be active and unsuspended, and a grant expires within 30 days.
 
 Only a trusted database operator should use the dedicated `monitor-access`
 command after the organization's independent approval process has authorized
-the change. Configure `SYSTEM_MONITOR_AUTHORIZATION_DATABASE_URL` only in that
-operator environment, using a distinct TLS-required database login. Do not
-reuse the API or migration credential. The database login should be limited to
-reading eligible Identity accounts, managing rows in
-`system_monitor.access_grants`, and inserting audit events. The API runtime
-login needs read access to `system_monitor.access_grants` before any monitor
-handler is enabled. Keep the operator login out of API/CI runtime environments.
+the change. The command looks for the ignored `backend/.env` file when the
+authorization URL is not set in the shell. Prefer setting
+`SYSTEM_MONITOR_AUTHORIZATION_DATABASE_URL` there, using a distinct
+TLS-required operator database login. For local convenience, the CLI falls
+back to `DATABASE_URL` if the dedicated variable is absent. Any explicitly
+exported `SYSTEM_MONITOR_AUTHORIZATION_DATABASE_URL` or `DATABASE_URL` takes
+precedence over values in the file. Do not use the API or migration credential
+for operator access; the selected login should be limited to reading eligible
+Identity accounts, managing rows in `system_monitor.access_grants`, and
+inserting audit events. The API runtime login needs read access to
+`system_monitor.access_grants` before any monitor handler is enabled. Keep the
+operator login out of API/CI runtime environments.
 
 Grant access for a maximum of 30 days:
 
 ```sh
-go run ./services/monolith/cmd/monitor-access grant \
+cd backend/services/monolith
+go run ./cmd/monitor-access grant \
   --account-id ACCOUNT_UUID \
   --operator OPERATOR_ID \
   --reason "Approved change CHG-123" \
@@ -217,7 +223,8 @@ go run ./services/monolith/cmd/monitor-access grant \
 Revoke all active grants for an account:
 
 ```sh
-go run ./services/monolith/cmd/monitor-access revoke \
+cd backend/services/monolith
+go run ./cmd/monitor-access revoke \
   --account-id ACCOUNT_UUID \
   --operator OPERATOR_ID \
   --reason "Access no longer required; CHG-124"

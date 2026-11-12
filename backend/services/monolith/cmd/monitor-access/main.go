@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"errors"
@@ -8,7 +9,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 )
 
 var accountIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func main() {
 	if err := run(context.Background(), os.Args[1:]); err != nil {
@@ -33,7 +37,14 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	databaseURL := strings.TrimSpace(os.Getenv("SYSTEM_MONITOR_AUTHORIZATION_DATABASE_URL"))
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return errors.New("could not determine current directory")
+	}
+	databaseURL, err := resolveAuthorizationDatabaseURL(os.LookupEnv, workingDir)
+	if err != nil {
+		return err
+	}
 	if err := validateDatabaseURL(databaseURL); err != nil {
 		return err
 	}
@@ -67,6 +78,146 @@ func run(ctx context.Context, args []string) error {
 		return errors.New("unsupported monitor access operation")
 	}
 	return nil
+}
+
+func resolveAuthorizationDatabaseURL(
+	lookup func(string) (string, bool),
+	workingDir string,
+) (string, error) {
+	for _, key := range []string{"SYSTEM_MONITOR_AUTHORIZATION_DATABASE_URL", "DATABASE_URL"} {
+		if value, ok := lookup(key); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value), nil
+		}
+	}
+
+	envPath, found, err := findBackendEnvFile(workingDir)
+	if err != nil {
+		return "", err
+	}
+	if found {
+		values, err := readEnvFile(envPath)
+		if err != nil {
+			return "", fmt.Errorf("could not read backend/.env: %w", err)
+		}
+		for _, key := range []string{"SYSTEM_MONITOR_AUTHORIZATION_DATABASE_URL", "DATABASE_URL"} {
+			if value := strings.TrimSpace(values[key]); value != "" {
+				return value, nil
+			}
+		}
+	}
+	return "", errors.New("SYSTEM_MONITOR_AUTHORIZATION_DATABASE_URL is required; set it in the shell or define it (or DATABASE_URL) in backend/.env")
+}
+
+func findBackendEnvFile(startDir string) (string, bool, error) {
+	dir, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", false, errors.New("could not resolve current directory")
+	}
+
+	for {
+		candidate := filepath.Join(dir, "backend", ".env")
+		if filepath.Base(dir) == "backend" {
+			candidate = filepath.Join(dir, ".env")
+		}
+		info, err := os.Stat(candidate)
+		if err == nil {
+			if !info.Mode().IsRegular() {
+				return "", false, errors.New("backend/.env is not a regular file")
+			}
+			return candidate, true, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", false, errors.New("could not access backend/.env")
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", false, nil
+}
+
+func readEnvFile(path string) (map[string]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("file could not be opened")
+	}
+	defer func() { _ = file.Close() }()
+
+	values := make(map[string]string)
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 4096), 1024*1024)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		key, rawValue, found := strings.Cut(line, "=")
+		key = strings.TrimSpace(key)
+		if !found || !envKeyPattern.MatchString(key) {
+			return nil, fmt.Errorf("invalid assignment on line %d", lineNumber)
+		}
+		value, err := parseEnvValue(rawValue)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value syntax on line %d", lineNumber)
+		}
+		values[key] = value
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, errors.New("file could not be read")
+	}
+	return values, nil
+}
+
+func parseEnvValue(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", nil
+	}
+	switch value[0] {
+	case '"':
+	case '\'':
+	default:
+		if comment := strings.Index(value, " #"); comment >= 0 {
+			value = strings.TrimSpace(value[:comment])
+		}
+		return value, nil
+	}
+
+	quote := value[0]
+	escaped := false
+	for index := 1; index < len(value); index++ {
+		character := value[index]
+		if quote == '"' && escaped {
+			escaped = false
+			continue
+		}
+		if quote == '"' && character == '\\' {
+			escaped = true
+			continue
+		}
+		if character != quote {
+			continue
+		}
+		suffix := strings.TrimSpace(value[index+1:])
+		if suffix != "" && !strings.HasPrefix(suffix, "#") {
+			return "", errors.New("unexpected text after quoted value")
+		}
+		if quote == '\'' {
+			return value[1:index], nil
+		}
+		unquoted, err := strconv.Unquote(value[:index+1])
+		if err != nil {
+			return "", err
+		}
+		return unquoted, nil
+	}
+	return "", errors.New("unclosed quoted value")
 }
 
 func parseRequest(args []string) (any, error) {
