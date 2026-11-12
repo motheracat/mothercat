@@ -2,10 +2,10 @@
 
 ## Status and scope
 
-This document describes the API the frontend needs to replace its current
-browser-local demo for job opportunities and IT/SIWES placements. The paths and
-payloads below are a **proposed contract for backend coordination**, not
-implemented or verified backend endpoints.
+This document records the API contract used by the opportunities and SIWES
+frontend. The backend handlers and database migration are implemented in the
+Go monolith; deployment-specific security settings and staging acceptance
+remain operational requirements.
 
 The current frontend:
 
@@ -16,13 +16,18 @@ The current frontend:
 - Lets a student submit an SIWES application with contact, institution, course,
   matriculation, message, and supporting-document fields.
 - Shows submitted applications to authorized reviewers in the workspace.
-- Stores demo opportunity/application records in `localStorage` under
-  `mothercat:opportunities-demo:v1`. The selected document is **not uploaded or
-  stored**, only its name, MIME type, and size are included in demo metadata.
+- Loads opportunities and applications from the backend API. It does not seed,
+  read, or write opportunity or applicant records in browser storage.
+- Refreshes public listings every 60 seconds and workspace lists every 30
+  seconds while the page is visible, and refreshes again when the page regains
+  focus. This is near-real-time polling; the API does not currently push events
+  to connected browsers.
 
-The frontend must remove demo persistence, demo seed data, and demo-mode
-warnings when the backend contract is implemented. No real student data or
-documents should be written to browser storage.
+Student submission is SIWES-only. Applicants may provide a CV or SIWES
+introduction letter in PDF, DOC, or DOCX format, up to 10 MiB. Job candidates
+continue through the Contact route. Application status emails are not currently
+sent. No applicant personal information or document is written to browser
+storage.
 
 ## Existing frontend routes and permissions
 
@@ -34,9 +39,9 @@ documents should be written to browser storage.
 | Review job applications | `/opportunities/manage` | `applications.review` |
 | Review IT/SIWES applications | `/opportunities/manage` | `it_applications.review` |
 
-Workspace authorization is also required on the backend; hiding controls in the
-frontend is not an authorization boundary. The existing permission keys are
-already declared in `src/lib/auth/permissions.ts`.
+Workspace authorization is enforced by the backend; hiding controls in the
+frontend is not an authorization boundary. The permission keys are declared in
+`src/lib/auth/permissions.ts`.
 
 ## API conventions
 
@@ -54,8 +59,8 @@ already declared in `src/lib/auth/permissions.ts`.
   `{ "error": { "code": "invalid_request", "message": "...", "request_id": "..." } }`.
   The frontend should display safe error messages and retain the request ID for
   support.
-- All mutation endpoints must validate authorization, request origin, input,
-  document type and size on the server.
+- All mutation endpoints validate authorization, request origin, input,
+  document type, and size on the server.
 
 ## Opportunity object
 
@@ -83,11 +88,8 @@ Suggested enums:
 - `type`: `job`, `siwes`
 - `status`: `draft`, `published`, `closed`
 
-The current demo uses `workMode` and `deadline`; API parsing should map the
-proposed snake_case fields to those frontend names, or agree on one canonical
-shape before implementation. Published public results should exclude drafts and
-closed opportunities. Define whether expired deadlines are automatically hidden
-or returned with a closed status.
+The frontend and API use the canonical snake_case fields shown above. Published
+public results exclude drafts, closed, and expired opportunities.
 
 ## Opportunity endpoints
 
@@ -235,70 +237,51 @@ opportunity-list response.
   `it_applications.review` and returns the full private application metadata.
 - `PATCH /api/v1/siwes-applications/{applicationId}` requires
   `it_applications.review`; accept a review status and optional reviewer note.
-- Suggested statuses: `submitted`, `under_review`, `shortlisted`, `accepted`,
-  `rejected`, `withdrawn`. Confirm the allowed transitions and whether the
-  applicant should receive email/status updates.
+- Statuses: `submitted`, `under_review`, `shortlisted`, `accepted`, and
+  `rejected`, with transitions enforced by the backend. Applicant status emails
+  are not currently sent.
 - `GET /api/v1/siwes-applications/{applicationId}/document` requires
   `it_applications.review` and returns the document as a protected download
   (or a short-lived signed URL created only after authorization).
 - Reviewer list responses should include `document` metadata and pagination,
   but must not expose a permanent public document URL.
 
-The current demo management UI only lists application details. To provide a
-complete reviewer workflow, add application detail/status controls and a
-protected document-download action when the API contract is agreed.
+The reviewer UI shows application detail, permits allowed status changes and
+reviewer notes, and downloads documents through the permission-protected API.
 
 ## Job application decision
 
-The current public job card links to `/contact`; it does not collect a job
-application. The workspace already has the `applications.review` permission,
-but a backend job-application workflow has not been specified.
-
-Before implementing job applications, decide whether candidates:
-
-1. Apply through an external recruitment system/contact channel (no job
-   application endpoints needed), or
-2. Submit through Mothercat (requires a public application form, document
-   requirements, and endpoints parallel to the SIWES flow).
-
-If option 2 is selected, define whether job and SIWES applications share one
-table/API and one document policy. Do not silently route job applications to
-the SIWES endpoint.
+The public job card continues to direct candidates to `/contact`. The
+`applications.review` permission remains available for a future, separately
+specified job-application workflow; job submissions are not routed through the
+SIWES API.
 
 ## Frontend proxy and upload requirements
 
-The existing proxy at `src/app/api/v1/[...path]/route.ts` forwards supported
-methods and validates same-origin writes. Its current default mutation body
-limit is 16 KiB, with larger exceptions only for staff CSV and profile-picture
-uploads. A 10 MiB SIWES document plus multipart envelope will be rejected
-unless the proxy adds a named bounded upload exception for the exact SIWES
-application route.
+The proxy at `src/app/api/v1/[...path]/route.ts` forwards supported methods
+and validates same-origin writes. JSON requests retain the 16 KiB default
+limit. The exact SIWES application route has a bounded 10 MiB plus 64 KiB
+multipart limit and a longer upstream timeout. Multipart requests use the
+browser-generated boundary; the proxy forwards only the staff session cookie
+when present.
 
-Before enabling student uploads:
+## Implementation and release checklist
 
-- Agree on the backend file limit and multipart envelope allowance.
-- Add a route-specific limit (file max plus bounded multipart overhead) and
-  keep bounded streaming reads; do not remove body-size limits.
-- Coordinate upstream timeout with the backend owner; do not remove timeouts.
-- Continue forwarding only allowed session cookies and content type through the
-  same-origin proxy.
-- Decide whether public multipart writes need additional CSRF/origin policy
-  beyond the existing same-origin guard.
+- [x] Backend public opportunity list, management list, detail, create, update,
+  publish, unpublish, and close endpoints.
+- [x] Backend SIWES submission, paginated review list, detail, status/note
+  update, and permission-protected document download.
+- [x] Frontend API client and removal of browser-local demo store and seed data.
+- [x] Public SIWES multipart submission and protected workspace review UI.
+- [x] Exact-route bounded upload allowance and proxy regression coverage.
+- [x] Loading/error states, cancellation, pagination, and periodic visible-page
+  refreshes.
+- [ ] Run frontend lint, typecheck, tests, and production build in CI.
+- [ ] Run backend tests/build and test public, permission-denial, scanner,
+  review, and document-access paths against isolated staging.
+- [ ] Configure `SIWES_CLAMAV_ADDR` and verify scan-failure behavior before
+  accepting real student uploads.
+- [ ] Verify database backups and the 365-day retention job in staging.
 
-## Suggested frontend integration checklist
-
-1. Confirm this proposed contract with the backend owner and publish the final
-   endpoint schema/OpenAPI spec.
-2. Add route builders and an `src/lib/opportunities/api.ts` client using the
-   established same-origin fetch/retry/error patterns.
-3. Replace `demo-store.ts` use in the public listings and management screens.
-4. Add request cancellation, loading, empty, retry, and mutation feedback
-   states; handle `401`, `403`, validation, conflict, rate-limit, and file-size
-   errors explicitly.
-5. Add route-specific proxy upload limits and tests before using multipart
-   submission.
-6. Add protected reviewer detail and document download; never store the
-   uploaded `File` or its bytes in `localStorage`/`sessionStorage`.
-7. Verify public listings without a session, publish/review permissions,
-   cross-tab refresh behavior, mobile layouts, upload boundary handling, and
-   unauthorized document access.
+The `[x]` items describe implemented source code; they do not imply that the
+live deployment or production database has been independently verified.
