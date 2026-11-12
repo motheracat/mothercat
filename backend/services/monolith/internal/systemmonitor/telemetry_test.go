@@ -64,7 +64,11 @@ func TestMiddlewareRecordsTemplateOnlyAndEndpointHealth(t *testing.T) {
 		taskHealth.StatusDistribution[http.StatusInternalServerError] != 1 {
 		t.Fatalf("unexpected endpoint metrics: %#v", taskHealth)
 	}
-	if taskHealth.LatencyBuckets["<1000ms"]+taskHealth.LatencyBuckets[">=1000ms"] != 1 {
+	var latencyCount uint64
+	for _, count := range taskHealth.LatencyBuckets {
+		latencyCount += count
+	}
+	if latencyCount != 1 {
 		t.Fatalf("request missing from latency histogram: %#v", taskHealth.LatencyBuckets)
 	}
 }

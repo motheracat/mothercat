@@ -227,10 +227,57 @@ The operator identifier and approval reference are recorded as supplied; the
 command does not independently authenticate the named operator or validate an
 approval ticket. The security boundary is the restricted authorization
 database credential and the out-of-band approval process. Do not use the CLI
-until those controls and database grants are provisioned. The `HasAccess`
-backend check is intended for future System Monitor handlers and fails closed
-on database errors; no System Monitor HTTP endpoints or UI are enabled by this
-change.
+until those controls and database grants are provisioned. System Monitor
+read-only endpoints require both a staff session and an active independent
+grant. The System Monitor endpoint APIs are:
+
+- `GET /api/v1/system-monitor/overview`
+- `GET /api/v1/system-monitor/endpoints`
+- `GET /api/v1/system-monitor/events?limit=50`
+- `GET /api/v1/system-monitor/endpoints/history?limit=50`
+- `POST /api/v1/system-monitor/endpoints/pause`
+- `POST /api/v1/system-monitor/endpoints/resume`
+
+Migration `016_system_monitor_endpoint_controls` stores current pause state and
+append-only pause/resume/expiry history. Apply it after migration 015 and grant
+the API runtime database role `USAGE` on the `system_monitor` schema,
+`SELECT`, `INSERT`, `UPDATE`, and `DELETE` on
+`system_monitor.endpoint_controls`, and `SELECT`/`INSERT` on
+`system_monitor.endpoint_control_history` before deploying endpoint controls.
+Keep the migration and runtime credentials distinct.
+
+Pause requests identify a catalogued HTTP method and route template, require a
+reason and an expiration (maximum 30 days), and may set a custom HTTP status
+from 400 through 599 and a response message up to 500 characters. A missing
+status defaults to 503; a missing/blank message uses the standard maintenance
+message. For example:
+
+```json
+{
+  "method": "GET",
+  "route": "/api/v1/tasks/{taskID}",
+  "reason": "Approved change CHG-123",
+  "response_status": 503,
+  "response_message": "Tasks are temporarily unavailable.",
+  "expires_at": "2026-11-20T12:00:00Z"
+}
+```
+
+Send the JSON body to the pause route with the `mothercat_session` cookie,
+`Content-Type: application/json`, and `X-System-Monitor-Action: confirm`.
+Resume accepts `method`, `route`, and a reason. The API enforces pauses in
+server-side middleware and returns a bounded JSON maintenance response with
+`Retry-After`; the database is authoritative and cache refresh between API
+replicas is bounded to one second. A control-store read failure fails closed
+for pausable application routes.
+
+Health checks, authentication and applicant identity routes, internal
+provisioning routes, and all System Monitor routes are explicitly non-pausable
+to avoid locking out access or disabling recovery. Unknown/unregistered routes
+are not controllable. A background expiry job runs every 15 seconds and writes
+an `expired` history record; the expiration timestamp is also checked in the
+request middleware, so an endpoint becomes available at its expiry even if the
+job is delayed. There is no frontend control page yet.
 
 ## Account suspension and authentication safeguards
 

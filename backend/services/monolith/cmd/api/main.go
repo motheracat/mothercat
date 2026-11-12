@@ -114,6 +114,7 @@ func run(logger *slog.Logger) error {
 		},
 	)
 	systemMonitorEngine := systemmonitor.NewEngine()
+	systemMonitorEngine.SetControlStore(db, logger)
 	systemMonitorHandler := systemmonitor.NewHandler(
 		db, systemMonitorEngine, systemMonitorAuthenticator{service: authService}, logger,
 	)
@@ -152,6 +153,11 @@ func run(logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	endpointControlDone := make(chan struct{})
+	go func() {
+		defer close(endpointControlDone)
+		systemmonitor.RunEndpointControlExpiry(ctx, db, logger)
+	}()
 	dispatcherDone := make(chan struct{})
 	go func() {
 		defer close(dispatcherDone)
@@ -181,12 +187,14 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			_ = server.Close()
+			<-endpointControlDone
 			<-dispatcherDone
 			<-reminderDone
 			<-retentionDone
 			<-applicationEmailDone
 			return fmt.Errorf("graceful HTTP shutdown: %w", err)
 		}
+		<-endpointControlDone
 		<-dispatcherDone
 		<-reminderDone
 		<-retentionDone
@@ -194,6 +202,7 @@ func run(logger *slog.Logger) error {
 		return nil
 	case err := <-serverErrors:
 		stop()
+		<-endpointControlDone
 		<-dispatcherDone
 		<-reminderDone
 		<-retentionDone

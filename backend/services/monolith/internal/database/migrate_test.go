@@ -6,111 +6,71 @@ import (
 )
 
 func TestAdminTaskStatusMigrationIsRegisteredAndAddsQueriedColumns(t *testing.T) {
-	const version = "013_admin_task_status"
-	const path = "migrations/013_admin_task_status.sql"
-
-	previousIndex := -1
-	index := -1
-	for i, item := range allMigrations {
-		if item.version == "012_applicant_identity" {
-			previousIndex = i
-		}
-		if item.version == version && item.path == path {
-			index = i
-		}
-	}
-	if index < 0 {
-		t.Fatalf("migration %q at %q is not registered", version, path)
-	}
-	if previousIndex < 0 || index <= previousIndex {
-		t.Fatalf("migration %q must be registered after migration 012_applicant_identity", version)
-	}
-
-	script, err := migrations.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read embedded migration %q: %v", version, err)
-	}
-	for _, column := range []string{
-		"ADD COLUMN admin_status",
-		"ADD COLUMN admin_status_updated_by",
-		"ADD COLUMN admin_status_updated_at",
-	} {
-		if !strings.Contains(string(script), column) {
-			t.Errorf("migration %q does not contain %q", version, column)
-		}
-	}
+	assertMigrationRegisteredAfter(t, "013_admin_task_status", "migrations/013_admin_task_status.sql",
+		"012_applicant_identity", []string{
+			"ADD COLUMN admin_status",
+			"ADD COLUMN admin_status_updated_by",
+			"ADD COLUMN admin_status_updated_at",
+		})
 }
 
 func TestSiwesEmailOutboxMigrationIsRegisteredAfterApplicationSchema(t *testing.T) {
-	const version = "014_siwes_email_outbox"
-	const path = "migrations/014_siwes_email_outbox.sql"
+	assertMigrationRegisteredAfter(t, "014_siwes_email_outbox", "migrations/014_siwes_email_outbox.sql",
+		"013_admin_task_status", []string{
+			"application_id uuid NOT NULL",
+			"status varchar(24) NOT NULL",
+			"available_at timestamptz NOT NULL",
+			"processed_at timestamptz",
+			"UNIQUE (application_id, status)",
+		})
+}
 
-	previousIndex := -1
-	index := -1
-	for i, item := range allMigrations {
-		if item.version == "013_admin_task_status" {
-			previousIndex = i
-		}
-		if item.version == version && item.path == path {
-			index = i
-		}
-	}
-
-	func TestSystemMonitorAccessMigrationIsRegisteredAfterExistingMigrations(t *testing.T) {
-		const version = "015_system_monitor_access"
-		const path = "migrations/015_system_monitor_access.sql"
-
-		previousIndex := -1
-		index := -1
-		for i, item := range allMigrations {
-			if item.version == "014_siwes_email_outbox" {
-				previousIndex = i
-			}
-			if item.version == version && item.path == path {
-				index = i
-			}
-		}
-		if index < 0 || previousIndex < 0 || index <= previousIndex {
-			t.Fatalf("migration %q must be registered after 014_siwes_email_outbox", version)
-		}
-
-		script, err := migrations.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read embedded migration %q: %v", version, err)
-		}
-		for _, expected := range []string{
+func TestSystemMonitorAccessMigrationIsRegisteredAfterExistingMigrations(t *testing.T) {
+	assertMigrationRegisteredAfter(t, "015_system_monitor_access", "migrations/015_system_monitor_access.sql",
+		"014_siwes_email_outbox", []string{
 			"CREATE SCHEMA IF NOT EXISTS system_monitor",
 			"CREATE TABLE system_monitor.access_grants",
 			"granted_by varchar(200) NOT NULL",
 			"expires_at timestamptz NOT NULL",
 			"revoked_at timestamptz",
-			"WHERE revoked_at IS NULL",
-		} {
-			if !strings.Contains(string(script), expected) {
-				t.Errorf("migration %q does not contain %q", version, expected)
-			}
+		})
+}
+
+func TestSystemMonitorEndpointControlsMigrationIsRegisteredAfterAccessGrants(t *testing.T) {
+	assertMigrationRegisteredAfter(t, "016_system_monitor_endpoint_controls",
+		"migrations/016_system_monitor_endpoint_controls.sql", "015_system_monitor_access", []string{
+			"CREATE TABLE system_monitor.endpoint_controls",
+			"PRIMARY KEY (method, route)",
+			"response_status integer NOT NULL DEFAULT 503",
+			"expires_at timestamptz NOT NULL",
+			"CREATE TABLE system_monitor.endpoint_control_history",
+			"action IN ('paused', 'resumed', 'expired')",
+			"actor_type IN ('staff', 'system')",
+		})
+}
+
+func assertMigrationRegisteredAfter(t *testing.T, version, path, previousVersion string, expected []string) {
+	t.Helper()
+	previousIndex := -1
+	index := -1
+	for i, item := range allMigrations {
+		if item.version == previousVersion {
+			previousIndex = i
+		}
+		if item.version == version && item.path == path {
+			index = i
 		}
 	}
-	if index < 0 {
-		t.Fatalf("migration %q at %q is not registered", version, path)
+	if index < 0 || previousIndex < 0 || index <= previousIndex {
+		t.Fatalf("migration %q must be registered after %q", version, previousVersion)
 	}
-	if previousIndex < 0 || index <= previousIndex {
-		t.Fatalf("migration %q must be registered after migration 013_admin_task_status", version)
-	}
-
 	script, err := migrations.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read embedded migration %q: %v", version, err)
 	}
-	for _, column := range []string{
-		"application_id uuid NOT NULL",
-		"status varchar(24) NOT NULL",
-		"available_at timestamptz NOT NULL",
-		"processed_at timestamptz",
-		"UNIQUE (application_id, status)",
-	} {
-		if !strings.Contains(string(script), column) {
-			t.Errorf("migration %q does not contain %q", version, column)
+	for _, value := range expected {
+		if !strings.Contains(string(script), value) {
+			t.Errorf("migration %q does not contain %q", version, value)
 		}
 	}
 }

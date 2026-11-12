@@ -20,6 +20,7 @@ func newEndpointCatalog() *endpointCatalog {
 		parts := strings.SplitN(pattern, " ", 2)
 		endpoint := Endpoint{
 			Method: parts[0], Route: parts[1], Description: description, Controller: controller,
+			Pausable: !protectedEndpoint(parts[0], parts[1]),
 		}
 		catalog.endpoints[pattern] = endpoint
 		catalog.mux.HandleFunc(pattern, func(http.ResponseWriter, *http.Request) {})
@@ -110,7 +111,24 @@ func newEndpointCatalog() *endpointCatalog {
 	register("GET /api/v1/system-monitor/overview", "Read live process and database health", "system-monitor")
 	register("GET /api/v1/system-monitor/endpoints", "Read the endpoint registry and health", "system-monitor")
 	register("GET /api/v1/system-monitor/events", "Read recent process-local system events", "system-monitor")
+	register("POST /api/v1/system-monitor/endpoints/pause", "Temporarily pause an application endpoint", "system-monitor")
+	register("POST /api/v1/system-monitor/endpoints/resume", "Resume a paused application endpoint", "system-monitor")
+	register("GET /api/v1/system-monitor/endpoints/history", "Read endpoint control history", "system-monitor")
 	return catalog
+}
+
+func protectedEndpoint(method, route string) bool {
+	for _, prefix := range []string{
+		"/health/",
+		"/api/v1/auth/",
+		"/internal/",
+		"/api/v1/system-monitor/",
+	} {
+		if strings.HasPrefix(route, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *endpointCatalog) Resolve(method, path string) (Endpoint, bool) {
@@ -120,6 +138,11 @@ func (c *endpointCatalog) Resolve(method, path string) (Endpoint, bool) {
 	}
 	_, pattern := c.mux.Handler(request)
 	endpoint, exists := c.endpoints[pattern]
+	return endpoint, exists
+}
+
+func (c *endpointCatalog) Lookup(method, route string) (Endpoint, bool) {
+	endpoint, exists := c.endpoints[endpointKey(Endpoint{Method: method, Route: route})]
 	return endpoint, exists
 }
 

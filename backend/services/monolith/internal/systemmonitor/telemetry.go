@@ -3,8 +3,11 @@ package systemmonitor
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +32,13 @@ type Endpoint struct {
 	Route       string `json:"route"`
 	Description string `json:"description"`
 	Controller  string `json:"controller"`
+	Pausable    bool   `json:"pausable"`
+}
+
+type EndpointControl struct {
+	ResponseStatus  int       `json:"response_status"`
+	ResponseMessage string    `json:"response_message"`
+	ExpiresAt       time.Time `json:"expires_at"`
 }
 
 type Event struct {
@@ -42,14 +52,18 @@ type Event struct {
 
 type EndpointHealth struct {
 	Endpoint
-	Status             string            `json:"health"`
-	Requests           uint64            `json:"requests"`
-	FailedRequests     uint64            `json:"failed_requests"`
-	ErrorRate          float64           `json:"error_rate"`
-	LastStatus         int               `json:"last_status,omitempty"`
-	LastRequestAt      *time.Time        `json:"last_request_at,omitempty"`
-	StatusDistribution map[int]uint64 `json:"status_distribution"`
-	LatencyBuckets     map[string]uint64 `json:"latency_buckets"`
+	Status              string            `json:"health"`
+	Requests            uint64            `json:"requests"`
+	FailedRequests      uint64            `json:"failed_requests"`
+	ErrorRate           float64           `json:"error_rate"`
+	LastStatus          int               `json:"last_status,omitempty"`
+	LastRequestAt       *time.Time        `json:"last_request_at,omitempty"`
+	StatusDistribution  map[int]uint64    `json:"status_distribution"`
+	LatencyBuckets      map[string]uint64 `json:"latency_buckets"`
+	Paused              bool              `json:"paused"`
+	PausedUntil         *time.Time        `json:"paused_until,omitempty"`
+	PauseStatus         int               `json:"pause_status,omitempty"`
+	PauseMessage        string            `json:"pause_message,omitempty"`
 }
 
 type Overview struct {
@@ -90,6 +104,12 @@ type Engine struct {
 	catalog   *endpointCatalog
 	mu        sync.RWMutex
 	metrics   map[string]*endpointMetric
+	controlMu  sync.Mutex
+	controlDB  *sql.DB
+	logger     *slog.Logger
+	controls   map[string]EndpointControl
+	controlErr error
+	controlAt  time.Time
 	events    [eventCapacity]Event
 	eventHead int
 	eventSize int
@@ -112,27 +132,149 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		}
 		writer := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		started := time.Now()
+		if endpoint.Pausable {
+			controls, err := e.activeControls()
+			if err != nil && e.logger != nil {
+				e.logger.WarnContext(r.Context(), "load endpoint controls", "error", err)
+			}
+			control, paused := controls[endpointKey(endpoint)]
+			if err != nil && (!paused || !control.ExpiresAt.After(time.Now())) {
+				writer.Header().Set("Cache-Control", "no-store")
+				writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+				writer.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(writer).Encode(map[string]any{
+					"error": map[string]string{"code": "endpoint_controls_unavailable"},
+				})
+				e.record(endpoint, writer.status, time.Since(started), time.Now().UTC())
+				return
+			}
+			if paused && control.ExpiresAt.After(time.Now()) {
+				writer.Header().Set("Cache-Control", "no-store")
+				writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+				retryAfter := int(time.Until(control.ExpiresAt).Seconds())
+				if retryAfter < 1 {
+					retryAfter = 1
+				}
+				writer.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+				writer.WriteHeader(control.ResponseStatus)
+				_ = json.NewEncoder(writer).Encode(map[string]any{
+					"error": map[string]string{
+						"code": "endpoint_paused", "message": control.ResponseMessage,
+					},
+					"expires_at": control.ExpiresAt,
+				})
+				e.record(endpoint, writer.status, time.Since(started), time.Now().UTC())
+				return
+			}
+		}
 		next.ServeHTTP(writer, r)
 		e.record(endpoint, writer.status, time.Since(started), time.Now().UTC())
 	})
 }
 
+func (e *Engine) SetControlStore(db *sql.DB, logger *slog.Logger) {
+	e.controlMu.Lock()
+	defer e.controlMu.Unlock()
+	e.controlDB = db
+	e.logger = logger
+	e.controlAt = time.Time{}
+}
+
+func (e *Engine) InvalidateControlCache() {
+	e.controlMu.Lock()
+	e.controlAt = time.Time{}
+	e.controlMu.Unlock()
+}
+
+func (e *Engine) activeControls() (map[string]EndpointControl, error) {
+	e.controlMu.Lock()
+	defer e.controlMu.Unlock()
+	if time.Since(e.controlAt) < time.Second {
+		return e.controls, e.controlErr
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return e.loadControlsLocked(ctx)
+}
+
+func (e *Engine) RefreshControls(ctx context.Context) error {
+	e.controlMu.Lock()
+	defer e.controlMu.Unlock()
+	_, err := e.loadControlsLocked(ctx)
+	return err
+}
+
+func (e *Engine) loadControlsLocked(ctx context.Context) (map[string]EndpointControl, error) {
+	if e.controlDB == nil {
+		e.controls = nil
+		e.controlErr = nil
+		e.controlAt = time.Now()
+		return e.controls, nil
+	}
+	rows, err := e.controlDB.QueryContext(ctx, `
+		SELECT method, route, response_status, response_message, expires_at
+		FROM system_monitor.endpoint_controls
+		WHERE expires_at > now()
+	`)
+	if err != nil {
+		e.controlErr = err
+		e.controlAt = time.Now()
+		return e.controls, err
+	}
+	controls := make(map[string]EndpointControl)
+	for rows.Next() {
+		var method, route, message string
+		var control EndpointControl
+		if err := rows.Scan(&method, &route, &control.ResponseStatus, &message, &control.ExpiresAt); err != nil {
+			_ = rows.Close()
+			e.controlErr = err
+			e.controlAt = time.Now()
+			return e.controls, err
+		}
+		control.ResponseMessage = message
+		controls[method+" "+route] = control
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		e.controlErr = err
+		e.controlAt = time.Now()
+		return e.controls, err
+	}
+	if err := rows.Close(); err != nil {
+		e.controlErr = err
+		e.controlAt = time.Now()
+		return e.controls, err
+	}
+	e.controls = controls
+	e.controlErr = nil
+	e.controlAt = time.Now()
+	return e.controls, nil
+}
+
 func (e *Engine) Endpoints() []EndpointHealth {
 	catalogEndpoints := e.catalog.Endpoints()
 	now := time.Now()
+	controls, _ := e.activeControls()
 	result := make([]EndpointHealth, 0, len(catalogEndpoints))
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	for _, endpoint := range catalogEndpoints {
 		health := EndpointHealth{
-			Endpoint: endpoint,
-			Status: "unobserved",
+			Endpoint:           endpoint,
+			Status:             "unobserved",
 			StatusDistribution: make(map[int]uint64),
-			LatencyBuckets: map[string]uint64{
+			LatencyBuckets:     map[string]uint64{
 				"<10ms": 0, "<50ms": 0, "<100ms": 0, "<500ms": 0, "<1000ms": 0, ">=1000ms": 0,
 			},
 		}
 		metric := e.metrics[endpointKey(endpoint)]
+		if control, paused := controls[endpointKey(endpoint)]; paused && control.ExpiresAt.After(now) {
+			expiresAt := control.ExpiresAt
+			health.Paused = true
+			health.PausedUntil = &expiresAt
+			health.PauseStatus = control.ResponseStatus
+			health.PauseMessage = control.ResponseMessage
+		}
 		if metric != nil {
 			health.Requests = metric.requests
 			health.FailedRequests = metric.failedRequests
@@ -186,9 +328,9 @@ func (e *Engine) Events(limit int) []Event {
 
 func (e *Engine) Overview(ctx context.Context, db *sql.DB) Overview {
 	result := Overview{
-		StartedAt: e.startedAt,
+		StartedAt:     e.startedAt,
 		UptimeSeconds: int64(time.Since(e.startedAt).Seconds()),
-		EndpointCount: len(e.catalog.Endpoints()),
+		EndpointCount:  len(e.catalog.Endpoints()),
 		DatabaseStatus: "unavailable",
 	}
 	if db == nil {
