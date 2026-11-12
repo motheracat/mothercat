@@ -1,36 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, BriefcaseBusiness, GraduationCap, MapPin } from "lucide-react";
 import Link from "next/link";
 
 import { Dialog } from "@/components/workspace/dialog";
 import {
-  createDemoApplication,
-  opportunityStoreEvent,
-  readOpportunityDemoData,
-  writeOpportunityDemoData,
+  formatOpportunityError,
+  listPublicOpportunities,
+  submitSiwesApplication,
   type Opportunity,
-  type OpportunityDemoData,
-} from "@/lib/opportunities/demo-store";
+} from "@/lib/opportunities/api";
 
 type ApplicationForm = {
-  fullName: string;
+  full_name: string;
   email: string;
   phone: string;
   institution: string;
   course: string;
-  matricNumber: string;
+  matric_number: string;
   message: string;
 };
 
 const emptyApplication: ApplicationForm = {
-  fullName: "",
+  full_name: "",
   email: "",
   phone: "",
   institution: "",
   course: "",
-  matricNumber: "",
+  matric_number: "",
   message: "",
 };
 
@@ -39,91 +37,107 @@ const allowedDocumentTypes = new Set([
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
-const maxDemoDocumentBytes = 10 * 1024 * 1024;
+const maxDocumentBytes = 10 * 1024 * 1024;
+const refreshIntervalMs = 60_000;
 
 function isAllowedDocument(file: File) {
-  const extensionAllowed = /\.(pdf|doc|docx)$/i.test(file.name);
-  return extensionAllowed && (!file.type || allowedDocumentTypes.has(file.type));
+  return /\.(pdf|doc|docx)$/i.test(file.name) && (!file.type || allowedDocumentTypes.has(file.type));
+}
+
+function formatDeadline(value: string | null) {
+  if (!value) return "No deadline";
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
 }
 
 export function OpportunityListings() {
-  const [data, setData] = useState<OpportunityDemoData | null>(null);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
   const [application, setApplication] = useState(emptyApplication);
-  const [document, setDocument] = useState<File | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const requestRef = useRef<AbortController | null>(null);
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
     try {
-      setData(readOpportunityDemoData());
-      setLoadError(null);
+      const result = await listPublicOpportunities({ limit: 100 }, controller.signal);
+      if (!controller.signal.aborted) {
+        setOpportunities(result.opportunities.filter((item) => item.status === "published"));
+        setLoadError(null);
+      }
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Unable to load current opportunities.");
+      if (!controller.signal.aborted) setLoadError(formatOpportunityError(error, "Unable to load current opportunities."));
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void Promise.resolve().then(refresh);
-    window.addEventListener(opportunityStoreEvent, refresh);
-    window.addEventListener("storage", refresh);
+    void refresh();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, refreshIntervalMs);
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") void refresh();
+    }
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
-      window.removeEventListener(opportunityStoreEvent, refresh);
-      window.removeEventListener("storage", refresh);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      requestRef.current?.abort();
     };
   }, [refresh]);
 
   function openApplication(opportunity: Opportunity) {
     setSelectedOpportunity(opportunity);
     setApplication(emptyApplication);
-    setDocument(null);
+    setSelectedFile(null);
     setSubmitted(false);
     setFormError(null);
   }
 
-  function submitApplication(event: FormEvent<HTMLFormElement>) {
+  async function submitApplication(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedOpportunity || !data || !document) {
-      setFormError("Select your CV or SIWES introduction letter before submitting.");
+    if (!selectedOpportunity || !selectedFile) {
+      setFormError("Select your SIWES introduction letter before submitting.");
       return;
     }
-    if (!isAllowedDocument(document)) {
+    if (!isAllowedDocument(selectedFile)) {
       setFormError("Choose a PDF, DOC, or DOCX document.");
       return;
     }
-    if (document.size === 0 || document.size > maxDemoDocumentBytes) {
-      setFormError("The document must be non-empty and no larger than 10 MB.");
+    if (selectedFile.size === 0 || selectedFile.size > maxDocumentBytes) {
+      setFormError("The document must be non-empty and no larger than 10 MiB.");
       return;
     }
 
+    setSubmitting(true);
+    setFormError(null);
     try {
-      const newApplication = createDemoApplication({
-        opportunityId: selectedOpportunity.id,
-        opportunityTitle: selectedOpportunity.title,
-        type: selectedOpportunity.type,
-        ...application,
-        fileName: document.name,
-        fileType: document.type,
-        fileSize: document.size,
-      });
-      writeOpportunityDemoData({
-        ...data,
-        applications: [newApplication, ...data.applications],
-      });
+      await submitSiwesApplication(selectedOpportunity.id, { ...application, document: selectedFile });
       setSubmitted(true);
-      setFormError(null);
-    } catch {
-      setFormError("Unable to save this demo application in browser storage.");
+      void refresh();
+    } catch (error) {
+      setFormError(formatOpportunityError(error, "Unable to submit your application."));
+    } finally {
+      setSubmitting(false);
     }
   }
 
-  const published = data?.opportunities.filter((opportunity) => opportunity.status === "published") ?? [];
-  const jobs = published.filter((opportunity) => opportunity.type === "job");
-  const placements = published.filter((opportunity) => opportunity.type === "siwes");
+  const jobs = opportunities.filter((opportunity) => opportunity.type === "job");
+  const placements = opportunities.filter((opportunity) => opportunity.type === "siwes");
 
-  function renderCards(opportunities: Opportunity[], type: Opportunity["type"]) {
-    if (!opportunities.length) {
+  function renderCards(items: Opportunity[], type: Opportunity["type"]) {
+    if (!items.length) {
       return (
         <p className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-sm leading-6 text-slate-600">
           {type === "job" ? "There are no open job opportunities right now." : "There are no SIWES placements open right now."}
@@ -132,7 +146,7 @@ export function OpportunityListings() {
     }
     return (
       <div className="grid gap-4">
-        {opportunities.map((opportunity) => (
+        {items.map((opportunity) => (
           <article key={opportunity.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -154,12 +168,12 @@ export function OpportunityListings() {
               </summary>
               <div className="mt-3 space-y-3 text-sm leading-6 text-slate-600">
                 <p>{opportunity.description}</p>
-                <p><span className="font-semibold text-[#0f1b33]">Requirements:</span> {opportunity.requirements}</p>
+                <p><span className="font-semibold text-[#0f1b33]">Requirements:</span> {opportunity.requirements || "No additional requirements listed."}</p>
               </div>
             </details>
             <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 text-sm sm:grid-cols-2">
-              <p><span className="font-semibold text-[#0f1b33]">Work arrangement:</span> {opportunity.workMode}</p>
-              <p><span className="font-semibold text-[#0f1b33]">Apply by:</span> {opportunity.deadline}</p>
+              <p><span className="font-semibold text-[#0f1b33]">Work arrangement:</span> {opportunity.work_mode}</p>
+              <p><span className="font-semibold text-[#0f1b33]">Apply by:</span> {formatDeadline(opportunity.application_deadline)}</p>
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
               {type === "siwes" ? (
@@ -189,16 +203,16 @@ export function OpportunityListings() {
 
   return (
     <>
-      <div role="note" className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-5 text-amber-950">
-        Demo listings: applications and document uploads are stored only in this browser and are not sent to Mothercat.
-      </div>
       {loadError ? (
-        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+        <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
           <p>{loadError}</p>
-          <button type="button" className="mt-2 font-semibold underline" onClick={refresh}>Try again</button>
+          <button type="button" className="mt-2 font-semibold underline" onClick={() => void refresh()}>Try again</button>
         </div>
-      ) : !data ? (
+      ) : null}
+      {loading ? (
         <p role="status" className="py-8 text-sm text-slate-600">Loading opportunities…</p>
+      ) : !opportunities.length && !loadError ? (
+        <p className="py-8 text-sm text-slate-600">No opportunities are currently open. Please check back soon.</p>
       ) : (
         <div className="space-y-12">
           <section aria-labelledby="job-openings-title">
@@ -220,29 +234,29 @@ export function OpportunityListings() {
       <Dialog
         open={selectedOpportunity !== null}
         title={selectedOpportunity ? `Apply: ${selectedOpportunity.title}` : "Apply for SIWES"}
-        onClose={() => setSelectedOpportunity(null)}
+        onClose={() => {
+          if (!submitting) setSelectedOpportunity(null);
+        }}
         actions={(
-          <button type="button" className="button-secondary" onClick={() => setSelectedOpportunity(null)}>
+          <button type="button" className="button-secondary" disabled={submitting} onClick={() => setSelectedOpportunity(null)}>
             {submitted ? "Done" : "Cancel"}
           </button>
         )}
       >
         {submitted ? (
           <div role="status" className="space-y-3">
-            <p className="font-semibold text-[var(--text)]">Demo application submitted.</p>
-            <p className="text-sm leading-6 text-[var(--muted)]">
-              Your application and the selected filename are saved locally in this browser for demonstration only. The document has not been uploaded to a server.
-            </p>
+            <p className="font-semibold text-[var(--text)]">Your application was submitted securely.</p>
+            <p className="text-sm leading-6 text-[var(--muted)]">Mothercat’s recruitment team can now review your application. Your personal details and document were sent to the application service, not saved in this browser.</p>
           </div>
         ) : selectedOpportunity ? (
-          <form className="grid gap-4" onSubmit={submitApplication}>
-            <div role="note" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
-              Demo only. Do not enter sensitive personal information; data and the document are not transmitted to Mothercat.
-            </div>
+          <form className="grid gap-4" onSubmit={(event) => void submitApplication(event)}>
+            <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-950">
+              Your details and SIWES introduction letter are submitted securely for recruitment review. Documents are checked before being stored.
+            </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="workspace-field">
                 <span className="field-label">Full name</span>
-                <input className="form-input" required maxLength={160} value={application.fullName} onChange={(event) => setApplication({ ...application, fullName: event.target.value })} />
+                <input className="form-input" required maxLength={160} value={application.full_name} onChange={(event) => setApplication({ ...application, full_name: event.target.value })} />
               </label>
               <label className="workspace-field">
                 <span className="field-label">Email</span>
@@ -262,7 +276,7 @@ export function OpportunityListings() {
               </label>
               <label className="workspace-field">
                 <span className="field-label">Matriculation number</span>
-                <input className="form-input" required maxLength={80} value={application.matricNumber} onChange={(event) => setApplication({ ...application, matricNumber: event.target.value })} />
+                <input className="form-input" required maxLength={80} value={application.matric_number} onChange={(event) => setApplication({ ...application, matric_number: event.target.value })} />
               </label>
               <label className="workspace-field sm:col-span-2">
                 <span className="field-label">Supporting document (CV or SIWES introduction letter)</span>
@@ -271,12 +285,13 @@ export function OpportunityListings() {
                   type="file"
                   accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   required
+                  disabled={submitting}
                   onChange={(event) => {
-                    setDocument(event.target.files?.[0] ?? null);
+                    setSelectedFile(event.target.files?.[0] ?? null);
                     setFormError(null);
                   }}
                 />
-                <span className="text-xs text-[var(--muted)]">PDF, DOC, or DOCX; up to 10 MB for this demo.</span>
+                <span className="text-xs text-[var(--muted)]">PDF, DOC, or DOCX; maximum 10 MiB. The server verifies file content and scans the document.</span>
               </label>
               <label className="workspace-field sm:col-span-2">
                 <span className="field-label">Message (optional)</span>
@@ -285,7 +300,9 @@ export function OpportunityListings() {
             </div>
             {formError ? <p role="alert" className="field-error">{formError}</p> : null}
             <div className="flex justify-end">
-              <button type="submit" className="button-primary">Submit demo application</button>
+              <button type="submit" className="button-primary" disabled={submitting}>
+                {submitting ? "Submitting securely…" : "Submit application"}
+              </button>
             </div>
           </form>
         ) : null}

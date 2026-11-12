@@ -1,6 +1,7 @@
 const maxJsonBodyBytes = 16 * 1024;
 const maxImportBodyBytes = 5 * 1024 * 1024 + 64 * 1024;
 const maxProfilePictureBodyBytes = 5 * 1024 * 1024 + 64 * 1024;
+const maxSiwesUploadBodyBytes = 10 * 1024 * 1024 + 64 * 1024;
 const hopByHopHeaders = new Set([
   "connection",
   "content-encoding",
@@ -152,11 +153,19 @@ export async function proxyApiRequest(
       pathSegments[0] === "staff" &&
       /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(pathSegments[1]) &&
       pathSegments[2] === "profile-picture";
+    const isSiwesApplicationUpload =
+      method === "POST" &&
+      pathSegments.length === 3 &&
+      pathSegments[0] === "opportunities" &&
+      /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(pathSegments[1]) &&
+      pathSegments[2] === "siwes-applications";
     const bodyLimit = isProfilePictureUpload
       ? maxProfilePictureBodyBytes
-      : pathSegments[0] === "staff" && pathSegments[1] === "imports"
-        ? maxImportBodyBytes
-        : maxJsonBodyBytes;
+      : isSiwesApplicationUpload
+        ? maxSiwesUploadBodyBytes
+        : pathSegments[0] === "staff" && pathSegments[1] === "imports"
+          ? maxImportBodyBytes
+          : maxJsonBodyBytes;
     try {
       body = (await readBoundedBody(request, bodyLimit)) ?? undefined;
     } catch {
@@ -174,7 +183,11 @@ export async function proxyApiRequest(
   const timeout = setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, pathSegments[0] === "staff" && pathSegments[1] === "imports" ? 30_000 : 15_000);
+  }, pathSegments[0] === "opportunities" && pathSegments[2] === "siwes-applications"
+    ? 35_000
+    : pathSegments[0] === "staff" && pathSegments[1] === "imports"
+      ? 30_000
+      : 15_000);
 
   try {
     const upstreamResponse = await fetch(upstreamUrl, {

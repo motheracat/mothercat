@@ -127,6 +127,55 @@ describe("proxyApiRequest", () => {
     expect(new Headers(init.headers).get("if-match")).toBe('"1"');
   });
 
+  it("allows only the bounded SIWES application upload route to exceed the JSON body limit", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ application: {} }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const body = new Uint8Array(20 * 1024);
+    const response = await proxyApiRequest(
+      new Request("https://frontend.example/api/v1/opportunities/123e4567-e89b-12d3-a456-426614174000/siwes-applications", {
+        method: "POST",
+        headers: {
+          "content-type": "multipart/form-data; boundary=test-boundary",
+          "content-length": String(body.byteLength),
+          cookie: "mothercat_session=session-value",
+          host: "frontend.example",
+          origin: "https://frontend.example",
+        },
+        body,
+      }),
+      ["opportunities", "123e4567-e89b-12d3-a456-426614174000", "siwes-applications"],
+      "https://api.example",
+    );
+
+    expect(response.status).toBe(201);
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(new Headers(init.headers).get("content-type")).toBe("multipart/form-data; boundary=test-boundary");
+    expect(init.body).toBeInstanceOf(Uint8Array);
+  });
+
+  it("rejects SIWES uploads above the configured body limit", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const body = new Uint8Array(10 * 1024 * 1024 + 64 * 1024 + 1);
+    const response = await proxyApiRequest(
+      new Request("https://frontend.example/api/v1/opportunities/123e4567-e89b-12d3-a456-426614174000/siwes-applications", {
+        method: "POST",
+        headers: {
+          "content-type": "multipart/form-data; boundary=test-boundary",
+          "content-length": String(body.byteLength),
+          host: "frontend.example",
+          origin: "https://frontend.example",
+        },
+        body,
+      }),
+      ["opportunities", "123e4567-e89b-12d3-a456-426614174000", "siwes-applications"],
+      "https://api.example",
+    );
+
+    expect(response.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects cross-origin mutations without contacting the backend", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

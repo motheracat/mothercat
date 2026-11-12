@@ -42,6 +42,18 @@ export const apiRoutes = {
     action: (taskId: string, action: string) => `/tasks/${taskId}/${action}`,
     comments: (taskId: string) => `/tasks/${taskId}/comments`,
   },
+  opportunities: {
+    list: "/opportunities",
+    manage: "/opportunities/manage",
+    details: (opportunityId: string) => `/opportunities/${opportunityId}`,
+    publish: (opportunityId: string) => `/opportunities/${opportunityId}/publish`,
+    unpublish: (opportunityId: string) => `/opportunities/${opportunityId}/unpublish`,
+    close: (opportunityId: string) => `/opportunities/${opportunityId}/close`,
+    applySiwes: (opportunityId: string) => `/opportunities/${opportunityId}/siwes-applications`,
+    applications: "/siwes-applications",
+    applicationDetails: (applicationId: string) => `/siwes-applications/${applicationId}`,
+    applicationDocument: (applicationId: string) => `/siwes-applications/${applicationId}/document`,
+  },
   notifications: {
     list: "/notifications",
     unreadCount: "/notifications/unread-count",
