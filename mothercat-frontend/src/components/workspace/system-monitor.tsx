@@ -235,7 +235,7 @@ function CommandPanel({
       return;
     }
     setPending({
-      action: parsed.action,
+      action: parsed.action as "pause" | "resume",
       method: parsed.args[0],
       route: parsed.args[1],
       reason: parsed.args[2],
@@ -484,7 +484,7 @@ export function SystemMonitor() {
             expires_at: new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString(),
           }
         : { method: pending.method, route: pending.route, reason: pending.reason };
-      await setEndpointControl(pending.action, payload, code);
+      await setEndpointControl(pending.action, payload as Record<string, string | number>, code);
       await refreshMonitor();
     } finally {
       setControlBusy(false);
