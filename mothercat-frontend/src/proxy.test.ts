@@ -10,4 +10,11 @@ describe("security response headers", () => {
 
     expect(policy).toContain("img-src 'self' data: blob: https://res.cloudinary.com");
   });
+
+  it("allows same-origin blob previews in frames", () => {
+    const response = proxy(new NextRequest("https://frontend.example/profile"));
+    const policy = response.headers.get("Content-Security-Policy");
+
+    expect(policy).toContain("frame-src 'self' blob:");
+  });
 });
