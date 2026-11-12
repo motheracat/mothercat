@@ -184,6 +184,54 @@ the staff profile UUID. This endpoint requires `roles.manage` and a matching
 Origin; the regular `/provision` endpoint continues to provision a Staff
 account.
 
+## Independent System Monitor access
+
+System Monitor access is not an Access role or permission. Neither `Admin` nor
+`SuperAdmin` receives it by virtue of their role, and the regular role and
+user-role APIs cannot create or revoke monitor grants. Migration
+`015_system_monitor_access` stores separate, expiring grants. Apply it through
+the controlled migration process before using the operator command. Every
+grant and revocation is written to the audit log in the same transaction. An
+account must be active and unsuspended, and a grant expires within 30 days.
+
+Only a trusted database operator should use the dedicated `monitor-access`
+command after the organization's independent approval process has authorized
+the change. Configure `SYSTEM_MONITOR_AUTHORIZATION_DATABASE_URL` only in that
+operator environment, using a distinct TLS-required database login. Do not
+reuse the API or migration credential. The database login should be limited to
+reading eligible Identity accounts, managing rows in
+`system_monitor.access_grants`, and inserting audit events. The API runtime
+login needs read access to `system_monitor.access_grants` before any monitor
+handler is enabled. Keep the operator login out of API/CI runtime environments.
+
+Grant access for a maximum of 30 days:
+
+```sh
+go run ./services/monolith/cmd/monitor-access grant \
+  --account-id ACCOUNT_UUID \
+  --operator OPERATOR_ID \
+  --reason "Approved change CHG-123" \
+  --expires-at 2026-11-20T12:00:00Z
+```
+
+Revoke all active grants for an account:
+
+```sh
+go run ./services/monolith/cmd/monitor-access revoke \
+  --account-id ACCOUNT_UUID \
+  --operator OPERATOR_ID \
+  --reason "Access no longer required; CHG-124"
+```
+
+The operator identifier and approval reference are recorded as supplied; the
+command does not independently authenticate the named operator or validate an
+approval ticket. The security boundary is the restricted authorization
+database credential and the out-of-band approval process. Do not use the CLI
+until those controls and database grants are provisioned. The `HasAccess`
+backend check is intended for future System Monitor handlers and fails closed
+on database errors; no System Monitor HTTP endpoints or UI are enabled by this
+change.
+
 ## Account suspension and authentication safeguards
 
 Before deploying account suspension code, apply pending migrations to the

@@ -55,6 +55,42 @@ func TestSiwesEmailOutboxMigrationIsRegisteredAfterApplicationSchema(t *testing.
 			index = i
 		}
 	}
+
+	func TestSystemMonitorAccessMigrationIsRegisteredAfterExistingMigrations(t *testing.T) {
+		const version = "015_system_monitor_access"
+		const path = "migrations/015_system_monitor_access.sql"
+
+		previousIndex := -1
+		index := -1
+		for i, item := range allMigrations {
+			if item.version == "014_siwes_email_outbox" {
+				previousIndex = i
+			}
+			if item.version == version && item.path == path {
+				index = i
+			}
+		}
+		if index < 0 || previousIndex < 0 || index <= previousIndex {
+			t.Fatalf("migration %q must be registered after 014_siwes_email_outbox", version)
+		}
+
+		script, err := migrations.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read embedded migration %q: %v", version, err)
+		}
+		for _, expected := range []string{
+			"CREATE SCHEMA IF NOT EXISTS system_monitor",
+			"CREATE TABLE system_monitor.access_grants",
+			"granted_by varchar(200) NOT NULL",
+			"expires_at timestamptz NOT NULL",
+			"revoked_at timestamptz",
+			"WHERE revoked_at IS NULL",
+		} {
+			if !strings.Contains(string(script), expected) {
+				t.Errorf("migration %q does not contain %q", version, expected)
+			}
+		}
+	}
 	if index < 0 {
 		t.Fatalf("migration %q at %q is not registered", version, path)
 	}

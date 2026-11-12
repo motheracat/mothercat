@@ -31,6 +31,7 @@ var allMigrations = []migration{
 	{version: "012_applicant_identity", path: "migrations/012_applicant_identity.sql"},
 	{version: "013_admin_task_status", path: "migrations/013_admin_task_status.sql"},
 	{version: "014_siwes_email_outbox", path: "migrations/014_siwes_email_outbox.sql"},
+	{version: "015_system_monitor_access", path: "migrations/015_system_monitor_access.sql"},
 }
 
 func Migrate(ctx context.Context, db *sql.DB) error {
