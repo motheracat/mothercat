@@ -1005,10 +1005,11 @@ func (h *Handler) assignTask(ctx context.Context, principal Principal, id, assig
 			WHERE sm.account_id=$1::uuid AND sm.department_id=$2::uuid
 			  AND sm.employment_status='active' AND ua.is_active
 		) AND (
-			EXISTS (SELECT 1 FROM organization.department_memberships dm
+			$4::boolean OR EXISTS (SELECT 1 FROM organization.department_memberships dm
 				WHERE dm.department_id=$2::uuid AND dm.account_id=$3::uuid)
 		)
-	`, assigneeID, current.DepartmentID, principal.ID).Scan(&valid)
+	`, assigneeID, current.DepartmentID, principal.ID,
+		contains(principal.Permissions, "tasks.read_all")).Scan(&valid)
 	if err != nil {
 		return task{}, fmt.Errorf("validate task assignee and department: %w", err)
 	}
