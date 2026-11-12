@@ -1,48 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, BriefcaseBusiness, GraduationCap, MapPin } from "lucide-react";
 import Link from "next/link";
 
-import { Dialog } from "@/components/workspace/dialog";
 import {
   formatOpportunityError,
   listPublicOpportunities,
-  submitSiwesApplication,
   type Opportunity,
 } from "@/lib/opportunities/api";
-
-type ApplicationForm = {
-  full_name: string;
-  email: string;
-  phone: string;
-  institution: string;
-  course: string;
-  matric_number: string;
-  message: string;
-};
-
-const emptyApplication: ApplicationForm = {
-  full_name: "",
-  email: "",
-  phone: "",
-  institution: "",
-  course: "",
-  matric_number: "",
-  message: "",
-};
-
-const allowedDocumentTypes = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
-const maxDocumentBytes = 10 * 1024 * 1024;
 const refreshIntervalMs = 60_000;
-
-function isAllowedDocument(file: File) {
-  return /\.(pdf|doc|docx)$/i.test(file.name) && (!file.type || allowedDocumentTypes.has(file.type));
-}
 
 function formatDeadline(value: string | null) {
   if (!value) return "No deadline";
@@ -54,12 +21,6 @@ export function OpportunityListings() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
-  const [application, setApplication] = useState(emptyApplication);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
   const requestRef = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
@@ -96,42 +57,6 @@ export function OpportunityListings() {
       requestRef.current?.abort();
     };
   }, [refresh]);
-
-  function openApplication(opportunity: Opportunity) {
-    setSelectedOpportunity(opportunity);
-    setApplication(emptyApplication);
-    setSelectedFile(null);
-    setSubmitted(false);
-    setFormError(null);
-  }
-
-  async function submitApplication(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedOpportunity || !selectedFile) {
-      setFormError("Select your SIWES introduction letter before submitting.");
-      return;
-    }
-    if (!isAllowedDocument(selectedFile)) {
-      setFormError("Choose a PDF, DOC, or DOCX document.");
-      return;
-    }
-    if (selectedFile.size === 0 || selectedFile.size > maxDocumentBytes) {
-      setFormError("The document must be non-empty and no larger than 10 MiB.");
-      return;
-    }
-
-    setSubmitting(true);
-    setFormError(null);
-    try {
-      await submitSiwesApplication(selectedOpportunity.id, { ...application, document: selectedFile });
-      setSubmitted(true);
-      void refresh();
-    } catch (error) {
-      setFormError(formatOpportunityError(error, "Unable to submit your application."));
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   const jobs = opportunities.filter((opportunity) => opportunity.type === "job");
   const placements = opportunities.filter((opportunity) => opportunity.type === "siwes");
@@ -177,14 +102,13 @@ export function OpportunityListings() {
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
               {type === "siwes" ? (
-                <button
-                  type="button"
+                <Link
+                  href={`/opportunities/${encodeURIComponent(opportunity.id)}/apply`}
                   className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[#071535] px-5 text-sm font-semibold text-white transition hover:bg-[#1f5fd0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1f5fd0] focus-visible:ring-offset-2"
-                  onClick={() => openApplication(opportunity)}
                 >
                   Apply for this placement
                   <ArrowRight size={16} aria-hidden="true" />
-                </button>
+                </Link>
               ) : (
                 <Link
                   href="/contact"
@@ -230,83 +154,6 @@ export function OpportunityListings() {
           </section>
         </div>
       )}
-
-      <Dialog
-        open={selectedOpportunity !== null}
-        title={selectedOpportunity ? `Apply: ${selectedOpportunity.title}` : "Apply for SIWES"}
-        onClose={() => {
-          if (!submitting) setSelectedOpportunity(null);
-        }}
-        actions={(
-          <button type="button" className="button-secondary" disabled={submitting} onClick={() => setSelectedOpportunity(null)}>
-            {submitted ? "Done" : "Cancel"}
-          </button>
-        )}
-      >
-        {submitted ? (
-          <div role="status" className="space-y-3">
-            <p className="font-semibold text-[var(--text)]">Your application was submitted securely.</p>
-            <p className="text-sm leading-6 text-[var(--muted)]">Mothercat’s recruitment team can now review your application. Your personal details and document were sent to the application service, not saved in this browser.</p>
-          </div>
-        ) : selectedOpportunity ? (
-          <form className="grid gap-4" onSubmit={(event) => void submitApplication(event)}>
-            <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-950">
-              Your details and SIWES introduction letter are submitted securely for recruitment review. Documents are checked before being stored.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="workspace-field">
-                <span className="field-label">Full name</span>
-                <input className="form-input" required maxLength={160} value={application.full_name} onChange={(event) => setApplication({ ...application, full_name: event.target.value })} />
-              </label>
-              <label className="workspace-field">
-                <span className="field-label">Email</span>
-                <input className="form-input" type="email" required maxLength={254} value={application.email} onChange={(event) => setApplication({ ...application, email: event.target.value })} />
-              </label>
-              <label className="workspace-field">
-                <span className="field-label">Phone</span>
-                <input className="form-input" type="tel" required maxLength={40} value={application.phone} onChange={(event) => setApplication({ ...application, phone: event.target.value })} />
-              </label>
-              <label className="workspace-field">
-                <span className="field-label">Institution</span>
-                <input className="form-input" required maxLength={180} value={application.institution} onChange={(event) => setApplication({ ...application, institution: event.target.value })} />
-              </label>
-              <label className="workspace-field">
-                <span className="field-label">Course / programme</span>
-                <input className="form-input" required maxLength={160} value={application.course} onChange={(event) => setApplication({ ...application, course: event.target.value })} />
-              </label>
-              <label className="workspace-field">
-                <span className="field-label">Matriculation number</span>
-                <input className="form-input" required maxLength={80} value={application.matric_number} onChange={(event) => setApplication({ ...application, matric_number: event.target.value })} />
-              </label>
-              <label className="workspace-field sm:col-span-2">
-                <span className="field-label">Supporting document (CV or SIWES introduction letter)</span>
-                <input
-                  className="form-input !h-auto py-2"
-                  type="file"
-                  accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  required
-                  disabled={submitting}
-                  onChange={(event) => {
-                    setSelectedFile(event.target.files?.[0] ?? null);
-                    setFormError(null);
-                  }}
-                />
-                <span className="text-xs text-[var(--muted)]">PDF, DOC, or DOCX; maximum 10 MiB. The server verifies file content and scans the document.</span>
-              </label>
-              <label className="workspace-field sm:col-span-2">
-                <span className="field-label">Message (optional)</span>
-                <textarea className="form-input form-textarea" rows={3} maxLength={2000} value={application.message} onChange={(event) => setApplication({ ...application, message: event.target.value })} />
-              </label>
-            </div>
-            {formError ? <p role="alert" className="field-error">{formError}</p> : null}
-            <div className="flex justify-end">
-              <button type="submit" className="button-primary" disabled={submitting}>
-                {submitting ? "Submitting securely…" : "Submit application"}
-              </button>
-            </div>
-          </form>
-        ) : null}
-      </Dialog>
     </>
   );
 }

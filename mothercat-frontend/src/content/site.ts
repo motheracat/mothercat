@@ -45,8 +45,8 @@ export const siteContent = {
   },
   company: {
     about:
-      "// TODO(content): Replace this placeholder copy with the company narrative approved by leadership.",
+      ".",
     footerBlurb:
-      "// TODO(content): Add the official Mothercat company description for the footer and public pages.",
+      ".",
   },
 };

@@ -249,6 +249,11 @@ export async function listPublicOpportunities(
   return { opportunities: payload.opportunities.map(parseOpportunity), page: parsePage(payload.page) };
 }
 
+export async function getPublicOpportunity(id: string, signal?: AbortSignal): Promise<Opportunity> {
+  const response = await request(apiRoutes.opportunities.details(encodeURIComponent(id)), { signal });
+  return parseOpportunityEnvelope(await jsonResponse(response));
+}
+
 export async function listManagedOpportunities(
   params: { type?: OpportunityType; status?: OpportunityStatus; limit?: number; offset?: number } = {},
   signal?: AbortSignal,
