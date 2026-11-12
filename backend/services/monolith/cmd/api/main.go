@@ -29,7 +29,7 @@ import (
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/opportunities"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/persistence"
 	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/tasks"
-	"github.com/mothercat-enterprise/mothercat/backend/services/monolith/internal/applicantidentity"
+	"github.com/mothercat-enterprise/mothercat/backend/services/identity/monolith/internal/applicantidentity"
 	organizationmonolith "github.com/mothercat-enterprise/mothercat/backend/services/organization/monolith"
 )
 
