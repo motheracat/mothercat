@@ -20,6 +20,20 @@ const ranges: AnalyticsRange[] = ["7d", "30d", "90d"];
 const departmentColors = ["#2563eb", "#0f766e", "#c2410c", "#7c3aed", "#be123c"];
 const chartColors = ["#2563eb", "#0f766e", "#c2410c", "#7c3aed", "#be123c", "#64748b"];
 
+function changeLabel(value: number | null) {
+  if (value === null) return "New";
+  return `${value > 0 ? "+" : ""}${value}%`;
+}
+
+function changeArrow(value: number | null) {
+  if (value === null) return "→";
+  return value > 0 ? "↑" : value < 0 ? "↓" : "→";
+}
+
+function changeText(value: number | null) {
+  return value === null ? "New" : `${changeArrow(value)} ${changeLabel(value)}`;
+}
+
 function CountUp({ value }: { value: number }) {
   const [shown, setShown] = useState(0);
 
@@ -187,7 +201,7 @@ function CompanyTile({ state, onClick }: { state: DataState<CompanyActivityAnaly
         <strong><CountUp value={data.totalActivities} /></strong>
         {data.totalActivities > 0 ? <Sparkline values={values} label="Company activity trend" /> : <span className="analytics-tile-unit">No activity yet</span>}
       </span>
-      <span className="analytics-tile-subline"><span>activities · {data.range}</span><span className="analytics-positive">↑ {data.changePercent}%</span></span>
+      <span className="analytics-tile-subline"><span>activities · {data.range}</span><span>{changeText(data.changePercent)}</span></span>
     </MetricTile>
   );
 }
@@ -221,7 +235,7 @@ function PersonalTile({ state, onClick }: { state: DataState<MyActivityAnalytics
         <ActivityScoreRing score={data.activityScore} />
         <span><strong>{data.activityScore === 0 ? "No activity yet" : data.scoreLabel}</strong><small>Activity score</small></span>
       </span>
-      <span className="analytics-tile-subline"><span>{data.range} · compared with last period</span><span className="analytics-positive">↑ {data.changePercent}%</span></span>
+      <span className="analytics-tile-subline"><span>{data.range} · tasks last updated vs last period</span><span>{changeText(data.changePercent)}</span></span>
     </MetricTile>
   );
 }
@@ -283,7 +297,7 @@ function DepartmentActivityView({ data }: { data: CompanyActivityAnalytics }) {
       {data.totalActivities === 0 ? <EmptyAnalytics>No department activity has been recorded for this period.</EmptyAnalytics> : null}
       <div className="analytics-detail-metric">
         <strong><CountUp value={data.totalActivities} /></strong>
-        <span>company activities · <b>↑ {data.changePercent}%</b> vs previous period</span>
+        <span>company activities · <b>{changeText(data.changePercent)}</b> vs previous period</span>
       </div>
       <div className="analytics-detail-grid">
         <ChartPanel title="Activity over time">
@@ -345,7 +359,7 @@ function DepartmentActivityView({ data }: { data: CompanyActivityAnalytics }) {
         <ChartPanel title="Busiest days and hours">
           <div className="analytics-heatmap" role="img" aria-label="Activity heatmap by day and working hours">
             <span className="analytics-heatmap-spacer" />
-            {["8a", "10a", "12p", "2p", "4p", "6p", "8p", "10p"].map((hour) => <span className="analytics-heatmap-label" key={hour}>{hour}</span>)}
+            {["12a", "3a", "6a", "9a", "12p", "3p", "6p", "9p"].map((hour) => <span className="analytics-heatmap-label" key={hour}>{hour}</span>)}
             {data.heatmap.map((row) => (
               <div className="analytics-heatmap-row" key={row.day}>
                 <span>{row.day}</span>
@@ -364,13 +378,12 @@ function DepartmentActivityView({ data }: { data: CompanyActivityAnalytics }) {
       <ChartPanel title="Department activity detail">
         <div className="analytics-table-frame">
           <table className="analytics-table">
-            <thead><tr><th>Department</th><th>Activities</th><th>Tasks completed</th><th>Completion rate</th><th>Active staff</th></tr></thead>
+            <thead><tr><th>Department</th><th>Activities</th><th>Task completions</th><th>Active staff</th></tr></thead>
             <tbody>{data.departments.map((item) => (
               <tr key={item.name}>
                 <td data-label="Department">{item.name}</td>
                 <td data-label="Activities">{item.activities}</td>
-                <td data-label="Tasks completed">{item.tasksCompleted}</td>
-                <td data-label="Completion rate">{item.completionRate}%</td>
+                <td data-label="Task completions">{item.tasksCompleted}</td>
                 <td data-label="Active staff">{item.activeStaff}</td>
               </tr>
             ))}</tbody>
@@ -383,7 +396,7 @@ function DepartmentActivityView({ data }: { data: CompanyActivityAnalytics }) {
 
 function PersonalActivityView({ data }: { data: MyActivityAnalytics }) {
   const totalTasks = data.taskBreakdown.reduce((sum, item) => sum + item.count, 0);
-  const taskColors = ["#0f766e", "#2563eb", "#c2410c", "#64748b"];
+  const taskColors = ["#0f766e", "#2563eb", "#c2410c", "#7c3aed", "#64748b"];
   return (
     <>
       {data.activityScore === 0 && data.dailyTrend.every((point) => point.value === 0)
@@ -391,7 +404,7 @@ function PersonalActivityView({ data }: { data: MyActivityAnalytics }) {
         : null}
       <div className="analytics-personal-summary">
         <ActivityScoreRing score={data.activityScore} />
-        <div><strong>{data.scoreLabel}</strong><p>Activity score: {data.activityScore}/100 · {data.changePercent}% higher than the previous period</p></div>
+        <div><strong>{data.scoreLabel}</strong><p>Activity score: {data.activityScore}/100 · tasks last updated {changeText(data.changePercent)} vs the previous period</p></div>
       </div>
       <ChartPanel title="How your activity score is calculated">
         <div className="analytics-factor-list">
@@ -402,7 +415,7 @@ function PersonalActivityView({ data }: { data: MyActivityAnalytics }) {
             </div>
           ))}
         </div>
-        <p className="analytics-method-note">The score combines task completion, on-time delivery, active days, and response speed. Each factor is normalized before aggregation.</p>
+        <p className="analytics-method-note">The score is calculated from your task completion share and the number of days with task updates in this period.</p>
       </ChartPanel>
       <div className="analytics-detail-grid">
         <ChartPanel title="Activity trend">
@@ -424,13 +437,7 @@ function PersonalActivityView({ data }: { data: MyActivityAnalytics }) {
             <ul className="analytics-legend-list">{data.taskBreakdown.map((item, index) => <li key={item.name}><span style={{ background: taskColors[index % taskColors.length] }} />{item.name}<strong>{item.count}</strong></li>)}</ul>
           </div>
         </ChartPanel>
-        <ChartPanel title="You vs department average">
-          <div className="analytics-comparison">
-            <div><span>You</span><span className="analytics-comparison-track"><span style={{ width: `${data.departmentComparison.user}%` }} /></span><strong>{data.departmentComparison.user}</strong></div>
-            <div><span>Department average</span><span className="analytics-comparison-track is-average"><span style={{ width: `${data.departmentComparison.departmentAverage}%` }} /></span><strong>{data.departmentComparison.departmentAverage}</strong></div>
-          </div>
-        </ChartPanel>
-        <ChartPanel title="Recent achievements">
+        <ChartPanel title="Activity highlights">
           <ul className="analytics-achievements">{data.achievements.map((item) => <li key={item.title}><strong>{item.title}</strong><span>{item.detail}</span><time dateTime={item.date}>{item.date}</time></li>)}</ul>
         </ChartPanel>
       </div>
@@ -456,7 +463,7 @@ function PendingAnalysisView({ data }: { data: PendingAnalytics }) {
       {data.totalPending === 0 ? <EmptyAnalytics>All caught up — there are no pending items that need attention.</EmptyAnalytics> : null}
       <div className="analytics-detail-metric">
         <strong><CountUp value={data.totalPending} /></strong>
-        <span>{data.totalPending === 1 ? "item needs" : "items need"} attention in this period</span>
+        <span>{data.totalPending === 1 ? "item needs" : "items need"} attention right now</span>
       </div>
       <div className="analytics-detail-grid">
         <ChartPanel title="Pending by type">
@@ -490,8 +497,8 @@ function PendingAnalysisView({ data }: { data: PendingAnalytics }) {
       <ChartPanel title="Needs attention">
         {data.topItems.length ? (
           <ul className="analytics-attention-list">{data.topItems.map((item) => (
-            <li key={item.title}>
-              <Link href={item.href}><span><strong>{item.title}</strong><small>{item.type}</small></span><span className={item.ageDays >= 8 ? "is-overdue" : ""}>{item.ageDays}d waiting <span aria-hidden="true">→</span></span></Link>
+            <li key={item.id}>
+              <Link href={item.href}><span><strong>{item.title}</strong><small>{item.type}</small></span><span className={item.ageDays !== null && item.ageDays >= 8 ? "is-overdue" : ""}>{item.ageDays === null ? "Age unavailable" : `${item.ageDays}d ${item.type === "Overdue task" ? "overdue" : "waiting"}`} <span aria-hidden="true">→</span></span></Link>
             </li>
           ))}</ul>
         ) : <EmptyAnalytics>All caught up — there are no items needing attention.</EmptyAnalytics>}
@@ -504,18 +511,17 @@ export function DashboardAnalytics() {
   const activeCardRef = useRef<HTMLButtonElement>(null);
   const [companyRange, setCompanyRange] = useState<AnalyticsRange>("30d");
   const [personalRange, setPersonalRange] = useState<AnalyticsRange>("30d");
-  const [pendingRange, setPendingRange] = useState<AnalyticsRange>("30d");
   const [openedCard, setOpenedCard] = useState<AnalyticsCardKind | null>(null);
   const company = useCompanyActivity(companyRange);
   const personal = useMyActivity(personalRange);
-  const pending = usePending(pendingRange);
+  const pending = usePending();
 
   const title = openedCard === "company" ? "Department activity"
     : openedCard === "personal" ? "My activity"
       : "Pending analysis";
-  const selectedRange = openedCard === "company" ? companyRange : openedCard === "personal" ? personalRange : pendingRange;
+  const selectedRange = openedCard === "company" ? companyRange : personalRange;
   const selectedState = openedCard === "company" ? company : openedCard === "personal" ? personal : pending;
-  const setSelectedRange = openedCard === "company" ? setCompanyRange : openedCard === "personal" ? setPersonalRange : setPendingRange;
+  const setSelectedRange = openedCard === "company" ? setCompanyRange : setPersonalRange;
 
   function openAnalytics(kind: AnalyticsCardKind, event: MouseEvent<HTMLButtonElement>) {
     activeCardRef.current = event.currentTarget;
@@ -538,7 +544,13 @@ export function DashboardAnalytics() {
       >
         {openedCard ? (
           <>
-            <SectionHeading title={title} range={selectedRange} onRangeChange={setSelectedRange} />
+            {openedCard === "pending" ? (
+              <div className="analytics-detail-heading">
+                <div><h2>{title}</h2><p>Current backlog from live task and staff records</p></div>
+              </div>
+            ) : (
+              <SectionHeading title={title} range={selectedRange} onRangeChange={setSelectedRange} />
+            )}
             {selectedState.isLoading ? <AnalyticsSkeleton /> : selectedState.error ? (
               <AnalyticsError message={selectedState.error} retry={selectedState.retry} />
             ) : !selectedState.data ? (

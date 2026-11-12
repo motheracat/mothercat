@@ -1,7 +1,6 @@
 export const siteContent = {
   brand: "Mothercat",
   home: {
-   
     services: [
       {
         slug: "infrastructure-development",
@@ -43,6 +42,35 @@ export const siteContent = {
       },
     ],
   },
+  news: [
+    {
+      category: "Project update",
+      title: "How our delivery teams are keeping major civil works moving on schedule",
+      summary: "Operational planning, quality assurance, and disciplined coordination are helping teams navigate changing site conditions while maintaining safety and momentum.",
+      date: "July 2026",
+      readTime: "4 min read",
+      image: "/images/Infrastructure-Development.jpeg",
+      href: "/contact",
+    },
+    {
+      category: "Sustainability",
+      title: "Smarter site planning is reducing waste and improving long-term performance",
+      summary: "Recent initiatives across mixed-use and urban projects are improving material efficiency and strengthening site resilience from day one.",
+      date: "June 2026",
+      readTime: "3 min read",
+      image: "/images/Urban%20Solutions.jpeg",
+      href: "/services#urban-solutions",
+    },
+    {
+      category: "Leadership",
+      title: "Teams at the center: building trust through clearer communication and accountability",
+      summary: "From client workshops to subcontractor coordination, effective communication remains central to safe, predictable delivery on complex projects.",
+      date: "May 2026",
+      readTime: "5 min read",
+      image: "/images/Commercial%20Buildings.webp",
+      href: "/about",
+    },
+  ],
   company: {
     about:
       "// TODO(content): Replace this placeholder copy with the company narrative approved by leadership.",

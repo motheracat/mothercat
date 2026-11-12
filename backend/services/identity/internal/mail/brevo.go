@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const brevoSendEmailURL = "https://api.brevo.com/v3/smtp/email"
@@ -64,10 +65,6 @@ func (b *Brevo) SendRecovery(ctx context.Context, recipient, purpose, token stri
 	if b == nil || b.httpClient == nil {
 		return errors.New("Brevo sender is unavailable")
 	}
-	to, err := mail.ParseAddress(recipient)
-	if err != nil || to.Address == "" || strings.ContainsAny(recipient, "\r\n") {
-		return errors.New("recovery recipient address is invalid")
-	}
 	path := "/reset-password"
 	subject := "Reset your password"
 	if purpose == "applicant_verification" {
@@ -80,6 +77,78 @@ func (b *Brevo) SendRecovery(ctx context.Context, recipient, purpose, token stri
 		return errors.New("unknown recovery message purpose")
 	}
 	link := b.publicBaseURL + path + "?token=" + url.QueryEscape(token)
+	return b.sendEmail(ctx, recipient, subject, fmt.Sprintf(
+		"Use this one-time link to continue. It expires shortly and can only be used once:\n\n%s\n\nIf you did not request this, you can ignore this message.\n",
+		link,
+	))
+}
+
+func (b *Brevo) SendApplicationStatus(
+	ctx context.Context,
+	recipient, applicantName, opportunityTitle, status string,
+) error {
+	subject, stage, err := applicationStatusMessage(status)
+	if err != nil {
+		return err
+	}
+	applicantName = safeEmailText(applicantName)
+	if applicantName == "" {
+		applicantName = "Applicant"
+	}
+	opportunityTitle = safeEmailText(opportunityTitle)
+	if opportunityTitle == "" {
+		opportunityTitle = "SIWES placement"
+	}
+	return b.sendEmail(ctx, recipient, subject, fmt.Sprintf(
+		"Hello %s,\n\nYour application status for %s is now %s.\n\n%s\n\nRegards,\nMothercat",
+		applicantName, opportunityTitle, stage, applicationStatusDetail(status),
+	))
+}
+
+func applicationStatusMessage(status string) (string, string, error) {
+	switch status {
+	case "submitted":
+		return "SIWES application received", "submitted", nil
+	case "under_review":
+		return "Your SIWES application is under review", "under review", nil
+	case "shortlisted":
+		return "You have been shortlisted for a SIWES placement", "shortlisted", nil
+	case "accepted":
+		return "Update on your SIWES application", "accepted", nil
+	case "rejected":
+		return "Update on your SIWES application", "not selected", nil
+	default:
+		return "", "", errors.New("unknown SIWES application status")
+	}
+}
+
+func applicationStatusDetail(status string) string {
+	if status == "accepted" {
+		return "Congratulations. The team will contact you with any next steps."
+	}
+	if status == "rejected" {
+		return "Thank you for your interest. We are unable to proceed with your application at this time."
+	}
+	return "We will contact you if there are further updates."
+}
+
+func safeEmailText(value string) string {
+	return strings.TrimSpace(strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) {
+			return ' '
+		}
+		return character
+	}, value))
+}
+
+func (b *Brevo) sendEmail(ctx context.Context, recipient, subject, textContent string) error {
+	if b == nil || b.httpClient == nil || b.from == nil {
+		return errors.New("Brevo sender is unavailable")
+	}
+	to, err := mail.ParseAddress(recipient)
+	if err != nil || to.Address == "" || strings.ContainsAny(recipient, "\r\n") {
+		return errors.New("email recipient address is invalid")
+	}
 	payload := struct {
 		Sender struct {
 			Name  string `json:"name,omitempty"`
@@ -97,10 +166,7 @@ func (b *Brevo) SendRecovery(ctx context.Context, recipient, purpose, token stri
 		Email string `json:"email"`
 	}{Email: to.Address})
 	payload.Subject = subject
-	payload.TextContent = fmt.Sprintf(
-		"Use this one-time link to continue. It expires shortly and can only be used once:\n\n%s\n\nIf you did not request this, you can ignore this message.\n",
-		link,
-	)
+	payload.TextContent = textContent
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode Brevo email request: %w", err)

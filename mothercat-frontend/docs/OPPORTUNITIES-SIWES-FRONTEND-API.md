@@ -25,9 +25,9 @@ The current frontend:
 
 Student submission is SIWES-only. Applicants may provide a CV or SIWES
 introduction letter in PDF, DOC, or DOCX format, up to 10 MiB. Job candidates
-continue through the Contact route. Application status emails are not currently
-sent. No applicant personal information or document is written to browser
-storage.
+continue through the Contact route. Applicants receive email when their
+application is submitted and whenever its review status changes. No applicant
+personal information or document is written to browser storage.
 
 ## Existing frontend routes and permissions
 
@@ -187,6 +187,10 @@ The frontend and backend support editing and the following status actions:
 - Reject applications for unpublished/closed/expired placements.
 - The backend validates file contents and size, stores documents privately in
   PostgreSQL, and applies 365-day retention. Malware scanning is not performed.
+- The applicant receives an email when the application is submitted and on
+  every status change (`under_review`, `shortlisted`, `accepted`, or `rejected`).
+  Email delivery is queued transactionally and retried if the provider is
+  temporarily unavailable; configure the backend's Brevo email settings.
 - Success: `201 Created`, `{ "application": { ...metadata... } }`. Never return
   the uploaded file contents in JSON.
 
@@ -221,6 +225,10 @@ Do not expose private student details or document URLs in the public
 opportunity-list response.
 
 ### Review SIWES applications
+
+Reviewers can use the “View document” action to open the protected document
+inside an in-app modal. The browser previews supported formats in place; a
+download link is available in the modal if the browser cannot preview the file.
 
 - `GET /api/v1/siwes-applications?opportunity_id={uuid}&status=submitted&limit=25&offset=0`
   requires `it_applications.review`.

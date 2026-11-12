@@ -115,6 +115,48 @@ func TestSendApplicantVerificationUsesApplicantRoute(t *testing.T) {
 	}
 }
 
+func TestSendApplicationStatusSendsApplicantStageEmail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			To []struct {
+				Email string `json:"email"`
+			} `json:"to"`
+			Subject     string `json:"subject"`
+			TextContent string `json:"textContent"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		if len(payload.To) != 1 || payload.To[0].Email != "student@example.edu" {
+			t.Errorf("unexpected recipient: %+v", payload.To)
+		}
+		if payload.Subject != "You have been shortlisted for a SIWES placement" ||
+			!strings.Contains(payload.TextContent, "Hello Ada Example") ||
+			!strings.Contains(payload.TextContent, "Civil Engineering placement") ||
+			!strings.Contains(payload.TextContent, "shortlisted") {
+			t.Errorf("unexpected application status email: %+v", payload)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	sender, err := NewBrevo(BrevoConfig{
+		APIKey: "test-api-key", From: "noreply@example.com",
+		PublicBaseURL: "https://app.example.com", Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender.endpoint = server.URL
+	if err := sender.SendApplicationStatus(
+		context.Background(), "student@example.edu", "Ada Example",
+		"Civil Engineering placement", "shortlisted",
+	); err != nil {
+		t.Fatalf("SendApplicationStatus() error = %v", err)
+	}
+}
+
 func TestNewBrevoRequiresValidConfiguration(t *testing.T) {
 	_, err := NewBrevo(BrevoConfig{
 		APIKey: "key", From: "noreply@example.com", PublicBaseURL: "http://app.example.com",

@@ -88,6 +88,7 @@ func run(logger *slog.Logger) error {
 	audit := auditstore.NewRecorder(db)
 	authorizationProvider := localAuthorizationProvider{store: access}
 	var mailer identityapp.Mailer
+	var siwesEmailMailer opportunities.ApplicationStatusMailer
 	brevoConfigured := os.Getenv("BREVO_API_KEY") != "" ||
 		os.Getenv("BREVO_FROM_EMAIL") != "" ||
 		os.Getenv("BREVO_FROM_NAME") != "" ||
@@ -102,6 +103,7 @@ func run(logger *slog.Logger) error {
 			return fmt.Errorf("configure email delivery: %w", err)
 		}
 		mailer = sender
+		siwesEmailMailer = sender
 	}
 	authService := identityapp.NewService(identityRepository, authorizationProvider, mailer, logger)
 	identityHandler := identityhttp.NewAuthHandler(
@@ -127,8 +129,9 @@ func run(logger *slog.Logger) error {
 	taskReminderJob := tasks.NewReminderJob(db, logger)
 	notificationHandler := notifications.NewHandler(db, notificationAuthenticator{service: authService}, logger)
 	notificationDispatcher := notifications.NewDispatcher(db, logger)
+	applicationEmailDispatcher := opportunities.NewApplicationEmailDispatcher(db, siwesEmailMailer, logger)
 	opportunitiesHandler := opportunities.NewHandler(
-		db, opportunityAuthenticator{service: authService}, logger,
+		db, opportunityAuthenticator{service: authService}, logger, siwesEmailMailer,
 	)
 	applicantIdentityHandler := applicantidentity.NewHandler(db, mailer, logger)
 	applicationRetentionJob := opportunities.NewRetentionJob(db, logger)
@@ -158,6 +161,11 @@ func run(logger *slog.Logger) error {
 		defer close(retentionDone)
 		applicationRetentionJob.Run(ctx)
 	}()
+	applicationEmailDone := make(chan struct{})
+	go func() {
+		defer close(applicationEmailDone)
+		applicationEmailDispatcher.Run(ctx)
+	}()
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
 	logger.Info("Mothercat API listening", "address", address)
@@ -170,17 +178,20 @@ func run(logger *slog.Logger) error {
 			<-dispatcherDone
 			<-reminderDone
 			<-retentionDone
+			<-applicationEmailDone
 			return fmt.Errorf("graceful HTTP shutdown: %w", err)
 		}
 		<-dispatcherDone
 		<-reminderDone
 		<-retentionDone
+		<-applicationEmailDone
 		return nil
 	case err := <-serverErrors:
 		stop()
 		<-dispatcherDone
 		<-reminderDone
 		<-retentionDone
+		<-applicationEmailDone
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}

@@ -107,7 +107,11 @@ permission keys. SIWES application metadata and document bytes are purged after
 document structure before storing uploaded bytes privately in PostgreSQL;
 malware scanning is not performed. Configure additional edge-level rate limits
 for production, because the API's five-per-hour submission limit is
-process-local.
+process-local. Submission confirmations and status-change emails are queued
+transactionally and delivered with retry through the configured Brevo sender
+(`BREVO_API_KEY`, `BREVO_FROM_EMAIL`, and `PUBLIC_BASE_URL`). If email delivery
+is not configured, queued messages remain pending until it is configured and
+the API restarts.
 The [Frontend API Guide](docs/FRONTEND-API-GUIDE.md) documents the routes,
 permission requirements, status transitions, upload constraints, and proxy
 requirements.

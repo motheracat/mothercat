@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  downloadSiwesDocument,
+  getSiwesDocument,
   listPublicOpportunities,
   listSiwesApplications,
   submitSiwesApplication,
@@ -101,19 +101,20 @@ describe("opportunities API client", () => {
     expect((options?.body as FormData).get("document")).toBe(file);
   });
 
-  it("loads reviewer applications and downloads documents through protected API routes", async () => {
+  it("loads reviewer applications and retrieves documents for the in-app preview", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ applications: [application], page: { limit: 25, offset: 0, total: 1 } }))
       .mockResolvedValueOnce(new Response(new Blob(["private file"]), {
         status: 200,
-        headers: { "Content-Disposition": 'attachment; filename="letter.pdf"', "Content-Type": "application/pdf" },
+        headers: { "Content-Disposition": 'inline; filename="letter.pdf"', "Content-Type": "application/pdf" },
       }));
 
     await expect(listSiwesApplications({ status: "submitted" })).resolves.toMatchObject({
       applications: [{ id: application.id, document: { download_available: true } }],
     });
-    const file = await downloadSiwesDocument(application.id);
+    const file = await getSiwesDocument(application.id);
     expect(file.fileName).toBe("letter.pdf");
+    expect(file.contentType).toBe("application/pdf");
     expect(await file.blob.text()).toBe("private file");
     expect(fetchMock.mock.calls[1][0]).toBe(`/api/v1/siwes-applications/${application.id}/document`);
   });

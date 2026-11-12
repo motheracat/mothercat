@@ -217,10 +217,6 @@ export function formatOpportunityError(error: unknown, fallback: string): string
   if (error.status === 403 || error.code === "permission_denied") return "You don’t have permission to perform this action.";
   if (error.code === "applications_closed") return "Applications for this placement are closed.";
   if (error.code === "rate_limited" || error.status === 429) return "Too many submissions. Please try again later.";
-  if (error.code === "unsafe_document") return "The uploaded document did not pass the security scan. Choose a different file.";
-  if (error.code === "document_scanning_unavailable" || error.status === 503) {
-    return "Secure document checking is temporarily unavailable. Please try again later.";
-  }
   if (error.code === "document_too_large" || error.status === 413) return "The document must be no larger than 10 MiB.";
   if (error.code === "invalid_opportunity" || error.code === "invalid_application") return "Check the form fields and try again.";
   if (error.code === "opportunity_not_publishable") return "Complete the required fields and set a future deadline before publishing.";
@@ -356,7 +352,7 @@ export async function updateSiwesApplication(
   return parseApplication(payload.application);
 }
 
-export async function downloadSiwesDocument(id: string): Promise<{ blob: Blob; fileName: string }> {
+export async function getSiwesDocument(id: string): Promise<{ blob: Blob; fileName: string; contentType: string }> {
   const response = await request(apiRoutes.opportunities.applicationDocument(encodeURIComponent(id)));
   const disposition = response.headers.get("Content-Disposition") ?? "";
   const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
@@ -364,5 +360,9 @@ export async function downloadSiwesDocument(id: string): Promise<{ blob: Blob; f
   const fileName = encodedName
     ? decodeURIComponent(encodedName)
     : quotedName || `siwes-application-${id}`;
-  return { blob: await response.blob(), fileName };
+  return {
+    blob: await response.blob(),
+    fileName,
+    contentType: response.headers.get("Content-Type") ?? "application/octet-stream",
+  };
 }
