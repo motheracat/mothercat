@@ -32,6 +32,7 @@ import {
   type TaskAction,
   type TaskComment,
   type TaskPriority,
+  type TaskStatus,
   type TaskVersionedResult,
 } from "@/lib/tasks/api";
 
@@ -51,6 +52,17 @@ const statusLabels: Record<AdminTaskStatus, string> = {
   scheduled: "Scheduled",
   in_progress: "In progress",
   closed: "Closed (completed)",
+};
+
+const taskStatusLabels: Record<TaskStatus, string> = {
+  draft: "Draft",
+  assigned: "Assigned",
+  in_progress: "In progress",
+  submitted: "Submitted",
+  changes_requested: "Changes requested",
+  approved: "Approved",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
 };
 
 function formatDate(value: string | null): string {
@@ -481,7 +493,7 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
     <div className="task-management-page">
       <PageHeader
         title="Tasks"
-        description="."
+        description="Track task progress, assignments, and administrative scheduling."
         actions={canCreate ? <Link href="/tasks/create" className="button-primary">Create task</Link> : null}
       />
       {loadError ? <ErrorBanner message={loadError} onRetry={reload} /> : null}
@@ -489,9 +501,9 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
       <section className="surface-card task-list-card" aria-label="Task list" aria-busy={loading}>
         <div className="task-list-toolbar">
           <label className="workspace-field">
-            <span className="field-label">Status</span>
+            <span className="field-label">Administrative status</span>
             <TaskAccordionSelect
-              label="Task status"
+              label="Administrative status"
               value={filterStatus}
               placeholder="All statuses"
               options={[
@@ -522,7 +534,8 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
                     <span>{departmentsById.get(task.department_id) ?? "Department"} · Due {formatDate(task.due_at)}</span>
                   </span>
                   <span className="task-list-meta">
-                    <StatusPill label={statusLabels[task.admin_status]} tone="info" />
+                    <StatusPill label={taskStatusLabels[task.status]} tone="info" />
+                    <StatusPill label={`Admin: ${statusLabels[task.admin_status]}`} tone="info" />
                     <StatusPill label={`${task.priority} priority`} tone="info" />
                   </span>
                 </button>
@@ -548,7 +561,8 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
         title={selectedTask?.title ?? "Task details"}
         headerMeta={selectedTask ? (
           <>
-            <StatusPill label={statusLabels[selectedTask.admin_status]} tone="info" />
+            <StatusPill label={taskStatusLabels[selectedTask.status]} tone="info" />
+            <StatusPill label={`Admin: ${statusLabels[selectedTask.admin_status]}`} tone="info" />
             <StatusPill label={`${selectedTask.priority} priority`} tone="info" />
           </>
         ) : null}
@@ -585,6 +599,8 @@ export function TaskManagement({ currentUserId, canCreate, canAssign, canReview,
                 ) : null}
                 <p className="task-detail-description">{selectedTask.description || "No description provided."}</p>
                 <dl className="task-detail-facts">
+                  <div><dt>Work status</dt><dd>{taskStatusLabels[selectedTask.status]}</dd></div>
+                  <div><dt>Administrative status</dt><dd>{statusLabels[selectedTask.admin_status]}</dd></div>
                   <div><dt>Department</dt><dd>{departmentsById.get(selectedTask.department_id) ?? "Department"}</dd></div>
                   <div><dt>Due</dt><dd>{formatDate(selectedTask.due_at)}</dd></div>
                   <div><dt>Created</dt><dd>{formatDate(selectedTask.created_at)}</dd></div>
