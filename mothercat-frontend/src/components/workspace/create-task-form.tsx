@@ -15,7 +15,6 @@ import {
   type StaffMember,
 } from "@/lib/organization/api";
 import {
-  assignTask,
   createTask,
   formatTaskError,
   type Task,
@@ -43,9 +42,7 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
   const [staffReloadKey, setStaffReloadKey] = useState(0);
   const [assigneeAccountId, setAssigneeAccountId] = useState("");
   const [creating, setCreating] = useState(false);
-  const [assigning, setAssigning] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [createdTask, setCreatedTask] = useState<Task | null>(null);
 
   useEffect(() => {
@@ -106,41 +103,24 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
     router.refresh();
   }
 
-  async function assignCreatedTask(task: Task, accountId: string) {
-    setAssigning(true);
-    setAssignmentError(null);
-    try {
-      await assignTask(task.id, accountId);
-      navigateToTasks();
-    } catch (error) {
-      setAssignmentError(formatTaskError(error, "The task was created, but assignment failed. Retry assignment or return to the task list."));
-    } finally {
-      setAssigning(false);
-    }
-  }
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canCreate || createdTask) return;
+    if (!canCreate || !canAssign || !assigneeAccountId || createdTask) return;
     const data = new FormData(event.currentTarget);
     const dueValue = String(data.get("due_at") ?? "");
     setCreating(true);
     setFormError(null);
-    setAssignmentError(null);
     try {
       const result = await createTask({
         title: String(data.get("title") ?? "").trim(),
         description: String(data.get("description") ?? "").trim(),
         priority: String(data.get("priority") ?? "normal") as TaskPriority,
         department_id: String(data.get("department_id") ?? ""),
+        assignee_account_id: assigneeAccountId,
         due_at: dueValue ? new Date(dueValue).toISOString() : null,
       });
       setCreatedTask(result.task);
-      if (canAssign && assigneeAccountId) {
-        await assignCreatedTask(result.task, assigneeAccountId);
-      } else {
-        navigateToTasks();
-      }
+      navigateToTasks();
     } catch (error) {
       setFormError(formatTaskError(error, "Unable to create the task."));
     } finally {
@@ -151,6 +131,9 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
   return (
     <div className="task-management-page">
       {!canCreate ? <p role="alert" className="field-error">You don’t have permission to create tasks.</p> : null}
+      {canCreate && !canAssign ? (
+        <p role="alert" className="field-error">Task creation requires permission to assign it to an eligible staff member.</p>
+      ) : null}
 
       {departmentError ? <ErrorBanner message={departmentError} onRetry={() => {
         setDepartmentsLoading(true);
@@ -160,21 +143,7 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
         }).finally(() => setDepartmentsLoading(false));
       }} /> : null}
       {formError ? <p role="alert" className="field-error">{formError}</p> : null}
-      {assignmentError ? (
-        <div className="error-banner" role="alert">
-          <p className="text-sm">{assignmentError}</p>
-          <div className="flex flex-wrap gap-2">
-            {createdTask && assigneeAccountId ? (
-              <button type="button" className="button-secondary" disabled={assigning} onClick={() => void assignCreatedTask(createdTask, assigneeAccountId)}>
-                {assigning ? "Assigning…" : "Retry assignment"}
-              </button>
-            ) : null}
-            <button type="button" className="button-secondary" onClick={navigateToTasks}>Go to tasks</button>
-          </div>
-        </div>
-      ) : null}
-
-      {createdTask && !assignmentError ? (
+      {createdTask ? (
         <p role="status" className="access-notice">Task created successfully. Opening the task list…</p>
       ) : null}
 
@@ -229,15 +198,15 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
             </label>
             {canAssign ? (
               <label className="workspace-field">
-                <span className="field-label">Assign to staff or Admin (optional)</span>
+                <span className="field-label">Assign to staff or Admin</span>
                 <TaskAccordionSelect
-                  label="Assign to staff or Admin (optional)"
+                  label="Assign to staff or Admin"
                   value={assigneeAccountId}
-                  placeholder="Create without assigning"
+                  placeholder="Select an assignee"
                   options={[
                     {
                       value: "",
-                      label: !selectedDepartment ? "Select a department first" : staffLoading ? "Loading eligible staff…" : "Create without assigning",
+                      label: !selectedDepartment ? "Select a department first" : staffLoading ? "Loading eligible staff…" : "Select an assignee",
                     },
                     ...eligibleStaff.map((member) => ({
                       value: member.account_id ?? "",
@@ -249,7 +218,7 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
                 />
               </label>
             ) : null}
-            {canAssign ? <p className="task-muted create-task-assignee-hint">Only active, account-linked members of the selected department are eligible. This includes provisioned Admin accounts associated with a staff record.</p> : null}
+            {canAssign ? <p className="task-muted create-task-assignee-hint">An assignee is required. Only active, account-linked members of the selected department are eligible.</p> : null}
           </div>
           {staffError ? (
             <div className="field-error" role="alert">
@@ -262,11 +231,11 @@ export function CreateTaskForm({ canCreate, canAssign, previewMode }: Props) {
             </div>
           ) : null}
           {selectedDepartment && canAssign && !staffLoading && !staffError && eligibleStaff.length === 0 ? (
-            <p className="task-muted">No active account-linked staff are available in this department. You can create the task without an assignee.</p>
+            <p className="field-error" role="alert">No active account-linked staff are available in this department. Add an eligible staff member before creating a task.</p>
           ) : null}
           <div className="create-task-actions">
             <Link href="/tasks" className="button-secondary">Cancel</Link>
-            <button type="submit" className="button-primary" disabled={!canCreate || creating || Boolean(createdTask) || departmentsLoading || Boolean(departmentError) || !departments.length || !selectedDepartment}>
+            <button type="submit" className="button-primary" disabled={!canCreate || !canAssign || creating || Boolean(createdTask) || departmentsLoading || Boolean(departmentError) || !departments.length || !selectedDepartment || staffLoading || Boolean(staffError) || !assigneeAccountId}>
               {creating ? "Creating task…" : "Create task"}
             </button>
           </div>

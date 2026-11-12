@@ -297,11 +297,12 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createRequest struct {
-	Title        string     `json:"title"`
-	Description  string     `json:"description"`
-	Priority     string     `json:"priority"`
-	DepartmentID string     `json:"department_id"`
-	DueAt        *time.Time `json:"due_at"`
+	Title              string     `json:"title"`
+	Description        string     `json:"description"`
+	Priority           string     `json:"priority"`
+	DepartmentID       string     `json:"department_id"`
+	AssigneeAccountID  string     `json:"assignee_account_id"`
+	DueAt              *time.Time `json:"due_at"`
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -318,13 +319,19 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	input.Description = strings.TrimSpace(input.Description)
 	input.Priority = strings.TrimSpace(input.Priority)
 	input.DepartmentID = strings.TrimSpace(input.DepartmentID)
+	input.AssigneeAccountID = strings.TrimSpace(input.AssigneeAccountID)
 	if input.Priority == "" {
 		input.Priority = "normal"
 	}
 	if len(input.Title) == 0 || len(input.Title) > 200 ||
 		len(input.Description) > 20000 || !validUUID(input.DepartmentID) ||
-		!validPriority(input.Priority) || (input.DueAt != nil && input.DueAt.IsZero()) {
+		!validUUID(input.AssigneeAccountID) || !validPriority(input.Priority) ||
+		(input.DueAt != nil && input.DueAt.IsZero()) {
 		writeError(w, http.StatusBadRequest, "invalid_task", requestID(ctx))
+		return
+	}
+	if !hasPermission(principal, "tasks.assign") {
+		writeError(w, http.StatusForbidden, "permission_denied", requestID(ctx))
 		return
 	}
 	if h.db == nil {
@@ -351,17 +358,65 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	item, err := scanTask(tx.QueryRowContext(ctx, `
-		INSERT INTO tasks.tasks (title, description, priority, created_by, department_id, due_at)
-		VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6)
-		RETURNING `+taskColumnsBare, input.Title, input.Description, input.Priority,
-		principal.ID, input.DepartmentID, input.DueAt))
-	if err != nil {
+	var eligible bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM organization.staff_members sm
+			JOIN identity.user_accounts ua ON ua.id=sm.account_id
+			WHERE sm.account_id=$1::uuid AND sm.department_id=$2::uuid
+			  AND sm.employment_status='active' AND ua.is_active
+		)
+	`, input.AssigneeAccountID, input.DepartmentID).Scan(&eligible); err != nil {
+		h.fail(w, ctx, "validate task assignee", err)
+		return
+	}
+	if !eligible {
+		writeError(w, http.StatusBadRequest, "invalid_assignee", requestID(ctx))
+		return
+	}
+	var taskID string
+	if err := tx.QueryRowContext(ctx, `
+		INSERT INTO tasks.tasks (title, description, priority, status, created_by, department_id, due_at)
+		VALUES ($1, $2, $3, 'assigned', $4::uuid, $5::uuid, $6)
+		RETURNING id::text
+	`, input.Title, input.Description, input.Priority,
+		principal.ID, input.DepartmentID, input.DueAt).Scan(&taskID); err != nil {
 		h.fail(w, ctx, "create task", err)
 		return
 	}
-	if err := recordStatusAndAudit(ctx, tx, principal.ID, item.ID, "", "draft", "task.created", ""); err != nil {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO tasks.task_assignments (task_id, assignee_account_id, assigned_by)
+		VALUES ($1::uuid, $2::uuid, $3::uuid)
+	`, taskID, input.AssigneeAccountID, principal.ID); err != nil {
+		h.fail(w, ctx, "assign created task", err)
+		return
+	}
+	item, err := scanTask(tx.QueryRowContext(ctx, `
+		SELECT `+taskColumns+`
+		FROM tasks.tasks t
+		LEFT JOIN LATERAL (
+			SELECT ta.assignee_account_id FROM tasks.task_assignments ta
+			WHERE ta.task_id=t.id AND ta.unassigned_at IS NULL
+		) active_assignment ON true
+		LEFT JOIN LATERAL (
+			SELECT ts.id, ts.submission_number, ts.summary, ts.links,
+			       ts.submitter_account_id, ts.submitted_at
+			FROM tasks.task_submissions ts
+			WHERE ts.task_id=t.id ORDER BY ts.submission_number DESC LIMIT 1
+		) latest_submission ON true
+		WHERE t.id=$1::uuid
+	`, taskID))
+	if err != nil {
+		h.fail(w, ctx, "load created task", err)
+		return
+	}
+	if err := recordStatusAndAudit(ctx, tx, principal.ID, item.ID, "", "assigned", "task.created", ""); err != nil {
 		h.fail(w, ctx, "record task creation", err)
+		return
+	}
+	if err := enqueueTaskEvent(ctx, tx, principal.ID, item.ID, input.AssigneeAccountID,
+		"task.assigned", "Task assigned", "You have been assigned a task."); err != nil {
+		h.fail(w, ctx, "notify task assignee", err)
 		return
 	}
 	if err := tx.Commit(); err != nil {

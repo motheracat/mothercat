@@ -78,7 +78,7 @@ func TestTaskWritesRequireExplicitPermission(t *testing.T) {
 	}
 }
 
-func TestGlobalTaskReaderCanCreateOutsideDepartmentMembership(t *testing.T) {
+func TestGlobalTaskManagerCanCreateAssignedTaskOutsideDepartmentMembership(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -87,36 +87,50 @@ func TestGlobalTaskReaderCanCreateOutsideDepartmentMembership(t *testing.T) {
 
 	const taskID = "00000000-0000-4000-8000-000000000003"
 	const departmentID = "00000000-0000-4000-8000-000000000002"
+	const assigneeID = "00000000-0000-4000-8000-000000000004"
 	auth := authenticatorStub{principal: Principal{
-		ID: testAccountID, Permissions: []string{"tasks.create", "tasks.read_all"},
+		ID: testAccountID, Permissions: []string{"tasks.create", "tasks.assign", "tasks.read_all"},
 	}}
 	handler := NewHandler(db, auth, slog.New(slog.NewTextHandler(discardWriter{}, nil)))
-
 	createdAt := time.Now()
+	taskColumns := []string{
+		"id", "title", "description", "priority", "status", "admin_status",
+		"admin_status_updated_by", "admin_status_updated_at", "created_by", "department_id",
+		"assignee_account_id", "due_at", "version", "created_at", "updated_at",
+		"submission_id", "submission_number", "submission_summary", "links",
+		"submitter_account_id", "submitted_at",
+	}
 	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT EXISTS \(`).
+		WithArgs(assigneeID, departmentID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`INSERT INTO tasks\.tasks`).
 		WithArgs("Task", "", "normal", testAccountID, departmentID, nil).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "title", "description", "priority", "status", "admin_status",
-			"admin_status_updated_by", "admin_status_updated_at", "created_by", "department_id",
-			"assignee_account_id", "due_at", "version", "created_at", "updated_at",
-			"submission_id", "submission_number", "submission_summary", "links",
-			"submitter_account_id", "submitted_at",
-		}).AddRow(taskID, "Task", "", "normal", "draft", "open", nil, nil,
-			testAccountID, departmentID, nil, nil, 1, createdAt, createdAt,
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(taskID))
+	mock.ExpectExec(`INSERT INTO tasks\.task_assignments`).
+		WithArgs(taskID, assigneeID, testAccountID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)SELECT .*FROM tasks\.tasks t.*WHERE t\.id=\$1::uuid`).
+		WithArgs(taskID).
+		WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskID, "Task", "", "normal", "assigned", "open", nil, nil,
+			testAccountID, departmentID, assigneeID, nil, 1, createdAt, createdAt,
 			nil, nil, nil, nil, nil, nil))
 	mock.ExpectExec(`INSERT INTO tasks\.task_status_history`).
-		WithArgs(taskID, testAccountID, nil, "draft", "").
+		WithArgs(taskID, testAccountID, nil, "assigned", "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO audit\.audit_events`).
 		WithArgs(testAccountID, "task.created", taskID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO tasks\.outbox_events`).
+		WithArgs("task.assigned", taskID, testAccountID, assigneeID,
+			"Task assigned", "You have been assigned a task.").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, taskRequest(
 		http.MethodPost, "/api/v1/tasks",
-		`{"title":"Task","department_id":"`+departmentID+`"}`, true,
+		`{"title":"Task","department_id":"`+departmentID+`","assignee_account_id":"`+assigneeID+`"}`, true,
 	))
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d, want %d: %s", response.Code, http.StatusCreated, response.Body)
@@ -217,6 +231,40 @@ func TestTaskInputValidationPrecedesDatabaseAccess(t *testing.T) {
 		if response.Code != http.StatusBadRequest {
 			t.Errorf("%s %s status=%d, want %d: %s",
 				test.method, test.path, response.Code, http.StatusBadRequest, response.Body)
+		}
+	}
+
+	func TestTaskCreationRequiresAssigneeAndAssignmentPermission(t *testing.T) {
+		const departmentID = "00000000-0000-4000-8000-000000000002"
+		const assigneeID = "00000000-0000-4000-8000-000000000004"
+		tests := []struct {
+			name        string
+			permissions []string
+			body        string
+			wantStatus  int
+		}{
+			{
+				name:        "assignee required",
+				permissions: []string{"tasks.create", "tasks.assign"},
+				body:        `{"title":"Task","department_id":"` + departmentID + `"}`,
+				wantStatus:  http.StatusBadRequest,
+			},
+			{
+				name:        "assignment permission required",
+				permissions: []string{"tasks.create"},
+				body:        `{"title":"Task","department_id":"` + departmentID + `","assignee_account_id":"` + assigneeID + `"}`,
+				wantStatus:  http.StatusForbidden,
+			},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				auth := authenticatorStub{principal: Principal{ID: testAccountID, Permissions: test.permissions}}
+				response := httptest.NewRecorder()
+				taskTestHandler(auth).ServeHTTP(response, taskRequest(http.MethodPost, "/api/v1/tasks", test.body, true))
+				if response.Code != test.wantStatus {
+					t.Fatalf("status=%d, want %d: %s", response.Code, test.wantStatus, response.Body)
+				}
+			})
 		}
 	}
 }

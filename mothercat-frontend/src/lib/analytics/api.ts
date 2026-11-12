@@ -117,9 +117,13 @@ export async function getCompanyActivity(range: AnalyticsRange): Promise<Company
   }
   const departmentNames = new Set(departments.map((department) => department.name));
   const eventDepartment = (event: AuditEvent): string => {
+    if (event.actor_type === "system") return "System activity";
     const staffMember = staffByAccount.get(event.actor_id);
     const name = staffMember?.department_id ? departmentById.get(staffMember.department_id) : undefined;
-    return name ?? "Unassigned / unknown";
+    if (name) return name;
+    if (staffMember?.department_id) return `Department ID ${staffMember.department_id}`;
+    if (staffMember?.staff_id) return `Staff ID ${staffMember.staff_id} · no department`;
+    return event.actor_id ? `Account ID ${event.actor_id}` : "Actor ID unavailable";
   };
   const currentByDepartment = new Map<string, AuditEvent[]>();
   const previousByDepartment = new Map<string, number>();
@@ -316,16 +320,24 @@ export async function getPending(): Promise<PendingAnalytics> {
     Date.parse(task.due_at) < now,
   );
   const departmentCounts = new Map(departments.map((department) => [department.id, { name: department.name, count: 0 }]));
-  const unassignedDepartment = { name: "Unassigned / unknown", count: 0 };
+  const departmentCountFor = (departmentId: string | null, entityId: string) => {
+    if (departmentId) {
+      const knownDepartment = departmentCounts.get(departmentId);
+      if (knownDepartment) return knownDepartment;
+      const fallback = { name: `Department ID ${departmentId}`, count: 0 };
+      departmentCounts.set(departmentId, fallback);
+      return fallback;
+    }
+    const key = `no-department:${entityId}`;
+    const fallback = { name: `No department · ${entityId}`, count: 0 };
+    departmentCounts.set(key, fallback);
+    return fallback;
+  };
   for (const staffMember of pendingStaff) {
-    const item = staffMember.department_id ? departmentCounts.get(staffMember.department_id) : undefined;
-    if (item) item.count += 1;
-    else unassignedDepartment.count += 1;
+    departmentCountFor(staffMember.department_id, staffMember.staff_id || staffMember.id).count += 1;
   }
   for (const task of [...awaitingReview, ...overdue]) {
-    const item = departmentCounts.get(task.department_id);
-    if (item) item.count += 1;
-    else unassignedDepartment.count += 1;
+    departmentCountFor(task.department_id, task.id).count += 1;
   }
   const taskItems = [
     ...awaitingReview.map((task) => ({
@@ -345,7 +357,7 @@ export async function getPending(): Promise<PendingAnalytics> {
   ];
   const staffItems = pendingStaff.map((member) => ({
     id: member.id,
-    title: member.full_name,
+    title: member.full_name || `Staff ID ${member.staff_id || member.id}`,
     type: "Staff awaiting approval",
     ageDays: null,
     href: "/staff",
@@ -365,8 +377,6 @@ export async function getPending(): Promise<PendingAnalytics> {
     { name: "Tasks awaiting review", count: awaitingReview.length, href: "/tasks" },
     { name: "Overdue tasks", count: overdue.length, href: "/tasks" },
   ];
-  if (unassignedDepartment.count > 0) departmentCounts.set("unassigned", unassignedDepartment);
-
   return {
     totalPending: pendingItems.length,
     byType,

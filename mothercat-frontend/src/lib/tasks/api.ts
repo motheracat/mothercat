@@ -264,6 +264,7 @@ export async function createTask(input: {
   description: string;
   priority: TaskPriority;
   department_id: string;
+  assignee_account_id: string;
   due_at: string | null;
 }): Promise<TaskVersionedResult> {
   const response = await request(apiRoutes.tasks.list, { method: "POST", body: JSON.stringify(input) });
