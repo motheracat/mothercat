@@ -63,6 +63,38 @@ func TestReplaceUserRolesRejectsSelfAssignmentBeforeDatabaseAccess(t *testing.T)
 	}
 }
 
+func TestReplaceUserRolesRejectsAdminAssigningSuperAdmin(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	actorID := "00000000-0000-4000-8000-000000000001"
+	targetID := "00000000-0000-4000-8000-000000000002"
+	mock.ExpectBegin()
+	mock.ExpectExec(`pg_advisory_xact_lock\(761039123\)`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)SELECT DISTINCT rp\.permission_key.*WHERE ur\.user_id = \$1::uuid`).
+		WithArgs(actorID).
+		WillReturnRows(sqlmock.NewRows([]string{"permission_key"}).
+			AddRow("user_roles.assign").AddRow("roles.manage"))
+	mock.ExpectQuery(`(?s)SELECT EXISTS \(.*ur\.role_key = 'super_admin'.*a\.is_active`).
+		WithArgs(actorID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectRollback()
+
+	_, err = accessstore.NewStore(db).ReplaceUserRoles(
+		context.Background(), actorID, targetID, []string{"super_admin"},
+	)
+	if !errors.Is(err, accessstore.ErrPermissionDenied) {
+		t.Fatalf("ReplaceUserRoles() error = %v, want permission denied", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReplaceUserRolesRejectsRoleWithUndelegatedPermissions(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
