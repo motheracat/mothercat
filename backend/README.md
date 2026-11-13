@@ -246,6 +246,7 @@ grant. The System Monitor endpoint APIs are:
 - `POST /api/v1/system-monitor/endpoints/pause`
 - `POST /api/v1/system-monitor/endpoints/resume`
 - `GET /api/v1/system-monitor/security/status`
+- `GET /api/v1/system-monitor/security/console`
 - `POST /api/v1/system-monitor/security/mfa/enroll`
 - `POST /api/v1/system-monitor/security/mfa/confirm`
 - `POST /api/v1/system-monitor/security/mfa/disable`
@@ -278,6 +279,10 @@ ten per account per 15 minutes. A fresh code must be sent in
 `X-System-Monitor-MFA` on each MFA-protected request. Endpoint pause/resume,
 MFA disable, session listing/revocation, alerts, event history, audit history,
 and active-grant listing all require MFA as well as an active Monitor grant.
+Load the security snapshot through the single
+`GET /api/v1/system-monitor/security/console` request; it returns sessions,
+alerts, security events, audit history, and active grants after consuming one
+MFA code.
 MFA enrollment/confirmation and the status view require a staff session and an
 active Monitor grant; enrollment additionally requires password reauthentication.
 
@@ -340,7 +345,8 @@ to avoid locking out access or disabling recovery. Unknown/unregistered routes
 are not controllable. A background expiry job runs every 15 seconds and writes
 an `expired` history record; the expiration timestamp is also checked in the
 request middleware, so an endpoint becomes available at its expiry even if the
-job is delayed. There is no frontend control page yet.
+job is delayed. The System Monitor frontend provides the endpoint inventory,
+analytics chart, and privileged pause/resume controls.
 
 Migration `017_system_monitor_endpoint_analytics` adds per-endpoint, per-minute
 historical aggregates for request and success/error counts, status-code
@@ -367,8 +373,8 @@ Percentiles are estimates from the fixed latency buckets, not request-level
 latency samples. Grant the API runtime database role `SELECT`, `INSERT`,
 `UPDATE`, and `DELETE` on `system_monitor.endpoint_analytics`, and `EXECUTE` on
 `system_monitor.add_jsonb_counters`, in addition to the endpoint-control table
-privileges above. Analytics are currently exposed by API only; no frontend
-charts or live alert stream are included.
+privileges above. The System Monitor frontend provides an endpoint analytics
+chart and a security snapshot view. There is no live alert stream.
 
 ## Account suspension and authentication safeguards
 

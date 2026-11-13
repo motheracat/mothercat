@@ -349,6 +349,7 @@ export function SystemMonitor() {
   const [healthFilter, setHealthFilter] = useState("all");
   const [analyticsError, setAnalyticsError] = useState("");
   const [analyticsBusy, setAnalyticsBusy] = useState(false);
+  const [revealAnalytics, setRevealAnalytics] = useState(false);
   const [mfaCode, setMfaCode] = useState("");
   const [securityCode, setSecurityCode] = useState("");
   const [securityBusy, setSecurityBusy] = useState(false);
@@ -361,6 +362,7 @@ export function SystemMonitor() {
   const [pauseHours, setPauseHours] = useState(24);
   const [responseStatus, setResponseStatus] = useState(503);
   const [responseMessage, setResponseMessage] = useState("This endpoint is temporarily unavailable.");
+  const analyticsPanelRef = useRef<HTMLElement>(null);
 
   const refreshMonitor = useCallback(async (showSpinner = false) => {
     if (showSpinner) setRefreshing(true);
@@ -414,10 +416,20 @@ export function SystemMonitor() {
     return matchesText && matchesHealth;
   }), [endpoints, healthFilter, search]);
 
+  useEffect(() => {
+    if (activeTab !== "endpoints" || !revealAnalytics) return;
+    const panel = analyticsPanelRef.current;
+    if (!panel) return;
+    panel.scrollIntoView({ behavior: "smooth", block: "center" });
+    panel.focus({ preventScroll: true });
+    setRevealAnalytics(false);
+  }, [activeTab, revealAnalytics]);
+
   async function loadAnalytics(endpoint: MonitorEndpoint) {
     setAnalyticsBusy(true);
     setAnalyticsError("");
     setSelectedEndpoint(`${endpoint.method} ${endpoint.route}`);
+    setRevealAnalytics(true);
     try {
       setAnalytics(await getEndpointAnalytics(endpoint.method, endpoint.route));
     } catch (error) {
@@ -626,7 +638,7 @@ export function SystemMonitor() {
             </section>
 
             <div className="monitor-detail-grid">
-              <section className="monitor-panel monitor-analytics-panel">
+              <section ref={analyticsPanelRef} tabIndex={-1} className="monitor-panel monitor-analytics-panel">
                 <div className="monitor-panel-heading">
                   <div><span className="monitor-kicker">HISTORICAL · 24 HOURS</span><h2>{selected ? `${selected.method} ${selected.route}` : "Select an endpoint"}</h2></div>
                   {selected ? <button className="monitor-icon-button" title="Refresh analytics" onClick={() => void loadAnalytics(selected)} disabled={analyticsBusy}><RefreshCw size={15} /></button> : null}
@@ -728,7 +740,12 @@ function EndpointTable({
                 <td>{numberText(endpoint.requests)}</td>
                 <td>{`${(endpoint.error_rate * 100).toFixed(1)}%`}</td>
                 <td>{numberText(latencyTotal)} samples</td>
-                <td><button className="monitor-row-action" type="button" onClick={() => onSelect(endpoint)}>{compact ? "Inspect" : "Analytics"} <ChevronRight size={13} /></button></td>
+                <td><button
+                  className="monitor-row-action"
+                  type="button"
+                  aria-label={`${compact ? "Inspect" : "Load analytics for"} ${endpoint.method} ${endpoint.route}`}
+                  onClick={() => onSelect(endpoint)}
+                >{compact ? "Inspect" : "Analytics"} <ChevronRight size={13} /></button></td>
               </tr>
             );
           })}

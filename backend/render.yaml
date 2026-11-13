@@ -11,6 +11,8 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
+      - key: SYSTEM_MONITOR_MFA_ENCRYPTION_KEY
+        sync: false
       - key: IDENTITY_ONBOARDING_TOKEN
         sync: false
       - key: IDENTITY_BOOTSTRAP_TOKEN
