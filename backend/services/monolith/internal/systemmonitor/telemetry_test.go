@@ -73,6 +73,45 @@ func TestMiddlewareRecordsTemplateOnlyAndEndpointHealth(t *testing.T) {
 	}
 }
 
+func TestMiddlewareExcludesSystemMonitorRequestsFromTelemetry(t *testing.T) {
+	engine := NewEngine()
+	nextCalled := false
+	handler := engine.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for _, path := range []string{
+		"/api/v1/system-monitor/endpoints",
+		"/api/v1/system-monitor/security/console",
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK {
+			t.Errorf("%s status = %d, want OK", path, response.Code)
+		}
+		if _, ok := engine.catalog.Resolve(http.MethodGet, path); ok {
+			t.Errorf("%s unexpectedly appears in the monitored endpoint catalog", path)
+		}
+	}
+	_, err := EndpointAnalytics(context.Background(), nil, engine.catalog, AnalyticsQuery{
+		Method: http.MethodGet,
+		Route:  "/api/v1/system-monitor/endpoints",
+		From:   time.Now().Add(-time.Hour),
+		To:     time.Now(),
+	})
+	if !errors.Is(err, ErrEndpointNotFound) {
+		t.Fatalf("System Monitor analytics error = %v, want endpoint not found", err)
+	}
+
+	if !nextCalled {
+		t.Fatal("middleware did not forward System Monitor requests")
+	}
+	if events := engine.Events(10); len(events) != 0 {
+		t.Fatalf("System Monitor requests generated telemetry events: %#v", events)
+	}
+}
+
 func TestAuthenticationFailureBurstEvent(t *testing.T) {
 	engine := NewEngine()
 	for index := 0; index < 10; index++ {

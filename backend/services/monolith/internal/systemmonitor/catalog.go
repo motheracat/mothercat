@@ -108,24 +108,6 @@ func newEndpointCatalog() *endpointCatalog {
 	register("PATCH /api/v1/siwes-applications/{applicationID}", "Update a SIWES application", "opportunities")
 	register("GET /api/v1/siwes-applications/{applicationID}/document", "Download an application document", "opportunities")
 
-	register("GET /api/v1/system-monitor/overview", "Read live process and database health", "system-monitor")
-	register("GET /api/v1/system-monitor/endpoints", "Read the endpoint registry and health", "system-monitor")
-	register("GET /api/v1/system-monitor/events", "Read recent process-local system events", "system-monitor")
-	register("POST /api/v1/system-monitor/endpoints/pause", "Temporarily pause an application endpoint", "system-monitor")
-	register("POST /api/v1/system-monitor/endpoints/resume", "Resume a paused application endpoint", "system-monitor")
-	register("GET /api/v1/system-monitor/endpoints/history", "Read endpoint control history", "system-monitor")
-	register("GET /api/v1/system-monitor/analytics", "Read historical endpoint analytics", "system-monitor")
-	register("GET /api/v1/system-monitor/security/status", "Read current Monitor MFA status", "system-monitor-security")
-	register("GET /api/v1/system-monitor/security/console", "Read a consolidated MFA-protected security snapshot", "system-monitor-security")
-	register("POST /api/v1/system-monitor/security/mfa/enroll", "Begin Monitor MFA enrollment", "system-monitor-security")
-	register("POST /api/v1/system-monitor/security/mfa/confirm", "Confirm Monitor MFA enrollment", "system-monitor-security")
-	register("POST /api/v1/system-monitor/security/mfa/disable", "Disable Monitor MFA after verification", "system-monitor-security")
-	register("GET /api/v1/system-monitor/security/sessions", "List active staff sessions", "system-monitor-security")
-	register("POST /api/v1/system-monitor/security/sessions/revoke", "Revoke a staff session", "system-monitor-security")
-	register("GET /api/v1/system-monitor/security/events", "Read Monitor security event history", "system-monitor-security")
-	register("GET /api/v1/system-monitor/security/alerts", "Read authentication and Monitor alerts", "system-monitor-security")
-	register("GET /api/v1/system-monitor/security/audit", "Read privileged Monitor audit trail", "system-monitor-security")
-	register("GET /api/v1/system-monitor/security/grants", "Read active independent Monitor grants", "system-monitor-security")
 	return catalog
 }
 

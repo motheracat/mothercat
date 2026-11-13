@@ -257,6 +257,11 @@ grant. The System Monitor endpoint APIs are:
 - `GET /api/v1/system-monitor/security/audit?limit=50`
 - `GET /api/v1/system-monitor/security/grants?limit=50`
 
+System Monitor API requests are intentionally excluded from the monitored
+endpoint catalog, events, and analytics so polling the dashboard does not
+generate noise or crowd out application traffic. The endpoint inventory and
+analytics therefore represent application routes, not Monitor's own requests.
+
 ## System Monitor security centre
 
 Migration `018_system_monitor_security` adds encrypted TOTP credential storage,
